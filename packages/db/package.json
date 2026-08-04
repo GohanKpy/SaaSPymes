@@ -5,10 +5,20 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "build": "prisma generate && tsc -p tsconfig.json",
+    "typecheck": "prisma generate && tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "db:migrate": "node --env-file-if-exists=../../.env.local scripts/migrate.mjs",
+    "db:seed": "node --env-file-if-exists=../../.env.local dist/seed.js"
+  },
+  "dependencies": {
+    "@node-rs/argon2": "^2.0.2",
+    "@prisma/client": "^6.5.0"
   },
   "devDependencies": {
-    "typescript": "^5.6.3"
+    "@types/node": "^22.9.0",
+    "prisma": "^6.5.0",
+    "typescript": "^5.6.3",
+    "vitest": "^3.2.7"
   }
 }

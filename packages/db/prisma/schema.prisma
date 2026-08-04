@@ -1,0 +1,576 @@
+// Schema Prisma del modelo fisico (docs/plan/03). El DDL del doc 03 es el
+// contrato: la migracion base (prisma/migrations) esta escrita a mano fiel a
+// ese documento e incluye lo que Prisma no expresa (RLS, FORCE, indices
+// parciales, CHECKs, triggers, vista). Cualquier diferencia se resuelve a
+// favor del doc 03.
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  schemas  = ["control", "app"]
+}
+
+// ============================================================================
+// Esquema `control`: plano de la plataforma
+// ============================================================================
+
+model PlatformUser {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email        String    @unique @db.Citext
+  passwordHash String    @map("password_hash")
+  fullName     String    @map("full_name")
+  role         String // 'admin' (padmin) | 'agent' (pagent)
+  totpSecret   Bytes?    @map("totp_secret")
+  totpEnabled  Boolean   @default(false) @map("totp_enabled")
+  isActive     Boolean   @default(true) @map("is_active")
+  lastLoginAt  DateTime? @map("last_login_at") @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  overridesCreated TenantFeatureOverride[]
+  auditEntries     PlatformAuditLog[]
+
+  @@map("platform_users")
+  @@schema("control")
+}
+
+model Feature {
+  id   String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code String @unique // 'crm','catalog','scheduling','bot','chat_inbox','invoicing','payments'
+  name String
+
+  planFeatures PlanFeature[]
+  overrides    TenantFeatureOverride[]
+
+  @@map("features")
+  @@schema("control")
+}
+
+model Plan {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code         String   @unique // 'standard','plus','enterprise'
+  name         String
+  monthlyPrice BigInt   @map("monthly_price")
+  currency     String   @default("PYG") @db.Char(3)
+  maxUsers     Int      @default(1) @map("max_users")
+  maxBranches  Int      @default(1) @map("max_branches")
+  isActive     Boolean  @default(true) @map("is_active")
+  sortOrder    Int      @default(0) @map("sort_order")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  planFeatures  PlanFeature[]
+  tenants       Tenant[]
+  subscriptions Subscription[]
+
+  @@map("plans")
+  @@schema("control")
+}
+
+model PlanFeature {
+  planId    String @map("plan_id") @db.Uuid
+  featureId String @map("feature_id") @db.Uuid
+  limits    Json   @default("{}")
+
+  plan    Plan    @relation(fields: [planId], references: [id], onDelete: Cascade)
+  feature Feature @relation(fields: [featureId], references: [id], onDelete: Cascade)
+
+  @@id([planId, featureId])
+  @@map("plan_features")
+  @@schema("control")
+}
+
+model Tenant {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  legalName     String   @map("legal_name")
+  tradeName     String?  @map("trade_name")
+  ruc           String?  @unique
+  status        String   @default("trial") // trial|active|suspended|closed
+  currentPlanId String?  @map("current_plan_id") @db.Uuid
+  branding      Json     @default("{}")
+  timezone      String   @default("America/Asuncion")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  currentPlan      Plan?                   @relation(fields: [currentPlanId], references: [id])
+  featureOverrides TenantFeatureOverride[]
+  subscriptions    Subscription[]
+  platformInvoices PlatformInvoice[]
+
+  branches           Branch[]
+  users              User[]
+  customers          Customer[]
+  serviceCategories  ServiceCategory[]
+  services           Service[]
+  appointments       Appointment[]
+  conversations      Conversation[]
+  invoices           Invoice[]
+  botSettings        BotSettings?
+  integrationCreds   IntegrationCredential[]
+  notificationEmails NotificationEmail[]
+
+  @@map("tenants")
+  @@schema("control")
+}
+
+model TenantFeatureOverride {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  featureId String   @map("feature_id") @db.Uuid
+  enabled   Boolean
+  extraFee  BigInt   @default(0) @map("extra_fee")
+  limits    Json?
+  note      String // motivo del acuerdo: obligatorio
+  createdBy String   @map("created_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant  Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  feature Feature      @relation(fields: [featureId], references: [id])
+  creator PlatformUser @relation(fields: [createdBy], references: [id])
+
+  @@unique([tenantId, featureId])
+  @@map("tenant_feature_overrides")
+  @@schema("control")
+}
+
+model Subscription {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId           String    @map("tenant_id") @db.Uuid
+  planId             String    @map("plan_id") @db.Uuid
+  status             String    @default("active") // active|past_due|cancelled
+  agreedPrice        BigInt?   @map("agreed_price")
+  currentPeriodStart DateTime  @map("current_period_start") @db.Date
+  currentPeriodEnd   DateTime  @map("current_period_end") @db.Date
+  cancelledAt        DateTime? @map("cancelled_at") @db.Timestamptz(6)
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  plan   Plan   @relation(fields: [planId], references: [id])
+
+  @@index([tenantId, status], map: "ix_subscriptions_tenant")
+  @@map("subscriptions")
+  @@schema("control")
+}
+
+model PlatformInvoice {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String    @map("tenant_id") @db.Uuid
+  subscriptionId String?   @map("subscription_id") @db.Uuid
+  status         String    @default("draft") // draft|issuing|approved|rejected|cancelled
+  cdc            String?   @unique
+  total          BigInt
+  currency       String    @default("PYG") @db.Char(3)
+  issuedAt       DateTime? @map("issued_at") @db.Timestamptz(6)
+  kudePdfKey     String?   @map("kude_pdf_key")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@map("platform_invoices")
+  @@schema("control")
+}
+
+model PlatformAuditLog {
+  id        BigInt   @id @default(autoincrement())
+  actorId   String?  @map("actor_id") @db.Uuid
+  action    String
+  entity    String
+  entityId  String?  @map("entity_id") @db.Uuid
+  detail    Json?
+  ip        String?  @db.Inet
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  actor PlatformUser? @relation(fields: [actorId], references: [id])
+
+  @@index([entity, entityId], map: "ix_platform_audit_entity")
+  @@map("platform_audit_log")
+  @@schema("control")
+}
+
+// ============================================================================
+// Esquema `app`: plano de los tenants. TODAS las tablas llevan tenant_id y RLS.
+// ============================================================================
+
+model Branch {
+  id        String    @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String    @map("tenant_id") @db.Uuid
+  name      String
+  address   String?
+  phone     String?
+  isMain    Boolean   @default(false) @map("is_main")
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  tenant       Tenant             @relation(fields: [tenantId], references: [id])
+  branchAccess UserBranchAccess[]
+  appointments Appointment[]
+  invoices     Invoice[]
+
+  @@id([id])
+  @@unique([tenantId, id]) // habilita FKs compuestas
+  @@map("branches")
+  @@schema("app")
+}
+
+model User {
+  id           String    @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  email        String    @db.Citext
+  passwordHash String    @map("password_hash")
+  fullName     String    @map("full_name")
+  role         String // root|admin|staff
+  totpSecret   Bytes?    @map("totp_secret")
+  totpEnabled  Boolean   @default(false) @map("totp_enabled")
+  isActive     Boolean   @default(true) @map("is_active")
+  lastLoginAt  DateTime? @map("last_login_at") @db.Timestamptz(6)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  tenant       Tenant             @relation(fields: [tenantId], references: [id])
+  branchAccess UserBranchAccess[]
+
+  @@id([id])
+  @@unique([tenantId, id])
+  @@map("users")
+  @@schema("app")
+}
+
+model UserBranchAccess {
+  tenantId String @map("tenant_id") @db.Uuid
+  userId   String @map("user_id") @db.Uuid
+  branchId String @map("branch_id") @db.Uuid
+
+  user   User   @relation(fields: [tenantId, userId], references: [tenantId, id], onDelete: Cascade)
+  branch Branch @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Cascade)
+
+  @@id([userId, branchId])
+  @@map("user_branch_access")
+  @@schema("app")
+}
+
+model RefreshToken {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String?   @map("tenant_id") @db.Uuid // NULL para platform_users
+  userId     String    @map("user_id") @db.Uuid // app.users o control.platform_users
+  userScope  String    @map("user_scope") // tenant|platform
+  tokenHash  Bytes     @unique @map("token_hash") // sha256 del token
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(6)
+  revokedAt  DateTime? @map("revoked_at") @db.Timestamptz(6)
+  replacedBy String?   @map("replaced_by") @db.Uuid // rotacion encadenada
+  userAgent  String?   @map("user_agent")
+  ip         String?   @db.Inet
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  replacedByToken RefreshToken?  @relation("rotation", fields: [replacedBy], references: [id])
+  replaces        RefreshToken[] @relation("rotation")
+
+  @@index([userScope, userId], map: "ix_refresh_user")
+  @@map("refresh_tokens")
+  @@schema("app")
+}
+
+model Customer {
+  id             String    @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String    @map("tenant_id") @db.Uuid
+  firstName      String    @map("first_name")
+  lastName       String?   @map("last_name")
+  docType        String?   @map("doc_type") // ci|ruc|pasaporte
+  docNumber      String?   @map("doc_number")
+  rucDv          String?   @map("ruc_dv")
+  email          String?   @db.Citext
+  phoneE164      String?   @map("phone_e164") // '+5959xxxxxxxx'
+  birthDate      DateTime? @map("birth_date") @db.Date
+  address        String?
+  notes          String?
+  notifyWhatsapp Boolean   @default(true) @map("notify_whatsapp")
+  notifyEmail    Boolean   @default(false) @map("notify_email")
+  deletedAt      DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  tenant        Tenant         @relation(fields: [tenantId], references: [id])
+  appointments  Appointment[]
+  conversations Conversation[]
+  invoices      Invoice[]
+
+  @@id([id])
+  @@unique([tenantId, id])
+  @@map("customers")
+  @@schema("app")
+}
+
+model ServiceCategory {
+  id        String    @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String    @map("tenant_id") @db.Uuid
+  name      String
+  sortOrder Int       @default(0) @map("sort_order")
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id])
+  services Service[]
+
+  @@id([id])
+  @@unique([tenantId, id])
+  @@map("service_categories")
+  @@schema("app")
+}
+
+model Service {
+  id            String    @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String    @map("tenant_id") @db.Uuid
+  categoryId    String    @map("category_id") @db.Uuid
+  name          String
+  description   String?
+  price         BigInt
+  currency      String    @default("PYG") @db.Char(3)
+  taxRate       Int       @default(10) @map("tax_rate") @db.SmallInt // 0|5|10
+  durationMin   Int?      @map("duration_min")
+  bookableByBot Boolean   @default(true) @map("bookable_by_bot")
+  isActive      Boolean   @default(true) @map("is_active")
+  deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  tenant       Tenant          @relation(fields: [tenantId], references: [id])
+  category     ServiceCategory @relation(fields: [tenantId, categoryId], references: [tenantId, id])
+  appointments Appointment[]
+  invoiceItems InvoiceItem[]
+
+  @@id([id])
+  @@unique([tenantId, id])
+  @@map("services")
+  @@schema("app")
+}
+
+model Appointment {
+  id            String    @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String    @map("tenant_id") @db.Uuid
+  branchId      String    @map("branch_id") @db.Uuid
+  customerId    String    @map("customer_id") @db.Uuid
+  serviceId     String?   @map("service_id") @db.Uuid
+  startsAt      DateTime  @map("starts_at") @db.Timestamptz(6)
+  endsAt        DateTime  @map("ends_at") @db.Timestamptz(6)
+  status        String    @default("pending") // pending|confirmed|completed|cancelled|no_show
+  source        String    @default("panel") // panel|bot
+  confirmedBy   String?   @map("confirmed_by") @db.Uuid
+  confirmedAt   DateTime? @map("confirmed_at") @db.Timestamptz(6)
+  invoiceId     String?   @map("invoice_id") @db.Uuid
+  googleEventId String?   @map("google_event_id")
+  notes         String?
+  deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id])
+  branch   Branch   @relation(fields: [tenantId, branchId], references: [tenantId, id])
+  customer Customer @relation(fields: [tenantId, customerId], references: [tenantId, id])
+  service  Service? @relation(fields: [tenantId, serviceId], references: [tenantId, id])
+
+  @@id([id])
+  @@unique([tenantId, id])
+  @@map("appointments")
+  @@schema("app")
+}
+
+model Conversation {
+  id             String    @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String    @map("tenant_id") @db.Uuid
+  customerId     String?   @map("customer_id") @db.Uuid // NULL hasta identificar
+  phoneE164      String    @map("phone_e164")
+  status         String    @default("bot_active") // bot_active|paused|agent|closed
+  assignedUserId String?   @map("assigned_user_id") @db.Uuid
+  lastMessageAt  DateTime? @map("last_message_at") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id])
+  customer Customer? @relation(fields: [tenantId, customerId], references: [tenantId, id])
+  messages Message[]
+
+  @@id([id])
+  @@unique([tenantId, id])
+  @@unique([tenantId, phoneE164]) // una conversacion viva por numero
+  @@map("conversations")
+  @@schema("app")
+}
+
+model Message {
+  id             BigInt   @id @default(autoincrement())
+  tenantId       String   @map("tenant_id") @db.Uuid // denormalizado para RLS
+  conversationId String   @map("conversation_id") @db.Uuid
+  direction      String // in|out
+  senderType     String   @map("sender_type") // customer|bot|agent|system
+  senderUserId   String?  @map("sender_user_id") @db.Uuid
+  body           String
+  waMessageId    String?  @map("wa_message_id") // id de Meta, dedupe y estados
+  status         String   @default("sent") // queued|sent|delivered|read|failed
+  errorDetail    String?  @map("error_detail")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  conversation Conversation @relation(fields: [tenantId, conversationId], references: [tenantId, id], onDelete: Cascade)
+
+  @@index([conversationId, id(sort: Desc)], map: "ix_messages_conv")
+  @@map("messages")
+  @@schema("app")
+}
+
+model Invoice {
+  id                String    @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId          String    @map("tenant_id") @db.Uuid
+  branchId          String    @map("branch_id") @db.Uuid
+  customerId        String    @map("customer_id") @db.Uuid
+  docType           String    @default("factura") @map("doc_type") // factura|nota_credito
+  establishment     String?   @db.Char(3)
+  expeditionPoint   String?   @map("expedition_point") @db.Char(3)
+  docNumber         String?   @map("doc_number") @db.Char(7)
+  timbrado          String?
+  cdc               String? // 44 digitos al aprobar
+  status            String    @default("draft") // draft|issuing|approved|rejected|cancelled|credited
+  sifenResponseCode String?   @map("sifen_response_code")
+  subtotal          BigInt    @default(0)
+  taxTotal          BigInt    @default(0) @map("tax_total")
+  total             BigInt    @default(0)
+  currency          String    @default("PYG") @db.Char(3)
+  cancelReason      String?   @map("cancel_reason")
+  cancelledBy       String?   @map("cancelled_by") @db.Uuid
+  issuedAt          DateTime? @map("issued_at") @db.Timestamptz(6)
+  approvedAt        DateTime? @map("approved_at") @db.Timestamptz(6)
+  cancelledAt       DateTime? @map("cancelled_at") @db.Timestamptz(6)
+  kudePdfKey        String?   @map("kude_pdf_key")
+  relatedInvoiceId  String?   @map("related_invoice_id") @db.Uuid
+  createdBy         String?   @map("created_by") @db.Uuid
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  tenant         Tenant        @relation(fields: [tenantId], references: [id])
+  branch         Branch        @relation(fields: [tenantId, branchId], references: [tenantId, id])
+  customer       Customer      @relation(fields: [tenantId, customerId], references: [tenantId, id])
+  relatedInvoice Invoice?      @relation("credit", fields: [tenantId, relatedInvoiceId], references: [tenantId, id])
+  creditNotes    Invoice[]     @relation("credit")
+  items          InvoiceItem[]
+  payments       Payment[]
+
+  @@id([id])
+  @@unique([tenantId, id])
+  @@map("invoices")
+  @@schema("app")
+}
+
+model InvoiceItem {
+  id          String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String  @map("tenant_id") @db.Uuid // denormalizado para RLS
+  invoiceId   String  @map("invoice_id") @db.Uuid
+  serviceId   String? @map("service_id") @db.Uuid // NULL para item libre
+  description String
+  quantity    Decimal @default(1) @db.Decimal(10, 2)
+  unitPrice   BigInt  @map("unit_price")
+  taxRate     Int     @map("tax_rate") @db.SmallInt // 0|5|10
+  lineTotal   BigInt  @map("line_total") // congelado: dato fiscal
+
+  invoice Invoice  @relation(fields: [tenantId, invoiceId], references: [tenantId, id], onDelete: Cascade)
+  service Service? @relation(fields: [tenantId, serviceId], references: [tenantId, id])
+
+  @@index([invoiceId], map: "ix_items_invoice")
+  @@map("invoice_items")
+  @@schema("app")
+}
+
+model Payment {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid // denormalizado para RLS
+  invoiceId    String   @map("invoice_id") @db.Uuid
+  method       String // efectivo|transferencia|tarjeta|qr|otro
+  amount       BigInt
+  paidAt       DateTime @default(now()) @map("paid_at") @db.Timestamptz(6)
+  registeredBy String?  @map("registered_by") @db.Uuid
+  notes        String?
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  invoice Invoice @relation(fields: [tenantId, invoiceId], references: [tenantId, id])
+
+  @@index([invoiceId], map: "ix_payments_invoice")
+  @@map("payments")
+  @@schema("app")
+}
+
+model BotSettings {
+  tenantId            String   @id @map("tenant_id") @db.Uuid
+  enabled             Boolean  @default(false)
+  instructionsText    String?  @map("instructions_text")
+  instructionsFileKey String?  @map("instructions_file_key")
+  accessCatalog       Boolean  @default(false) @map("access_catalog")
+  accessHistory       Boolean  @default(false) @map("access_history")
+  accessCustomerData  Boolean  @default(false) @map("access_customer_data")
+  accessCalendar      Boolean  @default(false) @map("access_calendar")
+  allowBooking        Boolean  @default(false) @map("allow_booking")
+  autoConfirmBookings Boolean  @default(false) @map("auto_confirm_bookings")
+  monthlyTokenBudget  Int      @default(500000) @map("monthly_token_budget")
+  updatedBy           String?  @map("updated_by") @db.Uuid
+  updatedAt           DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@map("bot_settings")
+  @@schema("app")
+}
+
+model IntegrationCredential {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId         String   @map("tenant_id") @db.Uuid
+  type             String // whatsapp|smtp|sifen|google_calendar|payment
+  encryptedPayload Bytes    @map("encrypted_payload") // envelope encryption (doc 05)
+  publicConfig     Json     @default("{}") @map("public_config")
+  isActive         Boolean  @default(true) @map("is_active")
+  updatedBy        String   @map("updated_by") @db.Uuid
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, type])
+  @@map("integration_credentials")
+  @@schema("app")
+}
+
+model NotificationEmail {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  email     String   @db.Citext
+  label     String?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, email])
+  @@map("notification_emails")
+  @@schema("app")
+}
+
+model AuditLog {
+  id          BigInt   @id @default(autoincrement())
+  tenantId    String   @map("tenant_id") @db.Uuid
+  actorUserId String?  @map("actor_user_id") @db.Uuid
+  actorType   String   @default("user") @map("actor_type") // user|bot|system|platform
+  action      String
+  entity      String
+  entityId    String?  @map("entity_id") @db.Uuid
+  before      Json?
+  after       Json?
+  ip          String?  @db.Inet
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([tenantId, createdAt(sort: Desc)], map: "ix_audit_tenant")
+  @@index([tenantId, entity, entityId], map: "ix_audit_entity")
+  @@map("audit_log")
+  @@schema("app")
+}

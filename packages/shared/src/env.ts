@@ -18,7 +18,22 @@ export const envSchema = z.object({
   API_PORT: z.coerce.number().int().positive().default(3001),
 
   // PostgreSQL: en local apunta al contenedor `db`, en AWS a RDS.
+  // DATABASE_URL conecta como app_rw (requests de tenants, RLS siempre);
+  // PLATFORM_DATABASE_URL como platform_ops (login, panel admin, webhooks).
+  // MIGRATOR_DATABASE_URL existe solo para la CLI de migraciones: no es de runtime.
   DATABASE_URL: z.string().min(1),
+  PLATFORM_DATABASE_URL: z.string().min(1),
+
+  // Claves RS256 de JWT (doc 05 §3), PEM en base64. En AWS: SSM SecureString.
+  JWT_PRIVATE_KEY_BASE64: z.string().min(1),
+  JWT_PUBLIC_KEY_BASE64: z.string().min(1),
+
+  // Webhooks de WhatsApp (doc 04 §3.10): firma HMAC y handshake de Meta.
+  META_APP_SECRET: z.string().min(1),
+  META_VERIFY_TOKEN: z.string().min(1),
+
+  // Origen del panel web para CORS con credenciales (cookie de refresh).
+  WEB_ORIGIN: z.url(),
 
   // S3 / MinIO. En AWS el endpoint va vacio y el SDK usa el real.
   S3_ENDPOINT: emptyableUrl,
