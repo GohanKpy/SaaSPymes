@@ -37,6 +37,20 @@ web en `localhost:4300`, API en `localhost:4301/health`, Postgres en
 ElasticMQ en `localhost:4305`, Mailpit SMTP en `localhost:4306` (UI `4307`).
 Dentro de la red de Docker rigen los puertos canónicos (`db:5432`, etc.).
 
+## Probar el producto
+
+1. **Panel**: `http://localhost:4300` → login de plataforma con `admin@pymes.local` /
+   `Admin1234!dev` (seed de desarrollo) → crear un tenant (guarda la contraseña temporal
+   del root que se muestra una sola vez).
+2. Entrar como ese root (pestaña "Mi empresa"), cargar catálogo, clientes y agenda.
+3. **Ajustes** → WhatsApp: poner un `phone_number_id` de laboratorio (ej. `dev-001`).
+4. **Chat de prueba**: `http://localhost:4300/chat` — simula al cliente final por el
+   pipeline real de webhooks firmados; los mensajes llegan en vivo a la bandeja del panel.
+5. **Bot de agendamiento**: con `ANTHROPIC_API_KEY` en `.env.local` y el bot encendido
+   en Ajustes (con sus permisos tildados), el bot responde y agenda solo.
+6. **SIFEN**: Ajustes → timbrado/establecimiento/punto → Facturas: borrador → emitir
+   (provider fake aprueba con CDC sintético) → registrar pago.
+
 ## Scripts
 
 | Comando          | Qué hace                                    |
