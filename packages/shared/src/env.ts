@@ -32,6 +32,10 @@ export const envSchema = z.object({
   META_APP_SECRET: z.string().min(1),
   META_VERIFY_TOKEN: z.string().min(1),
 
+  // Restriccion por IP de la superficie de plataforma (ADR 0004).
+  // Lista de IPs/CIDRs separadas por comas; vacia = sin restriccion.
+  PLATFORM_ALLOWED_IPS: z.string().optional(),
+
   // Origenes del panel web para CORS con credenciales (cookie de refresh).
   // Admite lista separada por comas; en desarrollo la API ademas acepta
   // cualquier host en el puerto del panel.

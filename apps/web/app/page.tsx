@@ -10,8 +10,10 @@ export default function HomePage() {
   useEffect(() => {
     void (async () => {
       const user = getUser() ?? (await tryRefresh());
-      if (!user) router.replace('/login');
-      else router.replace(user.scope === 'platform' ? '/platform' : '/app');
+      // En el portal admin el middleware ya redirigio a /platform; aca solo
+      // se resuelve el portal de clientes.
+      if (!user || user.scope !== 'tenant') router.replace('/login');
+      else router.replace('/app');
     })();
   }, [router]);
   return (

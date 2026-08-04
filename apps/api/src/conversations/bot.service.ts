@@ -4,6 +4,7 @@ import type { Env } from '@pymes/shared';
 
 import { AppPrisma } from '../prisma/app-prisma.service';
 import { ENV } from '../env.module';
+import { BotEngineService } from '../platform/bot-engine.service';
 import { AppointmentsService } from '../scheduling/appointments.service';
 import { serializeMessage } from './conversations.service';
 import { TenantEventsService } from './events.service';
@@ -24,21 +25,18 @@ export class BotService {
     private readonly appDb: AppPrisma,
     private readonly events: TenantEventsService,
     private readonly appointments: AppointmentsService,
+    private readonly engine: BotEngineService,
   ) {}
 
-  /** Clave del proveedor elegido (ADR 0002): sin clave, bot apagado. */
-  private get apiKey(): string | undefined {
-    return this.env.BOT_PROVIDER === 'openai'
-      ? this.env.OPENAI_API_KEY
-      : this.env.ANTHROPIC_API_KEY;
-  }
-
-  get enabled(): boolean {
-    return Boolean(this.apiKey);
+  /** Config viva del motor (ADR 0003): panel manda, env es fallback. */
+  async isEnabled(): Promise<boolean> {
+    const config = await this.engine.getConfig();
+    return Boolean(config.apiKey);
   }
 
   async respond(tenantId: string, conversationId: string): Promise<void> {
-    const apiKey = this.apiKey;
+    const engineConfig = await this.engine.getConfig();
+    const apiKey = engineConfig.apiKey;
     if (!apiKey) return;
     const ctx = { tenantId, actorType: 'bot' as const };
 
@@ -63,13 +61,19 @@ export class BotService {
       if (!context) return;
       const { conversation, settings, tenant, history } = context;
 
-      const handlers = this.buildHandlers(tenantId, conversation.id, settings.autoConfirmBookings);
+      const timezone = tenant?.timezone ?? 'America/Asuncion';
+      const handlers = this.buildHandlers(
+        tenantId,
+        conversation.id,
+        settings.autoConfirmBookings,
+        timezone,
+      );
       const result = await runBotTurn({
-        provider: this.env.BOT_PROVIDER,
+        provider: engineConfig.provider,
         apiKey,
-        model: this.env.BOT_MODEL,
+        model: engineConfig.model,
         businessName: tenant?.tradeName ?? tenant?.legalName ?? 'el negocio',
-        timezone: tenant?.timezone ?? 'America/Asuncion',
+        timezone,
         instructions: settings.instructionsText,
         permissions: settings,
         handlers,
@@ -113,8 +117,16 @@ export class BotService {
     tenantId: string,
     conversationId: string,
     autoConfirm: boolean,
+    timezone: string,
   ): BotToolHandlers {
     const ctx = { tenantId, actorType: 'bot' as const };
+    const horaLocal = (iso: string) =>
+      new Date(iso).toLocaleTimeString('es-PY', {
+        timeZone: timezone,
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      });
     return {
       listServices: () =>
         this.appDb.tx(ctx, async (tx) => {
@@ -126,12 +138,26 @@ export class BotService {
         }),
 
       getAvailableSlots: async (serviceId, date) => {
+        // Errores accionables: el modelo debe poder corregirse solo
+        // (ej. si invento un service_id en lugar de consultar list_services).
+        const service = await this.appDb.tx(ctx, (tx) =>
+          tx.service.findFirst({ where: { id: serviceId, deletedAt: null } }).catch(() => null),
+        );
+        if (!service) {
+          throw new Error(
+            `service_id '${serviceId}' inexistente: obtene el id real con list_services`,
+          );
+        }
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+          throw new Error(`date '${date}' invalida: usa formato YYYY-MM-DD`);
+        }
         const branch = await this.mainBranch(tenantId);
-        return this.appointments.availability(ctx, {
+        const slots = await this.appointments.availability(ctx, {
           branch_id: branch,
           service_id: serviceId,
           date,
         });
+        return slots.map((iso) => ({ iso, hora_local: horaLocal(iso) }));
       },
 
       bookAppointment: async ({ serviceId, startsAt }) => {
@@ -167,6 +193,7 @@ export class BotService {
             id: appointment.id,
             status: appointment.status,
             startsAt: appointment.startsAt.toISOString(),
+            horaLocal: horaLocal(appointment.startsAt.toISOString()),
             serviceName: appointment.service?.name ?? '',
           };
         });

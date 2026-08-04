@@ -51,10 +51,20 @@ services:
     depends_on:
       db: { condition: service_healthy }
 
-  web:
+  web: # portal de CLIENTES (ADR 0004): /platform no existe aca
     build: { context: ., dockerfile: apps/web/Dockerfile }
     env_file: .env.local
+    environment:
+      PORTAL: client
     ports: ['4300:4300'] # el contenedor escucha en PORT (.env.local)
+
+  webadmin: # portal del DUEÑO (ADR 0004): solo /platform, restringible por IP
+    build: { context: ., dockerfile: apps/web/Dockerfile }
+    env_file: .env.local
+    environment:
+      PORTAL: admin
+      PORT: '4308'
+    ports: ['4308:4308']
 
 volumes:
   dbdata:

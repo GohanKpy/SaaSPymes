@@ -12,9 +12,9 @@ interface LoginResponse {
   tenant_options?: { id: string; name: string }[];
 }
 
+/** Login del portal de clientes: SOLO usuarios de empresas (ADR 0004). */
 export default function LoginPage() {
   const router = useRouter();
-  const [scope, setScope] = useState<'tenant' | 'platform'>('tenant');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [tenantOptions, setTenantOptions] = useState<LoginResponse['tenant_options']>();
@@ -29,11 +29,11 @@ export default function LoginPage() {
         method: 'POST',
         credentials: 'include',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ email, password, scope, tenant_id: tenantId }),
+        body: JSON.stringify({ email, password, scope: 'tenant', tenant_id: tenantId }),
       });
       const data = (await res.json()) as LoginResponse & { title?: string };
       if (!res.ok) {
-        setError(data.title ?? 'Credenciales invalidas');
+        setError(res.status === 401 ? 'Email o contrasena incorrectos.' : (data.title ?? 'Error'));
         return;
       }
       if (data.tenant_options) {
@@ -42,7 +42,7 @@ export default function LoginPage() {
       }
       if (data.access_token && data.user) {
         setSession(data.access_token, data.user);
-        router.replace(data.user.scope === 'platform' ? '/platform' : '/app');
+        router.replace('/app');
       }
     } catch {
       setError('No se pudo conectar con la API');
@@ -55,18 +55,7 @@ export default function LoginPage() {
     <main className="flex min-h-screen items-center justify-center p-4">
       <div className="w-full max-w-sm space-y-4 rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
         <h1 className="text-xl font-semibold">PyMEs SaaS</h1>
-
-        <div className="flex gap-1 rounded bg-slate-100 p-1 text-sm">
-          {(['tenant', 'platform'] as const).map((s) => (
-            <button
-              key={s}
-              className={`flex-1 rounded px-2 py-1 ${scope === s ? 'bg-white font-medium shadow' : 'text-slate-500'}`}
-              onClick={() => setScope(s)}
-            >
-              {s === 'tenant' ? 'Mi empresa' : 'Plataforma'}
-            </button>
-          ))}
-        </div>
+        <p className="text-xs text-slate-500">Panel de tu negocio.</p>
 
         {tenantOptions ? (
           <div className="space-y-2">

@@ -36,6 +36,7 @@ function buildSystem(input: BotTurnInput): string {
     '- Nunca inventes precios, horarios ni datos de contacto.',
     '- Solo podes ayudar al cliente de esta conversacion; jamas des datos de otras personas.',
     '- Para agendar: primero consulta disponibilidad, ofrece opciones concretas y confirma con el cliente antes de reservar.',
+    '- Los horarios SIEMPRE se muestran al cliente en hora local (campo hora_local); jamas muestres horas UTC.',
     '- Respuestas breves y claras, en el idioma del cliente (por defecto espanol paraguayo, tono cercano).',
     '- Si no podes resolver algo, indica que un humano del negocio va a responder por este mismo chat.',
     ...(input.instructions

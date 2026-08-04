@@ -18,11 +18,20 @@ export interface BotToolHandlers {
   listServices(): Promise<
     { id: string; name: string; price: string; currency: string; durationMin: number | null }[]
   >;
-  getAvailableSlots(serviceId: string, date: string): Promise<string[]>;
+  getAvailableSlots(
+    serviceId: string,
+    date: string,
+  ): Promise<{ iso: string; hora_local: string }[]>;
   bookAppointment(args: {
     serviceId: string;
     startsAt: string;
-  }): Promise<{ id: string; status: string; startsAt: string; serviceName: string }>;
+  }): Promise<{
+    id: string;
+    status: string;
+    startsAt: string;
+    horaLocal: string;
+    serviceName: string;
+  }>;
   getCustomerHistory(): Promise<
     { startsAt: string; serviceName: string | null; visitStatus: string }[]
   >;
@@ -58,7 +67,7 @@ export function buildBotTools(permissions: BotPermissions, handlers: BotToolHand
     tools.push({
       name: 'get_available_slots',
       description:
-        'Devuelve los horarios disponibles (ISO 8601 UTC) para un servicio en una fecha dada. Usala antes de ofrecer horarios.',
+        'Devuelve los horarios disponibles para un servicio en una fecha dada: hora_local es la hora de Paraguay para mostrar al cliente; iso es el valor para book_appointment. SIEMPRE llama primero a list_services y usa el id exacto que devuelve; nunca inventes un service_id.',
       parameters: {
         type: 'object',
         properties: {
@@ -76,7 +85,7 @@ export function buildBotTools(permissions: BotPermissions, handlers: BotToolHand
     tools.push({
       name: 'book_appointment',
       description:
-        'Reserva un turno para el cliente de esta conversacion. Solo despues de que el cliente confirme explicitamente servicio y horario.',
+        'Reserva un turno para el cliente de esta conversacion. Solo despues de que el cliente confirme explicitamente servicio y horario. Usa el service_id de list_services y el campo iso del slot elegido de get_available_slots.',
       parameters: {
         type: 'object',
         properties: {

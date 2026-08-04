@@ -3,12 +3,16 @@ import { createHash, randomBytes } from 'node:crypto';
 import {
   ForbiddenException,
   HttpException,
+  Inject,
   Injectable,
+  NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { verify as argonVerify } from '@node-rs/argon2';
-import type { AuthUser, LoginRequest, LoginResponse } from '@pymes/shared';
+import type { AuthUser, Env, LoginRequest, LoginResponse } from '@pymes/shared';
 
+import { ipAllowed } from '../common/ip';
+import { ENV } from '../env.module';
 import { AppPrisma } from '../prisma/app-prisma.service';
 import { PlatformPrisma } from '../prisma/platform-prisma.service';
 import { JwtSigner } from './jwt.service';
@@ -37,6 +41,7 @@ export class AuthService {
     private readonly appDb: AppPrisma,
     private readonly platformDb: PlatformPrisma,
     private readonly jwt: JwtSigner,
+    @Inject(ENV) private readonly env: Env,
   ) {}
 
   private assertNotLocked(keys: string[]): void {
@@ -174,6 +179,9 @@ export class AuthService {
     ip: string,
     userAgent: string | undefined,
   ): Promise<{ session?: IssuedSession; response: LoginResponse }> {
+    // ADR 0004: el login del portal admin respeta la lista de IPs; fuera
+    // de ella responde 404 opaco (misma respuesta que una ruta inexistente).
+    if (!ipAllowed(ip, this.env.PLATFORM_ALLOWED_IPS)) throw new NotFoundException();
     const lockKeys = [`p:${dto.email}`, `ip:${ip}`];
     this.assertNotLocked(lockKeys);
 

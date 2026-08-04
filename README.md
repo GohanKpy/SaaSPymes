@@ -39,10 +39,12 @@ Dentro de la red de Docker rigen los puertos canónicos (`db:5432`, etc.).
 
 ## Probar el producto
 
-1. **Panel**: `http://localhost:4300` → login de plataforma con `admin@pymes.local` /
-   `Admin1234!dev` (seed de desarrollo) → crear un tenant (guarda la contraseña temporal
-   del root que se muestra una sola vez).
-2. Entrar como ese root (pestaña "Mi empresa"), cargar catálogo, clientes y agenda.
+1. **Portal del dueño** (separado, ADR 0004): `http://localhost:4308` → login con
+   `admin@pymes.local` / `Admin1234!dev` (seed de desarrollo) → crear un tenant
+   (guarda la contraseña temporal del root que se muestra una sola vez). Ahí también
+   se gestiona el motor del bot (proveedor, modelo y rotación de llaves, ADR 0003).
+2. **Portal de clientes**: `http://localhost:4300` → entrar como ese root, cargar
+   catálogo, clientes y agenda.
 3. **Ajustes** → WhatsApp: poner un `phone_number_id` de laboratorio (ej. `dev-001`).
 4. **Chat de prueba**: `http://localhost:4300/chat` — simula al cliente final por el
    pipeline real de webhooks firmados; los mensajes llegan en vivo a la bandeja del panel.

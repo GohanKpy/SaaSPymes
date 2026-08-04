@@ -26,8 +26,8 @@ export class BotController {
         create: { tenantId: ctx.tenantId },
       }),
     );
-    // engine_available: el panel muestra si falta la clave de la API de Claude.
-    return { ...settings, engine_available: this.bot.enabled };
+    // engine_available: el panel avisa si falta configurar el motor (ADR 0003).
+    return { ...settings, engine_available: await this.bot.isEnabled() };
   }
 
   /** Cada cambio queda auditado por el trigger de bot_settings (doc 03 §5). */

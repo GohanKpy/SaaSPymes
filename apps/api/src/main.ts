@@ -28,7 +28,7 @@ async function bootstrap(): Promise<void> {
   // desarrollo tambien se acepta cualquier host de la LAN en el puerto del
   // panel (4300), para probar desde otras maquinas sin reconstruir.
   const allowedOrigins = env.WEB_ORIGIN.split(',').map((o) => o.trim());
-  const devPanelOrigin = /^https?:\/\/[^/]+:4300$/;
+  const devPanelOrigin = /^https?:\/\/[^/]+:430[08]$/; // 4300 clientes, 4308 admin
   app.enableCors({
     credentials: true,
     origin: (origin, cb) => {

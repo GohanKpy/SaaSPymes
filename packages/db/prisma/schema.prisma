@@ -176,6 +176,17 @@ model PlatformInvoice {
   @@schema("control")
 }
 
+model PlatformSetting {
+  key              String   @id
+  publicConfig     Json     @default("{}") @map("public_config")
+  encryptedPayload Bytes?   @map("encrypted_payload")
+  updatedBy        String?  @map("updated_by") @db.Uuid
+  updatedAt        DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@map("platform_settings")
+  @@schema("control")
+}
+
 model PlatformAuditLog {
   id        BigInt   @id @default(autoincrement())
   actorId   String?  @map("actor_id") @db.Uuid

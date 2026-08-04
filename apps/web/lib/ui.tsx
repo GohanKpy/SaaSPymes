@@ -12,9 +12,11 @@ export function useSession(scope?: 'tenant' | 'platform'): SessionUser | null {
 
   useEffect(() => {
     if (user) return;
+    // Cada portal tiene su propio login (ADR 0004).
+    const loginPath = scope === 'platform' ? '/platform/login' : '/login';
     void tryRefresh().then((restored) => {
-      if (!restored) router.replace('/login');
-      else if (scope && restored.scope !== scope) router.replace('/login');
+      if (!restored) router.replace(loginPath);
+      else if (scope && restored.scope !== scope) router.replace(loginPath);
       else setUser(restored);
     });
   }, [user, router, scope]);

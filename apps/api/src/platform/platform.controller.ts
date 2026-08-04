@@ -1,5 +1,6 @@
-import { Body, Controller, Get, Param, Patch, Post, Put, Req } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Put, Req, UseGuards } from '@nestjs/common';
 import {
+  botEngineSettingsPut,
   featureCreate,
   overridePut,
   planCreate,
@@ -7,6 +8,7 @@ import {
   tenantCreate,
   tenantPatch,
   uuid,
+  type BotEngineSettingsPut,
   type FeatureCreate,
   type OverridePut,
   type PlanCreate,
@@ -18,6 +20,8 @@ import type { FastifyRequest } from 'fastify';
 
 import { PlatformRoles, type AuthRequest } from '../auth/decorators';
 import { ZodPipe } from '../common/zod.pipe';
+import { BotEngineService } from './bot-engine.service';
+import { PlatformNetworkGuard } from './platform-network.guard';
 import { PlansService } from './plans.service';
 import { TenantsService } from './tenants.service';
 
@@ -29,11 +33,29 @@ function actor(req: FastifyRequest & AuthRequest): string {
 // overrides y altas (doc 04 §3.11).
 @Controller('platform')
 @PlatformRoles('admin', 'agent')
+@UseGuards(PlatformNetworkGuard)
 export class PlatformController {
   constructor(
     private readonly tenants: TenantsService,
     private readonly plans: PlansService,
+    private readonly botEngine: BotEngineService,
   ) {}
+
+  /** Motor del bot (ADR 0003): ver estado sin secretos. */
+  @Get('settings/bot')
+  botSettings() {
+    return this.botEngine.view();
+  }
+
+  /** Rotacion de llaves / cambio de modelo o proveedor: solo padmin. */
+  @Put('settings/bot')
+  @PlatformRoles('admin')
+  putBotSettings(
+    @Body(new ZodPipe(botEngineSettingsPut)) dto: BotEngineSettingsPut,
+    @Req() req: FastifyRequest & AuthRequest,
+  ) {
+    return this.botEngine.save(dto, actor(req), req.ip);
+  }
 
   @Get('tenants')
   listTenants() {

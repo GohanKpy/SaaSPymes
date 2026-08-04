@@ -18,8 +18,9 @@ El laboratorio expone en el host el bloque dedicado **4300–4307**:
 
 | Servicio      | Host | Contenedor        |
 | ------------- | ---- | ----------------- |
-| web           | 4300 | 4300 (`PORT`)     |
+| web (clientes) | 4300 | 4300 (`PORT`)    |
 | api           | 4301 | 4301 (`API_PORT`) |
+| webadmin (portal dueño, ADR 0004) | 4308 | 4308 (`PORT`) |
 | Postgres      | 4302 | 5432              |
 | MinIO S3      | 4303 | 9000              |
 | MinIO consola | 4304 | 9001              |
