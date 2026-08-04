@@ -1,0 +1,9 @@
+node_modules
+dist
+.next
+.turbo
+coverage
+pnpm-lock.yaml
+# El plan aprobado y las instrucciones del agente no se reformatean
+docs/
+CLAUDE.md

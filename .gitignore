@@ -2,6 +2,9 @@ node_modules/
 .env
 .env.*
 !.env.example
+!.env.local.example
+.turbo/
+*.tsbuildinfo
 dist/
 build/
 .next/
