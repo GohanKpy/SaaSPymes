@@ -11,3 +11,4 @@ export * from './dtos/invoice';
 export * from './dtos/integration';
 export * from './dtos/tenant';
 export * from './dtos/appointment';
+export * from './dtos/bot';

@@ -1,0 +1,61 @@
+# CI de fase 0/1 (docs/plan/07): lint, typecheck, build y tests con la suite
+# de aislamiento multitenant BLOQUEANTE contra Postgres real (docs/plan/08 §2).
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: devpass
+          POSTGRES_DB: pymes
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      MIGRATOR_DATABASE_URL: postgresql://migrator:devpass@localhost:5432/pymes
+      DATABASE_URL: postgresql://app_rw:devpass@localhost:5432/pymes
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Instalar dependencias
+        run: pnpm install --frozen-lockfile
+
+      - name: Preparar instancia (roles, esquemas, funciones RLS)
+        run: PGPASSWORD=devpass psql -h localhost -U postgres -d pymes -f infra/local/init/01-schema.sql
+
+      - name: Migraciones (como migrator)
+        run: pnpm --filter @pymes/db run db:migrate
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Build
+        run: pnpm build
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Tests (incluye suite de aislamiento multitenant, bloqueante)
+        run: pnpm test
