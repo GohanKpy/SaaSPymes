@@ -32,8 +32,10 @@ export const envSchema = z.object({
   META_APP_SECRET: z.string().min(1),
   META_VERIFY_TOKEN: z.string().min(1),
 
-  // Origen del panel web para CORS con credenciales (cookie de refresh).
-  WEB_ORIGIN: z.url(),
+  // Origenes del panel web para CORS con credenciales (cookie de refresh).
+  // Admite lista separada por comas; en desarrollo la API ademas acepta
+  // cualquier host en el puerto del panel.
+  WEB_ORIGIN: z.string().min(1),
 
   // S3 / MinIO. En AWS el endpoint va vacio y el SDK usa el real.
   S3_ENDPOINT: emptyableUrl,
@@ -60,11 +62,14 @@ export const envSchema = z.object({
   // InvoicingProvider: fake en local; sandbox o proveedor real despues.
   INVOICING_PROVIDER: z.string().min(1),
 
-  // Motor del bot (doc 01 §4): la API real de Claude tambien en desarrollo
-  // (doc 11 §1). Sin clave, el bot queda apagado y el chat sigue en modo humano.
+  // Motor del bot multi-proveedor (ADR 0002): OpenAI o Anthropic por config.
+  // Sin la clave del proveedor elegido, el bot queda apagado y el chat sigue
+  // en modo humano.
+  BOT_PROVIDER: z.enum(['anthropic', 'openai']).default('openai'),
   ANTHROPIC_API_KEY: z.string().optional(),
-  // Modelo economico por decision del doc 01 §4.
-  BOT_MODEL: z.string().default('claude-haiku-4-5'),
+  OPENAI_API_KEY: z.string().optional(),
+  // Opcional: por defecto el modelo economico del proveedor elegido.
+  BOT_MODEL: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

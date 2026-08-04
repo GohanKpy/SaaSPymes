@@ -24,7 +24,21 @@ async function bootstrap(): Promise<void> {
   });
 
   await app.register(fastifyCookie);
-  app.enableCors({ origin: env.WEB_ORIGIN, credentials: true });
+  // CORS con credenciales: WEB_ORIGIN admite lista separada por comas; en
+  // desarrollo tambien se acepta cualquier host de la LAN en el puerto del
+  // panel (4300), para probar desde otras maquinas sin reconstruir.
+  const allowedOrigins = env.WEB_ORIGIN.split(',').map((o) => o.trim());
+  const devPanelOrigin = /^https?:\/\/[^/]+:4300$/;
+  app.enableCors({
+    credentials: true,
+    origin: (origin, cb) => {
+      const allowed =
+        !origin ||
+        allowedOrigins.includes(origin) ||
+        (env.NODE_ENV !== 'production' && devPanelOrigin.test(origin));
+      cb(null, allowed);
+    },
+  });
   // Base /api/v1 (doc 04 §1); /health queda fuera como liveness de infra.
   app.setGlobalPrefix('api/v1', { exclude: ['health'] });
   app.useGlobalFilters(new ProblemFilter());

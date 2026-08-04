@@ -26,12 +26,19 @@ export class BotService {
     private readonly appointments: AppointmentsService,
   ) {}
 
+  /** Clave del proveedor elegido (ADR 0002): sin clave, bot apagado. */
+  private get apiKey(): string | undefined {
+    return this.env.BOT_PROVIDER === 'openai'
+      ? this.env.OPENAI_API_KEY
+      : this.env.ANTHROPIC_API_KEY;
+  }
+
   get enabled(): boolean {
-    return Boolean(this.env.ANTHROPIC_API_KEY);
+    return Boolean(this.apiKey);
   }
 
   async respond(tenantId: string, conversationId: string): Promise<void> {
-    const apiKey = this.env.ANTHROPIC_API_KEY;
+    const apiKey = this.apiKey;
     if (!apiKey) return;
     const ctx = { tenantId, actorType: 'bot' as const };
 
@@ -58,6 +65,7 @@ export class BotService {
 
       const handlers = this.buildHandlers(tenantId, conversation.id, settings.autoConfirmBookings);
       const result = await runBotTurn({
+        provider: this.env.BOT_PROVIDER,
         apiKey,
         model: this.env.BOT_MODEL,
         businessName: tenant?.tradeName ?? tenant?.legalName ?? 'el negocio',
