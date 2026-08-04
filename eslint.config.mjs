@@ -17,6 +17,12 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
+    files: ['**/*.mjs', '**/*.js'],
+    languageOptions: {
+      globals: { process: 'readonly', console: 'readonly', Buffer: 'readonly' },
+    },
+  },
+  {
     rules: {
       // Sin `any` salvo justificado con comentario (docs/plan/07 §4):
       // se desactiva puntualmente con eslint-disable + motivo.

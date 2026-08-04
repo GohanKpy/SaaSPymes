@@ -48,6 +48,8 @@ export const envSchema = z.object({
 
   // CryptoService: implementacion local o KMS (docs/plan/11 §1).
   CRYPTO_PROVIDER: z.enum(['local', 'kms']),
+  // Clave del proveedor local (AES-256-GCM). Irrelevante con kms.
+  CRYPTO_LOCAL_KEY_BASE64: z.string().optional(),
 
   // SMTP saliente: Mailpit en local, el SMTP del tenant en produccion.
   SMTP_HOST: z.string().min(1),
@@ -57,9 +59,20 @@ export const envSchema = z.object({
 
   // InvoicingProvider: fake en local; sandbox o proveedor real despues.
   INVOICING_PROVIDER: z.string().min(1),
+
+  // Motor del bot (doc 01 §4): la API real de Claude tambien en desarrollo
+  // (doc 11 §1). Sin clave, el bot queda apagado y el chat sigue en modo humano.
+  ANTHROPIC_API_KEY: z.string().optional(),
+  // Modelo economico por decision del doc 01 §4.
+  BOT_MODEL: z.string().default('claude-haiku-4-5'),
 });
 
 export type Env = z.infer<typeof envSchema>;
+
+const envSchemaChecked = envSchema.refine(
+  (e) => e.CRYPTO_PROVIDER !== 'local' || (e.CRYPTO_LOCAL_KEY_BASE64 ?? '').length > 0,
+  { message: 'CRYPTO_LOCAL_KEY_BASE64 es obligatoria con CRYPTO_PROVIDER=local' },
+);
 
 /**
  * Valida el entorno al arranque. Si falta o es invalida alguna variable,
@@ -67,7 +80,7 @@ export type Env = z.infer<typeof envSchema>;
  * con configuracion incompleta (docs/plan/11 §6).
  */
 export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
-  const parsed = envSchema.safeParse(source);
+  const parsed = envSchemaChecked.safeParse(source);
   if (!parsed.success) {
     const detail = parsed.error.issues
       .map((issue) => `  - ${issue.path.join('.')}: ${issue.message}`)

@@ -6,7 +6,7 @@
 // correr esta suite.
 import { describe, it, beforeAll, afterAll, expect } from 'vitest';
 
-import { createPrismaClient, tenantTx, type PrismaClient } from '../index';
+import { createPrismaClient, tenantTx } from '../index';
 
 // En el laboratorio y en CI los tres roles comparten password de juguete;
 // derivamos las URLs de la de migrator para no multiplicar variables.
