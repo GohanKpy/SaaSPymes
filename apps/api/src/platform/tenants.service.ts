@@ -26,6 +26,7 @@ export class TenantsService {
     });
   }
 
+  /** Ficha completa para el portal admin: datos CRM + usuarios del tenant. */
   async get(id: string) {
     const tenant = await this.platformDb.client.tenant.findUnique({
       where: { id },
@@ -35,7 +36,23 @@ export class TenantsService {
       },
     });
     if (!tenant) throw new NotFoundException();
-    return tenant;
+    // platform_ops lee app.users de todos los tenants (lo exige el login
+    // multi-tenant), asi que el scope de la ficha se filtra aca, explicito.
+    const users = await this.platformDb.tx({ tenantId: id, actorType: 'platform' }, (tx) =>
+      tx.user.findMany({
+        where: { tenantId: id, deletedAt: null },
+        select: {
+          id: true,
+          email: true,
+          fullName: true,
+          role: true,
+          isActive: true,
+          lastLoginAt: true,
+        },
+        orderBy: { createdAt: 'asc' },
+      }),
+    );
+    return { ...tenant, users };
   }
 
   /**
@@ -54,6 +71,10 @@ export class TenantsService {
         ruc: dto.ruc,
         timezone: dto.timezone,
         currentPlanId: plan.id,
+        contactName: dto.contact_name,
+        contactEmail: dto.contact_email,
+        contactPhone: dto.contact_phone,
+        notes: dto.notes,
       },
     });
 
@@ -103,6 +124,10 @@ export class TenantsService {
         status: dto.status,
         timezone: dto.timezone,
         currentPlanId,
+        contactName: dto.contact_name,
+        contactEmail: dto.contact_email,
+        contactPhone: dto.contact_phone,
+        notes: dto.notes,
       },
     });
     this.features.invalidate(id);
@@ -110,6 +135,40 @@ export class TenantsService {
     const action = dto.status === 'suspended' ? 'tenant.suspend' : 'tenant.update';
     await this.audit(actorId, action, id, ip, dto as Record<string, unknown>);
     return tenant;
+  }
+
+  /**
+   * Reinicio de contraseña de un usuario del tenant desde el portal admin
+   * (ADR 0005): genera una temporal que se muestra UNA sola vez y revoca
+   * todas las sesiones activas del usuario. Queda auditado sin secretos.
+   */
+  async resetUserPassword(tenantId: string, userId: string, actorId: string, ip: string) {
+    const tempPassword = randomBytes(9).toString('base64url');
+    const passwordHash = await hash(tempPassword, ARGON2_OPTIONS);
+
+    const email = await this.platformDb.tx(
+      { tenantId, actorType: 'platform' },
+      async (tx) => {
+        // tenantId explicito: platform_ops ve usuarios de todos los tenants,
+        // y esta operacion debe quedar clavada al tenant de la URL.
+        const user = await tx.user.findFirst({
+          where: { id: userId, tenantId, deletedAt: null },
+        });
+        if (!user) throw new NotFoundException();
+        await tx.user.update({ where: { id: userId }, data: { passwordHash } });
+        await tx.refreshToken.updateMany({
+          where: { userId, tenantId, userScope: 'tenant', revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+        return user.email;
+      },
+    );
+
+    await this.audit(actorId, 'tenant.reset_user_password', tenantId, ip, {
+      user_id: userId,
+      email,
+    });
+    return { email, temp_password: tempPassword };
   }
 
   private audit(

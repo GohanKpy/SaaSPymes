@@ -39,7 +39,17 @@ export default function PlatformPage() {
   const [features, setFeatures] = useState<Feature[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [creds, setCreds] = useState<{ email: string; pass: string } | null>(null);
-  const [form, setForm] = useState({ legal_name: '', trade_name: '', plan_code: 'standard', root_email: '', root_full_name: '' });
+  const emptyForm = {
+    legal_name: '',
+    trade_name: '',
+    plan_code: 'standard',
+    root_email: '',
+    root_full_name: '',
+    contact_name: '',
+    contact_email: '',
+    contact_phone: '',
+  };
+  const [form, setForm] = useState(emptyForm);
 
   const [engine, setEngine] = useState<BotEngine | null>(null);
   const [engineForm, setEngineForm] = useState({ provider: 'openai', model: '', openai_api_key: '', anthropic_api_key: '' });
@@ -66,10 +76,16 @@ export default function PlatformPage() {
     try {
       const res = await api<{ tenant: Tenant; root_email: string; temp_password: string }>('/platform/tenants', {
         method: 'POST',
-        json: { ...form, trade_name: form.trade_name || undefined },
+        json: {
+          ...form,
+          trade_name: form.trade_name || undefined,
+          contact_name: form.contact_name || undefined,
+          contact_email: form.contact_email || undefined,
+          contact_phone: form.contact_phone || undefined,
+        },
       });
       setCreds({ email: res.root_email, pass: res.temp_password });
-      setForm({ legal_name: '', trade_name: '', plan_code: 'standard', root_email: '', root_full_name: '' });
+      setForm(emptyForm);
       load();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error');
@@ -223,6 +239,15 @@ export default function PlatformPage() {
           <Field label="Nombre del root">
             <input className={inputClass} value={form.root_full_name} onChange={(e) => setForm({ ...form, root_full_name: e.target.value })} required />
           </Field>
+          <Field label="Contacto (CRM)">
+            <input className={inputClass} placeholder="nombre de tu cliente" value={form.contact_name} onChange={(e) => setForm({ ...form, contact_name: e.target.value })} />
+          </Field>
+          <Field label="Email de contacto">
+            <input className={inputClass} type="email" value={form.contact_email} onChange={(e) => setForm({ ...form, contact_email: e.target.value })} />
+          </Field>
+          <Field label="Telefono de contacto">
+            <input className={inputClass} value={form.contact_phone} onChange={(e) => setForm({ ...form, contact_phone: e.target.value })} />
+          </Field>
           <div className="flex items-end">
             <button className={buttonClass}>Crear tenant</button>
           </div>
@@ -243,7 +268,11 @@ export default function PlatformPage() {
           <tbody>
             {tenants.map((t) => (
               <tr key={t.id} className="border-t border-slate-100">
-                <td className="py-2">{t.tradeName ?? t.legalName}</td>
+                <td className="py-2">
+                  <a className="text-sky-700 hover:underline" href={`/platform/tenants/${t.id}`}>
+                    {t.tradeName ?? t.legalName}
+                  </a>
+                </td>
                 <td>
                   <span className={`rounded px-2 py-0.5 text-xs ${t.status === 'suspended' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>
                     {t.status}

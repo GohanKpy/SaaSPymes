@@ -48,8 +48,9 @@ Dentro de la red de Docker rigen los puertos canónicos (`db:5432`, etc.).
 3. **Ajustes** → WhatsApp: poner un `phone_number_id` de laboratorio (ej. `dev-001`).
 4. **Chat de prueba**: `http://localhost:4300/chat` — simula al cliente final por el
    pipeline real de webhooks firmados; los mensajes llegan en vivo a la bandeja del panel.
-5. **Bot de agendamiento**: con `ANTHROPIC_API_KEY` en `.env.local` y el bot encendido
-   en Ajustes (con sus permisos tildados), el bot responde y agenda solo.
+5. **Bot de agendamiento**: la llave (OpenAI o Anthropic) se carga en el portal del
+   dueño → "Motor del bot (IA)" (ADR 0003; env solo como fallback). Con el bot
+   encendido en Ajustes del tenant (permisos tildados), responde y agenda solo.
 6. **SIFEN**: Ajustes → timbrado/establecimiento/punto → Facturas: borrador → emitir
    (provider fake aprueba con CDC sintético) → registrar pago.
 

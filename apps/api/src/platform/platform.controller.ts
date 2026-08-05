@@ -86,6 +86,17 @@ export class PlatformController {
     return this.tenants.patch(id, dto, actor(req), req.ip);
   }
 
+  /** Reinicio de contraseña de un usuario del tenant (ADR 0005): solo padmin. */
+  @Post('tenants/:id/users/:userId/reset-password')
+  @PlatformRoles('admin')
+  resetUserPassword(
+    @Param('id', new ZodPipe(uuid)) id: string,
+    @Param('userId', new ZodPipe(uuid)) userId: string,
+    @Req() req: FastifyRequest & AuthRequest,
+  ) {
+    return this.tenants.resetUserPassword(id, userId, actor(req), req.ip);
+  }
+
   @Put('tenants/:id/overrides')
   @PlatformRoles('admin')
   putOverride(

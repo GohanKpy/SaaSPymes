@@ -54,6 +54,18 @@ export class TenantController {
         timezone: dto.timezone,
         branding: dto.branding as Prisma.InputJsonValue | undefined,
       },
+      // Mismo select que el GET: los campos CRM del dueño del sistema
+      // (contacto, notas internas; ADR 0005) jamas salen por el scope tenant.
+      select: {
+        id: true,
+        legalName: true,
+        tradeName: true,
+        ruc: true,
+        status: true,
+        timezone: true,
+        branding: true,
+        currentPlan: { select: { code: true, name: true } },
+      },
     });
     await this.appDb.tx(ctx, (tx) =>
       tx.auditLog.create({

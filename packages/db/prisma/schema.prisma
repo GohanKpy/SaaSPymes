@@ -93,6 +93,11 @@ model Tenant {
   currentPlanId String?  @map("current_plan_id") @db.Uuid
   branding      Json     @default("{}")
   timezone      String   @default("America/Asuncion")
+  // CRM del dueño del sistema (ADR 0005): el tenant es la ficha del cliente.
+  contactName   String?  @map("contact_name")
+  contactEmail  String?  @map("contact_email") @db.Citext
+  contactPhone  String?  @map("contact_phone")
+  notes         String?
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt     DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
 

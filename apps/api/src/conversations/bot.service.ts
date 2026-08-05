@@ -13,8 +13,8 @@ import { TenantEventsService } from './events.service';
  * Bot de agendamiento (doc 01 §3.1): corre tras cada mensaje entrante cuando
  * la conversacion esta en bot_active y el tenant lo habilito. Hoy ejecuta
  * in-process; el pase a cola SQS + worker llega con el hardening de fase 2.
- * Sin ANTHROPIC_API_KEY el bot queda apagado y el chat sigue funcionando
- * en modo humano.
+ * Sin llave configurada (panel, ADR 0003; env como fallback) el bot queda
+ * apagado y el chat sigue funcionando en modo humano.
  */
 @Injectable()
 export class BotService {
@@ -62,11 +62,9 @@ export class BotService {
       const { conversation, settings, tenant, history } = context;
 
       const timezone = tenant?.timezone ?? 'America/Asuncion';
-      const handlers = this.buildHandlers(
-        tenantId,
+      const handlers = this.withToolLogging(
         conversation.id,
-        settings.autoConfirmBookings,
-        timezone,
+        this.buildHandlers(tenantId, conversation.id, settings.autoConfirmBookings, timezone),
       );
       const result = await runBotTurn({
         provider: engineConfig.provider,
@@ -110,6 +108,35 @@ export class BotService {
         error instanceof Error ? error.stack : String(error),
       );
     }
+  }
+
+  /**
+   * Deja rastro de cada tool call del bot (nombre, argumentos, resultado o
+   * error): sin esto, un fallo de reserva es invisible porque el error solo
+   * viaja de vuelta al modelo.
+   */
+  private withToolLogging(conversationId: string, handlers: BotToolHandlers): BotToolHandlers {
+    const wrap =
+      <A extends unknown[], R>(name: string, fn: (...args: A) => Promise<R>) =>
+      async (...args: A): Promise<R> => {
+        const rendered = JSON.stringify(args);
+        try {
+          const result = await fn(...args);
+          this.logger.log(`tool=${name} conv=${conversationId} args=${rendered} ok`);
+          return result;
+        } catch (error) {
+          this.logger.warn(
+            `tool=${name} conv=${conversationId} args=${rendered} error="${error instanceof Error ? error.message : String(error)}"`,
+          );
+          throw error;
+        }
+      };
+    return {
+      listServices: wrap('list_services', handlers.listServices),
+      getAvailableSlots: wrap('get_available_slots', handlers.getAvailableSlots),
+      bookAppointment: wrap('book_appointment', handlers.bookAppointment),
+      getCustomerHistory: wrap('get_customer_history', handlers.getCustomerHistory),
+    };
   }
 
   /** Herramientas scopeadas server-side (doc 05 §6): tenant + conversacion. */
@@ -157,11 +184,46 @@ export class BotService {
           service_id: serviceId,
           date,
         });
-        return slots.map((iso) => ({ iso, hora_local: horaLocal(iso) }));
+        return slots.map(horaLocal);
       },
 
-      bookAppointment: async ({ serviceId, startsAt }) => {
+      bookAppointment: async ({ serviceId, date, horaLocal: horaPedida }) => {
+        // Los modelos a veces fabrican valores desde el texto del chat en vez
+        // de re-consultar las herramientas: cada validacion devuelve un error
+        // accionable para que el modelo se corrija solo. El contrato es SOLO
+        // hora local; el instante UTC lo resuelve el servidor buscando el
+        // slot real, asi un modelo confundido no puede reservar fuera de hora.
+        const service = await this.appDb.tx(ctx, (tx) =>
+          tx.service.findFirst({ where: { id: serviceId, deletedAt: null } }).catch(() => null),
+        );
+        if (!service) {
+          throw new Error(
+            `service_id '${serviceId}' inexistente: obtene el id real con list_services en este mismo turno`,
+          );
+        }
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+          throw new Error(`date '${date}' invalida: usa formato YYYY-MM-DD`);
+        }
+        const horaMatch = /^(\d{1,2})[:.h](\d{2})$/.exec(horaPedida.trim());
+        if (!horaMatch?.[1] || !horaMatch[2]) {
+          throw new Error(
+            `hora_local '${horaPedida}' invalida: usa el formato HH:MM tal como lo devuelve get_available_slots`,
+          );
+        }
+        const hora = `${horaMatch[1].padStart(2, '0')}:${horaMatch[2]}`;
         const branch = await this.mainBranch(tenantId);
+        const open = await this.appointments.availability(ctx, {
+          branch_id: branch,
+          service_id: serviceId,
+          date,
+        });
+        const slot = open.find((iso) => horaLocal(iso) === hora);
+        if (!slot) {
+          const vigentes = open.map(horaLocal).join(', ') || 'ninguno';
+          throw new Error(
+            `las ${hora} del ${date} no esta disponible; horarios vigentes: ${vigentes}. Ofrece al cliente estas opciones.`,
+          );
+        }
         return this.appDb.tx(ctx, async (tx) => {
           const conversation = await tx.conversation.findFirst({ where: { id: conversationId } });
           if (!conversation) throw new Error('conversacion inexistente');
@@ -181,7 +243,7 @@ export class BotService {
           const appointment = await this.appointments.createInTx(
             tx,
             ctx,
-            { branch_id: branch, customer_id: customerId, service_id: serviceId, starts_at: startsAt },
+            { branch_id: branch, customer_id: customerId, service_id: serviceId, starts_at: slot },
             'bot',
             autoConfirm,
           );
@@ -192,7 +254,7 @@ export class BotService {
           return {
             id: appointment.id,
             status: appointment.status,
-            startsAt: appointment.startsAt.toISOString(),
+            date,
             horaLocal: horaLocal(appointment.startsAt.toISOString()),
             serviceName: appointment.service?.name ?? '',
           };

@@ -10,6 +10,11 @@ export const tenantCreate = z
     timezone: z.string().default('America/Asuncion'),
     plan_code: z.string().min(1),
     branch_name: z.string().min(1).max(200).default('Casa central'),
+    // CRM del dueño del sistema (ADR 0005)
+    contact_name: z.string().min(1).max(200).optional(),
+    contact_email: z.email().optional(),
+    contact_phone: z.string().max(30).optional(),
+    notes: z.string().max(4000).optional(),
     // Usuario root inicial del tenant
     root_email: z.email(),
     root_full_name: z.string().min(1).max(200),
@@ -25,6 +30,10 @@ export const tenantPatch = z
     status: z.enum(['trial', 'active', 'suspended', 'closed']),
     plan_code: z.string().min(1),
     timezone: z.string(),
+    contact_name: z.string().min(1).max(200).nullable(),
+    contact_email: z.email().nullable(),
+    contact_phone: z.string().max(30).nullable(),
+    notes: z.string().max(4000).nullable(),
   })
   .partial()
   .strict();
