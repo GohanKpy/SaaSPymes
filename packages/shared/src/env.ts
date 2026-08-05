@@ -31,6 +31,9 @@ export const envSchema = z.object({
   // Webhooks de WhatsApp (doc 04 §3.10): firma HMAC y handshake de Meta.
   META_APP_SECRET: z.string().min(1),
   META_VERIFY_TOKEN: z.string().min(1),
+  // Base de Graph API para el envio saliente; en el laboratorio se puede
+  // apuntar a un fake-server (doc 11 §4) sin tocar codigo.
+  WA_GRAPH_BASE_URL: z.string().url().default('https://graph.facebook.com/v21.0'),
 
   // Restriccion por IP de la superficie de plataforma (ADR 0004).
   // Lista de IPs/CIDRs separadas por comas; vacia = sin restriccion.

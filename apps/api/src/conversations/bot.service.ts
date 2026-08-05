@@ -8,6 +8,7 @@ import { BotEngineService } from '../platform/bot-engine.service';
 import { AppointmentsService } from '../scheduling/appointments.service';
 import { serializeMessage } from './conversations.service';
 import { TenantEventsService } from './events.service';
+import { WaSenderService } from './wa-sender.service';
 
 /**
  * Bot de agendamiento (doc 01 §3.1): corre tras cada mensaje entrante cuando
@@ -30,6 +31,7 @@ export class BotService {
     private readonly events: TenantEventsService,
     private readonly appointments: AppointmentsService,
     private readonly engine: BotEngineService,
+    private readonly waSender: WaSenderService,
   ) {}
 
   /** Config viva del motor (ADR 0003): panel manda, env es fallback. */
@@ -136,7 +138,8 @@ export class BotService {
     }
   }
 
-  /** Persiste una respuesta del bot y la empuja por SSE a la bandeja. */
+  /** Persiste una respuesta del bot, la empuja por SSE y la despacha a
+   *  WhatsApp real si la integracion del tenant esta en modo live. */
   private async storeBotReply(
     tenantId: string,
     conversationId: string,
@@ -154,6 +157,7 @@ export class BotService {
       return message;
     });
     this.events.emit(tenantId, 'message.new', serializeMessage(stored));
+    this.waSender.dispatch(tenantId, conversationId, stored.id);
   }
 
   /**

@@ -8,6 +8,8 @@ export const whatsappIntegrationPut = z
     phone_number_id: z.string().min(1).max(64),
     access_token: z.string().min(1),
     verify_token: z.string().min(1).max(128),
+    /** true = las respuestas salen de verdad por WhatsApp Cloud API. */
+    live: z.boolean().default(false),
   })
   .strict();
 export type WhatsappIntegrationPut = z.infer<typeof whatsappIntegrationPut>;

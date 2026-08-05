@@ -72,6 +72,16 @@ export const overridePut = z
   .strict();
 export type OverridePut = z.infer<typeof overridePut>;
 
+/** Modulo de seguridad del portal admin: valores del bloqueo de login. */
+export const securitySettingsPut = z
+  .object({
+    login_max_attempts: z.number().int().min(1).max(1000),
+    login_window_min: z.number().int().min(1).max(1440),
+    login_block_min: z.number().int().min(1).max(1440),
+  })
+  .strict();
+export type SecuritySettingsPut = z.infer<typeof securitySettingsPut>;
+
 export const featureCreate = z
   .object({
     code: z

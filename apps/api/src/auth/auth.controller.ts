@@ -40,11 +40,11 @@ export class AuthController {
     });
   }
 
+  // El limite del login lo gobierna el modulo de seguridad del portal admin
+  // (intentos fallidos por cuenta e IP con bloqueo configurable, 423).
   @Public()
   @Post('login')
   @HttpCode(200)
-  @UseGuards(RateLimitGuard)
-  @RateLimit(20, 300) // 20 intentos por IP cada 5 min (ademas del lockout por cuenta)
   async login(
     @Body(new ZodPipe(loginRequest)) dto: LoginRequest,
     @Req() req: FastifyRequest,

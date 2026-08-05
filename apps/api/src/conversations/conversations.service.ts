@@ -6,6 +6,7 @@ import { decodeCursor, encodeCursor } from '../common/pagination';
 import { AppPrisma } from '../prisma/app-prisma.service';
 import { BotService } from './bot.service';
 import { TenantEventsService } from './events.service';
+import { WaSenderService } from './wa-sender.service';
 
 export interface InboundMessage {
   phoneE164: string;
@@ -20,6 +21,7 @@ export class ConversationsService {
     private readonly appDb: AppPrisma,
     private readonly events: TenantEventsService,
     @Inject(forwardRef(() => BotService)) private readonly bot: BotService,
+    private readonly waSender: WaSenderService,
   ) {}
 
   async list(ctx: TenantContext, query: ConversationListQuery): Promise<Page<unknown>> {
@@ -62,8 +64,8 @@ export class ConversationsService {
     return { data, next_cursor: oldest ? encodeCursor(String(oldest.id)) : null };
   }
 
-  /** Mensaje del agente humano (doc 04 §3.7). El envio a WhatsApp real se
-   *  encola en fase 2; en el laboratorio queda 'sent' y visible via SSE. */
+  /** Mensaje del agente humano (doc 04 §3.7). Si la integracion WhatsApp
+   *  del tenant esta en modo live, ademas sale de verdad por Cloud API. */
   async sendAsAgent(ctx: TenantContext, conversationId: string, body: string) {
     const message = await this.appDb.tx(ctx, async (tx) => {
       const conversation = await tx.conversation.findFirst({ where: { id: conversationId } });
@@ -86,6 +88,7 @@ export class ConversationsService {
       return created;
     });
     this.events.emit(ctx.tenantId, 'message.new', serializeMessage(message));
+    this.waSender.dispatch(ctx.tenantId, conversationId, message.id);
     return message;
   }
 

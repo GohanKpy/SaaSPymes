@@ -66,6 +66,10 @@ export default function PlatformPage() {
   const [engineForm, setEngineForm] = useState({ provider: 'openai', model: '', openai_api_key: '', anthropic_api_key: '' });
   const [engineMsg, setEngineMsg] = useState<string | null>(null);
 
+  // Modulo de seguridad: valores del bloqueo de login (viven en el panel).
+  const [security, setSecurity] = useState({ login_max_attempts: 10, login_window_min: 10, login_block_min: 10 });
+  const [securityMsg, setSecurityMsg] = useState<string | null>(null);
+
   const load = useCallback(() => {
     void api<Tenant[]>('/platform/tenants').then(setTenants).catch((e) => setError(String(e.message)));
     void api<Plan[]>('/platform/plans').then(setPlans).catch(() => undefined);
@@ -75,6 +79,17 @@ export default function PlatformPage() {
         setEngine(e);
         setEngineForm((f) => ({ ...f, provider: e.provider, model: e.model ?? '' }));
       })
+      .catch(() => undefined);
+    void api<{ login_max_attempts: number; login_window_min: number; login_block_min: number }>(
+      '/platform/settings/security',
+    )
+      .then((s) =>
+        setSecurity({
+          login_max_attempts: s.login_max_attempts,
+          login_window_min: s.login_window_min,
+          login_block_min: s.login_block_min,
+        }),
+      )
       .catch(() => undefined);
   }, []);
   useEffect(() => {
@@ -264,6 +279,36 @@ export default function PlatformPage() {
           <button className={`${buttonClass} h-fit`}>Guardar motor</button>
         </form>
         {engineMsg && <p className="mt-2 text-xs text-slate-600">{engineMsg}</p>}
+      </section>
+
+      <section className="rounded-lg border border-amber-200 bg-white p-4">
+        <h2 className="mb-1 font-medium">Seguridad</h2>
+        <p className="mb-3 text-xs text-slate-500">
+          Bloqueo de login por intentos fallidos (aplica por cuenta y por IP, en ambos portales).
+          Rige en menos de 30 segundos, sin deploy.
+        </p>
+        <form
+          className="grid grid-cols-1 items-end gap-3 sm:grid-cols-2 lg:grid-cols-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            setSecurityMsg(null);
+            void api('/platform/settings/security', { method: 'PUT', json: security })
+              .then(() => setSecurityMsg('✓ guardado; rige en menos de 30 s'))
+              .catch((err) => setSecurityMsg(err instanceof Error ? err.message : 'Error'));
+          }}
+        >
+          <Field label="Intentos fallidos max.">
+            <input className={inputClass} type="number" min={1} max={1000} value={security.login_max_attempts} onChange={(e) => setSecurity({ ...security, login_max_attempts: Number(e.target.value) })} />
+          </Field>
+          <Field label="Ventana de conteo (min)">
+            <input className={inputClass} type="number" min={1} max={1440} value={security.login_window_min} onChange={(e) => setSecurity({ ...security, login_window_min: Number(e.target.value) })} />
+          </Field>
+          <Field label="Duracion del bloqueo (min)">
+            <input className={inputClass} type="number" min={1} max={1440} value={security.login_block_min} onChange={(e) => setSecurity({ ...security, login_block_min: Number(e.target.value) })} />
+          </Field>
+          <button className={`${buttonClass} h-fit`}>Guardar seguridad</button>
+        </form>
+        {securityMsg && <p className="mt-2 text-xs text-slate-600">{securityMsg}</p>}
       </section>
 
       <section className="rounded-lg border border-slate-200 bg-white p-4">

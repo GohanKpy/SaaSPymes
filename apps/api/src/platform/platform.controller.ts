@@ -6,6 +6,7 @@ import {
   overridePut,
   planCreate,
   planUpdate,
+  securitySettingsPut,
   tenantCreate,
   tenantPatch,
   uuid,
@@ -15,6 +16,7 @@ import {
   type OverridePut,
   type PlanCreate,
   type PlanUpdate,
+  type SecuritySettingsPut,
   type TenantCreate,
   type TenantPatch,
 } from '@pymes/shared';
@@ -24,6 +26,7 @@ import { PlatformRoles, type AuthRequest } from '../auth/decorators';
 import { ZodPipe } from '../common/zod.pipe';
 import { BotEngineService } from './bot-engine.service';
 import { PlatformNetworkGuard } from './platform-network.guard';
+import { SecuritySettingsService } from './security-settings.service';
 import { PlansService } from './plans.service';
 import { TenantsService } from './tenants.service';
 
@@ -41,12 +44,28 @@ export class PlatformController {
     private readonly tenants: TenantsService,
     private readonly plans: PlansService,
     private readonly botEngine: BotEngineService,
+    private readonly security: SecuritySettingsService,
   ) {}
 
   /** Motor del bot (ADR 0003): ver estado sin secretos. */
   @Get('settings/bot')
   botSettings() {
     return this.botEngine.view();
+  }
+
+  /** Modulo de seguridad: valores del bloqueo de login. */
+  @Get('settings/security')
+  securitySettings() {
+    return this.security.view();
+  }
+
+  @Put('settings/security')
+  @PlatformRoles('admin')
+  putSecuritySettings(
+    @Body(new ZodPipe(securitySettingsPut)) dto: SecuritySettingsPut,
+    @Req() req: FastifyRequest & AuthRequest,
+  ) {
+    return this.security.save(dto, actor(req), req.ip);
   }
 
   /** Rotacion de llaves / cambio de modelo o proveedor: solo padmin. */

@@ -66,7 +66,7 @@ export class IntegrationsController {
     @Req() req: FastifyRequest & AuthRequest,
   ) {
     return this.upsert(req, 'whatsapp', {
-      publicConfig: { phone_number_id: dto.phone_number_id },
+      publicConfig: { phone_number_id: dto.phone_number_id, live: dto.live },
       secret: { access_token: dto.access_token, verify_token: dto.verify_token },
     });
   }

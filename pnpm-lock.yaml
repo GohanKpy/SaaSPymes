@@ -59,6 +59,9 @@ importers:
       '@pymes/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@pymes/wa':
+        specifier: workspace:*
+        version: link:../../packages/wa
       fastify:
         specifier: ^5.10.0
         version: 5.10.0
@@ -218,6 +221,9 @@ importers:
 
   packages/wa:
     devDependencies:
+      '@types/node':
+        specifier: ^22.20.1
+        version: 22.20.1
       typescript:
         specifier: ^5.6.3
         version: 5.9.3

@@ -13,13 +13,12 @@ import type { AuthUser, Env, LoginRequest, LoginResponse } from '@pymes/shared';
 
 import { ipAllowed } from '../common/ip';
 import { ENV } from '../env.module';
+import { SecuritySettingsService } from '../platform/security-settings.service';
 import { AppPrisma } from '../prisma/app-prisma.service';
 import { PlatformPrisma } from '../prisma/platform-prisma.service';
 import { JwtSigner } from './jwt.service';
 
 const REFRESH_TTL_MS = 30 * 24 * 3600 * 1000; // 30 dias (doc 05 §3)
-const LOCK_MAX_FAILS = 5;
-const LOCK_WINDOW_MS = 15 * 60 * 1000;
 
 export interface IssuedSession {
   accessToken: string;
@@ -33,14 +32,19 @@ function sha256(value: string): Uint8Array<ArrayBuffer> {
 
 @Injectable()
 export class AuthService {
-  // Bloqueo progresivo por cuenta e IP (doc 05 §3). En memoria: suficiente
-  // para la instancia unica de fase 1; a Redis/DB cuando haya mas de una.
-  private readonly fails = new Map<string, { count: number; until: number }>();
+  // Bloqueo por cuenta e IP (doc 05 §3) con valores vivos del modulo de
+  // seguridad del portal admin. En memoria: suficiente para la instancia
+  // unica de fase 1; a Redis/DB cuando haya mas de una.
+  private readonly fails = new Map<
+    string,
+    { count: number; windowUntil: number; blockedUntil: number }
+  >();
 
   constructor(
     private readonly appDb: AppPrisma,
     private readonly platformDb: PlatformPrisma,
     private readonly jwt: JwtSigner,
+    private readonly security: SecuritySettingsService,
     @Inject(ENV) private readonly env: Env,
   ) {}
 
@@ -48,21 +52,28 @@ export class AuthService {
     const now = Date.now();
     for (const key of keys) {
       const entry = this.fails.get(key);
-      if (entry && entry.count >= LOCK_MAX_FAILS && entry.until > now) {
+      if (entry && entry.blockedUntil > now) {
         throw new HttpException(
-          { title: 'Cuenta bloqueada temporalmente por intentos fallidos' },
+          { title: 'Bloqueado temporalmente por intentos fallidos; proba mas tarde' },
           423,
         );
       }
     }
   }
 
-  private registerFail(keys: string[]): void {
-    const until = Date.now() + LOCK_WINDOW_MS;
+  private async registerFail(keys: string[]): Promise<void> {
+    const cfg = await this.security.getConfig();
+    const now = Date.now();
     for (const key of keys) {
-      const entry = this.fails.get(key) ?? { count: 0, until };
+      let entry = this.fails.get(key);
+      // La ventana de conteo vencida arranca de cero (no acumula para siempre).
+      if (!entry || entry.windowUntil <= now) {
+        entry = { count: 0, windowUntil: now + cfg.login_window_min * 60_000, blockedUntil: 0 };
+      }
       entry.count += 1;
-      entry.until = until;
+      if (entry.count >= cfg.login_max_attempts) {
+        entry.blockedUntil = now + cfg.login_block_min * 60_000;
+      }
       this.fails.set(key, entry);
     }
   }
@@ -99,7 +110,7 @@ export class AuthService {
       if (await argonVerify(user.passwordHash, dto.password)) matched.push(user);
     }
     if (matched.length === 0) {
-      this.registerFail(lockKeys);
+      await this.registerFail(lockKeys);
       throw new UnauthorizedException();
     }
 
@@ -189,7 +200,7 @@ export class AuthService {
       where: { email: dto.email },
     });
     if (!user || !user.isActive || !(await argonVerify(user.passwordHash, dto.password))) {
-      this.registerFail(lockKeys);
+      await this.registerFail(lockKeys);
       throw new UnauthorizedException();
     }
     if (user.totpEnabled) {

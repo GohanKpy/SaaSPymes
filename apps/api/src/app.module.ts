@@ -9,6 +9,7 @@ import { CryptoService } from './common/crypto.service';
 import { BotService } from './conversations/bot.service';
 import { ConversationsController } from './conversations/conversations.controller';
 import { ConversationsService } from './conversations/conversations.service';
+import { WaSenderService } from './conversations/wa-sender.service';
 import { TenantEventsService } from './conversations/events.service';
 import { WebhooksController } from './conversations/webhooks.controller';
 import { CustomersController } from './crm/customers.controller';
@@ -48,6 +49,7 @@ import { UsersController } from './tenant/users.controller';
     CustomersService,
     AppointmentsService,
     ConversationsService,
+    WaSenderService,
     TenantEventsService,
     BotService,
     InvoicesService,

@@ -42,7 +42,7 @@ const PERMISOS: { key: keyof BotSettings; label: string }[] = [
 export default function SettingsPage() {
   const [integrations, setIntegrations] = useState<Integration[]>([]);
   const [bot, setBot] = useState<BotSettings | null>(null);
-  const [wa, setWa] = useState({ phone_number_id: '', access_token: '', verify_token: 'dev-verify-token' });
+  const [wa, setWa] = useState({ phone_number_id: '', access_token: '', verify_token: 'dev-verify-token', live: false });
   const [sifen, setSifen] = useState({ timbrado: '', establishment: '001', expedition_point: '001' });
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
@@ -170,6 +170,14 @@ export default function SettingsPage() {
             <Field label="Verify token">
               <input className={inputClass} value={wa.verify_token} onChange={(e) => setWa({ ...wa, verify_token: e.target.value })} required />
             </Field>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={wa.live}
+                onChange={(e) => setWa({ ...wa, live: e.target.checked })}
+              />
+              Envio real por WhatsApp Cloud API (requiere token valido de Meta)
+            </label>
             <button className={buttonClass}>Guardar WhatsApp</button>
           </form>
         </section>
