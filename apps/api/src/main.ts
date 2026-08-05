@@ -31,6 +31,9 @@ async function bootstrap(): Promise<void> {
   const devPanelOrigin = /^https?:\/\/[^/]+:430[08]$/; // 4300 clientes, 4308 admin
   app.enableCors({
     credentials: true,
+    // @fastify/cors por defecto solo permite GET,HEAD,POST: sin esta lista
+    // los PATCH/PUT/DELETE de los paneles mueren en el preflight.
+    methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     origin: (origin, cb) => {
       const allowed =
         !origin ||
