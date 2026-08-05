@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Param, Patch, Post, Put, Req, UseGuards } from '@nestjs/common';
 import {
+  botBudgetPut,
   botEngineSettingsPut,
   featureCreate,
   overridePut,
@@ -8,6 +9,7 @@ import {
   tenantCreate,
   tenantPatch,
   uuid,
+  type BotBudgetPut,
   type BotEngineSettingsPut,
   type FeatureCreate,
   type OverridePut,
@@ -84,6 +86,17 @@ export class PlatformController {
     @Req() req: FastifyRequest & AuthRequest,
   ) {
     return this.tenants.patch(id, dto, actor(req), req.ip);
+  }
+
+  /** Presupuesto mensual de IA del tenant (ADR 0006): solo padmin. */
+  @Put('tenants/:id/bot-budget')
+  @PlatformRoles('admin')
+  putBotBudget(
+    @Param('id', new ZodPipe(uuid)) id: string,
+    @Body(new ZodPipe(botBudgetPut)) dto: BotBudgetPut,
+    @Req() req: FastifyRequest & AuthRequest,
+  ) {
+    return this.tenants.setBotBudget(id, dto.monthly_token_budget, actor(req), req.ip);
   }
 
   /** Reinicio de contraseña de un usuario del tenant (ADR 0005): solo padmin. */

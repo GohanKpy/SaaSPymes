@@ -20,6 +20,14 @@ interface BotSettings {
   allowBooking: boolean;
   autoConfirmBookings: boolean;
   engine_available: boolean;
+  usage: {
+    period: string;
+    input_tokens: number;
+    output_tokens: number;
+    turns: number;
+    budget: number;
+    exhausted: boolean;
+  };
 }
 
 const PERMISOS: { key: keyof BotSettings; label: string }[] = [
@@ -92,7 +100,8 @@ export default function SettingsPage() {
               <h2 className="font-medium">Bot de atencion y agendamiento</h2>
               <p className="text-xs text-slate-500">
                 Delega la atencion inmediata: el bot responde y agenda segun los permisos tildados.
-                {!bot.engine_available && ' (Falta ANTHROPIC_API_KEY en el servidor: el bot esta apagado.)'}
+                {!bot.engine_available &&
+                  ' (El motor de IA aun no esta configurado por el administrador del sistema: el bot esta apagado.)'}
               </p>
             </div>
             <label className="flex items-center gap-2 text-sm">
@@ -120,15 +129,24 @@ export default function SettingsPage() {
             ))}
           </div>
           <div className="mt-3">
-            <Field label="Instrucciones del negocio (personalidad del bot)">
+            <Field label="Instrucciones del negocio (personalidad del bot, se adapta a tu rubro)">
               <textarea
                 className={`${inputClass} h-24`}
                 defaultValue={bot.instructionsText ?? ''}
                 onBlur={(e) => void patchBot({ instructions_text: e.target.value || null })}
-                placeholder="Ej: Somos la peluqueria Tucano. Atendemos de lunes a sabado. Trata a los clientes de vos."
+                placeholder="Conta que hace tu negocio y como atender. Ej: Somos un consultorio odontologico; atendemos lunes a viernes de 8 a 17; trata a los pacientes de usted; ante dolor agudo ofrece el primer turno libre del dia."
               />
             </Field>
           </div>
+          <p className="mt-3 text-xs text-slate-500">
+            Consumo IA de {bot.usage.period}: {(bot.usage.input_tokens + bot.usage.output_tokens).toLocaleString('es-PY')}{' '}
+            de {bot.usage.budget.toLocaleString('es-PY')} tokens ({bot.usage.turns} respuestas).
+            {bot.usage.exhausted && (
+              <span className="font-medium text-red-600">
+                {' '}Presupuesto del mes agotado: el bot deriva a tu equipo. El limite lo ajusta el administrador del sistema.
+              </span>
+            )}
+          </p>
         </section>
       )}
 

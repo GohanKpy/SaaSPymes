@@ -28,6 +28,8 @@ interface TenantDetail {
   createdAt: string;
   currentPlan: { code: string; name: string } | null;
   users: TenantUser[];
+  bot_budget: number | null;
+  bot_usage: { period: string; input_tokens: number; output_tokens: number; turns: number };
 }
 interface Plan {
   id: string;
@@ -49,6 +51,8 @@ export default function TenantDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [resetCreds, setResetCreds] = useState<{ email: string; pass: string } | null>(null);
+  const [budget, setBudget] = useState('');
+  const [budgetMsg, setBudgetMsg] = useState<string | null>(null);
   const [form, setForm] = useState({
     legal_name: '',
     trade_name: '',
@@ -65,6 +69,7 @@ export default function TenantDetailPage() {
     void api<TenantDetail>(`/platform/tenants/${tenantId}`)
       .then((t) => {
         setTenant(t);
+        setBudget(String(t.bot_budget ?? 500000));
         setForm({
           legal_name: t.legalName,
           trade_name: t.tradeName ?? '',
@@ -213,6 +218,45 @@ export default function TenantDetailPage() {
             <button className={buttonClass}>Guardar ficha</button>
             {saved && <span className="text-sm text-emerald-600">✓ guardado</span>}
           </div>
+        </form>
+      </section>
+
+      <section className="rounded-lg border border-violet-200 bg-white p-4">
+        <h2 className="mb-1 font-medium">Bot de IA: consumo y presupuesto</h2>
+        <p className="mb-3 text-xs text-slate-500">
+          Consumo de {tenant?.bot_usage.period ?? '—'}:{' '}
+          {((tenant?.bot_usage.input_tokens ?? 0) + (tenant?.bot_usage.output_tokens ?? 0)).toLocaleString('es-PY')}{' '}
+          tokens en {tenant?.bot_usage.turns ?? 0} respuestas. Al agotar el presupuesto el bot deriva
+          a un humano hasta el mes siguiente (ADR 0006).
+        </p>
+        <form
+          className="flex items-end gap-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            setBudgetMsg(null);
+            void api(`/platform/tenants/${tenantId}/bot-budget`, {
+              method: 'PUT',
+              json: { monthly_token_budget: Number(budget) },
+            })
+              .then(() => {
+                setBudgetMsg('✓ guardado');
+                load();
+              })
+              .catch((err) => setBudgetMsg(err instanceof Error ? err.message : 'Error'));
+          }}
+        >
+          <Field label="Presupuesto mensual (tokens)">
+            <input
+              className={inputClass}
+              type="number"
+              min={0}
+              step={1000}
+              value={budget}
+              onChange={(e) => setBudget(e.target.value)}
+            />
+          </Field>
+          <button className={buttonClass}>Guardar presupuesto</button>
+          {budgetMsg && <span className="pb-2 text-sm text-emerald-600">{budgetMsg}</span>}
         </form>
       </section>
 

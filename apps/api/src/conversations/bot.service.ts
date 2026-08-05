@@ -16,6 +16,10 @@ import { TenantEventsService } from './events.service';
  * Sin llave configurada (panel, ADR 0003; env como fallback) el bot queda
  * apagado y el chat sigue funcionando en modo humano.
  */
+/** Aviso unico al agotar el presupuesto mensual de IA (doc 05 §6.4). */
+const BUDGET_NOTICE =
+  'Gracias por escribirnos. En este momento una persona del negocio va a continuar la conversacion por este mismo chat.';
+
 @Injectable()
 export class BotService {
   private readonly logger = new Logger('Bot');
@@ -62,6 +66,24 @@ export class BotService {
       const { conversation, settings, tenant, history } = context;
 
       const timezone = tenant?.timezone ?? 'America/Asuncion';
+
+      // Presupuesto mensual de tokens (doc 05 §6.4, ADR 0006): al agotarse,
+      // el bot responde un aviso generico UNA vez y deja el resto al humano.
+      const period = new Date().toLocaleDateString('en-CA', { timeZone: timezone }).slice(0, 7);
+      const usage = await this.appDb.tx(ctx, (tx) =>
+        tx.botUsageMonthly.findUnique({ where: { tenantId_period: { tenantId, period } } }),
+      );
+      const spent = Number(usage?.inputTokens ?? 0n) + Number(usage?.outputTokens ?? 0n);
+      if (spent >= settings.monthlyTokenBudget) {
+        this.logger.warn(
+          `presupuesto IA agotado tenant=${tenantId} periodo=${period} gastado=${spent} presupuesto=${settings.monthlyTokenBudget}`,
+        );
+        const lastBot = [...history].reverse().find((m) => m.senderType === 'bot');
+        if (lastBot?.body !== BUDGET_NOTICE) {
+          await this.storeBotReply(tenantId, conversationId, BUDGET_NOTICE);
+        }
+        return;
+      }
       const handlers = this.withToolLogging(
         conversation.id,
         this.buildHandlers(tenantId, conversation.id, settings.autoConfirmBookings, timezone),
@@ -82,25 +104,29 @@ export class BotService {
         })),
       });
 
-      if (!result.reply) return;
-      const stored = await this.appDb.tx(ctx, async (tx) => {
-        const message = await tx.message.create({
-          data: {
+      // El consumo se registra aunque el modelo no haya producido texto:
+      // los tokens ya se gastaron (ADR 0006).
+      await this.appDb.tx(ctx, (tx) =>
+        tx.botUsageMonthly.upsert({
+          where: { tenantId_period: { tenantId, period } },
+          create: {
             tenantId,
-            conversationId,
-            direction: 'out',
-            senderType: 'bot',
-            body: result.reply as string,
-            status: 'sent',
+            period,
+            inputTokens: result.inputTokens,
+            outputTokens: result.outputTokens,
+            turns: 1,
           },
-        });
-        await tx.conversation.update({
-          where: { id: conversationId },
-          data: { lastMessageAt: message.createdAt },
-        });
-        return message;
-      });
-      this.events.emit(tenantId, 'message.new', serializeMessage(stored));
+          update: {
+            inputTokens: { increment: result.inputTokens },
+            outputTokens: { increment: result.outputTokens },
+            turns: { increment: 1 },
+            updatedAt: new Date(),
+          },
+        }),
+      );
+
+      if (!result.reply) return;
+      await this.storeBotReply(tenantId, conversationId, result.reply);
     } catch (error) {
       // El bot jamas tumba el pipeline de chat: se loguea y el panel decide.
       this.logger.error(
@@ -108,6 +134,26 @@ export class BotService {
         error instanceof Error ? error.stack : String(error),
       );
     }
+  }
+
+  /** Persiste una respuesta del bot y la empuja por SSE a la bandeja. */
+  private async storeBotReply(
+    tenantId: string,
+    conversationId: string,
+    body: string,
+  ): Promise<void> {
+    const ctx = { tenantId, actorType: 'bot' as const };
+    const stored = await this.appDb.tx(ctx, async (tx) => {
+      const message = await tx.message.create({
+        data: { tenantId, conversationId, direction: 'out', senderType: 'bot', body, status: 'sent' },
+      });
+      await tx.conversation.update({
+        where: { id: conversationId },
+        data: { lastMessageAt: message.createdAt },
+      });
+      return message;
+    });
+    this.events.emit(tenantId, 'message.new', serializeMessage(stored));
   }
 
   /**

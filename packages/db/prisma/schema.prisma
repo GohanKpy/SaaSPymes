@@ -115,6 +115,7 @@ model Tenant {
   conversations      Conversation[]
   invoices           Invoice[]
   botSettings        BotSettings?
+  botUsage           BotUsageMonthly[]
   integrationCreds   IntegrationCredential[]
   notificationEmails NotificationEmail[]
 
@@ -537,6 +538,22 @@ model BotSettings {
   tenant Tenant @relation(fields: [tenantId], references: [id])
 
   @@map("bot_settings")
+  @@schema("app")
+}
+
+/// Ledger de consumo IA por tenant y mes (doc 05 §6, doc 09 R9; ADR 0006).
+model BotUsageMonthly {
+  tenantId     String   @map("tenant_id") @db.Uuid
+  period       String // YYYY-MM en la zona del tenant
+  inputTokens  BigInt   @default(0) @map("input_tokens")
+  outputTokens BigInt   @default(0) @map("output_tokens")
+  turns        Int      @default(0)
+  updatedAt    DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@id([tenantId, period])
+  @@map("bot_usage_monthly")
   @@schema("app")
 }
 

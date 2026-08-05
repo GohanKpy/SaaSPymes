@@ -11,8 +11,16 @@ export const botSettingsPatch = z
     access_calendar: z.boolean(),
     allow_booking: z.boolean(),
     auto_confirm_bookings: z.boolean(),
-    monthly_token_budget: z.number().int().min(0),
   })
   .partial()
   .strict();
 export type BotSettingsPatch = z.infer<typeof botSettingsPatch>;
+
+/**
+ * El presupuesto mensual de tokens es control de costo del dueño del sistema
+ * (doc 09 R9, ADR 0006): se edita solo desde el portal admin, no por el tenant.
+ */
+export const botBudgetPut = z
+  .object({ monthly_token_budget: z.number().int().min(0) })
+  .strict();
+export type BotBudgetPut = z.infer<typeof botBudgetPut>;

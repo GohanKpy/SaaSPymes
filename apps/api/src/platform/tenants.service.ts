@@ -38,21 +38,56 @@ export class TenantsService {
     if (!tenant) throw new NotFoundException();
     // platform_ops lee app.users de todos los tenants (lo exige el login
     // multi-tenant), asi que el scope de la ficha se filtra aca, explicito.
-    const users = await this.platformDb.tx({ tenantId: id, actorType: 'platform' }, (tx) =>
-      tx.user.findMany({
-        where: { tenantId: id, deletedAt: null },
-        select: {
-          id: true,
-          email: true,
-          fullName: true,
-          role: true,
-          isActive: true,
-          lastLoginAt: true,
-        },
-        orderBy: { createdAt: 'asc' },
+    const { users, botBudget, botUsage } = await this.platformDb.tx(
+      { tenantId: id, actorType: 'platform' },
+      async (tx) => {
+        const list = await tx.user.findMany({
+          where: { tenantId: id, deletedAt: null },
+          select: {
+            id: true,
+            email: true,
+            fullName: true,
+            role: true,
+            isActive: true,
+            lastLoginAt: true,
+          },
+          orderBy: { createdAt: 'asc' },
+        });
+        const settings = await tx.botSettings.findUnique({ where: { tenantId: id } });
+        const period = new Date()
+          .toLocaleDateString('en-CA', { timeZone: tenant.timezone })
+          .slice(0, 7);
+        const usage = await tx.botUsageMonthly.findUnique({
+          where: { tenantId_period: { tenantId: id, period } },
+        });
+        return {
+          users: list,
+          botBudget: settings?.monthlyTokenBudget ?? null,
+          botUsage: {
+            period,
+            input_tokens: Number(usage?.inputTokens ?? 0n),
+            output_tokens: Number(usage?.outputTokens ?? 0n),
+            turns: usage?.turns ?? 0,
+          },
+        };
+      },
+    );
+    return { ...tenant, users, bot_budget: botBudget, bot_usage: botUsage };
+  }
+
+  /** Presupuesto mensual de IA del tenant: decision del dueño del sistema (ADR 0006). */
+  async setBotBudget(id: string, budget: number, actorId: string, ip: string) {
+    const tenant = await this.platformDb.client.tenant.findUnique({ where: { id } });
+    if (!tenant) throw new NotFoundException();
+    await this.platformDb.tx({ tenantId: id, actorType: 'platform' }, (tx) =>
+      tx.botSettings.upsert({
+        where: { tenantId: id },
+        update: { monthlyTokenBudget: budget },
+        create: { tenantId: id, monthlyTokenBudget: budget },
       }),
     );
-    return { ...tenant, users };
+    await this.audit(actorId, 'tenant.bot_budget', id, ip, { monthly_token_budget: budget });
+    return { monthly_token_budget: budget };
   }
 
   /**

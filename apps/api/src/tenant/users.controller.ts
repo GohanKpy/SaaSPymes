@@ -109,6 +109,33 @@ export class UsersController {
     });
   }
 
+  /**
+   * Reinicio de contrasena por el dueño/admin del negocio: temporal devuelta
+   * una sola vez y sesiones del usuario revocadas. Un admin no puede tocar
+   * al root (misma regla que patch, doc 04 §2).
+   */
+  @Post(':id/reset-password')
+  async resetPassword(
+    @Param('id', new ZodPipe(uuid)) id: string,
+    @Req() req: FastifyRequest & AuthRequest,
+  ) {
+    const ctx = tenantCtx(req);
+    const tempPassword = randomBytes(9).toString('base64url');
+    const passwordHash = await hash(tempPassword, ARGON2_OPTIONS);
+    const email = await this.appDb.tx(ctx, async (tx) => {
+      const existing = await tx.user.findFirst({ where: { id, deletedAt: null } });
+      if (!existing) throw new NotFoundException();
+      if (existing.role === 'root' && req.authUser?.role !== 'root') throw new ForbiddenException();
+      await tx.user.update({ where: { id }, data: { passwordHash } });
+      await tx.refreshToken.updateMany({
+        where: { userId: id, userScope: 'tenant', revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+      return existing.email;
+    });
+    return { email, temp_password: tempPassword };
+  }
+
   @Delete(':id')
   @HttpCode(204)
   async remove(@Param('id', new ZodPipe(uuid)) id: string, @Req() req: FastifyRequest & AuthRequest) {
