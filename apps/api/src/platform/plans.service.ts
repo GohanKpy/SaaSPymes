@@ -126,6 +126,20 @@ export class PlansService {
     return override;
   }
 
+  /** Quitar un acuerdo a medida: la feature vuelve a heredarse del plan. */
+  async removeOverride(tenantId: string, featureCode: string, actorId: string, ip: string) {
+    const feature = await this.platformDb.client.feature.findUnique({
+      where: { code: featureCode },
+    });
+    if (!feature) throw new UnprocessableEntityException({ title: 'Feature inexistente' });
+    await this.platformDb.client.tenantFeatureOverride.deleteMany({
+      where: { tenantId, featureId: feature.id },
+    });
+    await this.audit(actorId, 'override.delete', 'tenant_feature_overrides', tenantId, ip);
+    this.features.invalidate(tenantId);
+    return { removed: true };
+  }
+
   private audit(actorId: string, action: string, entity: string, entityId: string, ip: string) {
     return this.platformDb.client.platformAuditLog.create({
       data: { actorId, action, entity, entityId, ip },

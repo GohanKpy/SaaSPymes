@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Put, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Req, UseGuards } from '@nestjs/common';
 import {
   botBudgetPut,
   botEngineSettingsPut,
@@ -118,6 +118,17 @@ export class PlatformController {
     @Req() req: FastifyRequest & AuthRequest,
   ) {
     return this.plans.putOverride(id, dto, actor(req), req.ip);
+  }
+
+  /** Quitar acuerdo a medida: la feature vuelve a heredar del plan. */
+  @Delete('tenants/:id/overrides/:featureCode')
+  @PlatformRoles('admin')
+  removeOverride(
+    @Param('id', new ZodPipe(uuid)) id: string,
+    @Param('featureCode') featureCode: string,
+    @Req() req: FastifyRequest & AuthRequest,
+  ) {
+    return this.plans.removeOverride(id, featureCode, actor(req), req.ip);
   }
 
   @Get('plans')

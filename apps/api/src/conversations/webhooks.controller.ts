@@ -11,12 +11,14 @@ import {
   Query,
   Req,
   UnauthorizedException,
+  UseGuards,
 } from '@nestjs/common';
 import { waWebhookPayload, type Env } from '@pymes/shared';
 import type { FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
 import { Public } from '../auth/decorators';
+import { RateLimit, RateLimitGuard } from '../common/rate-limit.guard';
 import { tenantTx } from '@pymes/db';
 import { ZodPipe } from '../common/zod.pipe';
 import { ENV } from '../env.module';
@@ -63,6 +65,8 @@ export class WebhooksController {
   }
 
   @Post('whatsapp')
+  @UseGuards(RateLimitGuard)
+  @RateLimit(600, 60) // generoso para rafagas de Meta; frena abuso sin firma valida
   async inbound(@Req() req: RawBodyRequest<FastifyRequest>): Promise<{ received: true }> {
     this.assertSignature(req);
     const payload = waWebhookPayload.parse(req.body);

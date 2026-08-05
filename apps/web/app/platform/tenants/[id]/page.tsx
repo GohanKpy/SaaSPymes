@@ -30,9 +30,15 @@ interface TenantDetail {
   users: TenantUser[];
   bot_budget: number | null;
   bot_usage: { period: string; input_tokens: number; output_tokens: number; turns: number };
+  featureOverrides: { enabled: boolean; note: string; feature: { code: string; name: string } }[];
 }
 interface Plan {
   id: string;
+  code: string;
+  name: string;
+  planFeatures: { feature: { code: string; name: string } }[];
+}
+interface Feature {
   code: string;
   name: string;
 }
@@ -48,6 +54,7 @@ export default function TenantDetailPage() {
 
   const [tenant, setTenant] = useState<TenantDetail | null>(null);
   const [plans, setPlans] = useState<Plan[]>([]);
+  const [features, setFeatures] = useState<Feature[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [resetCreds, setResetCreds] = useState<{ email: string; pass: string } | null>(null);
@@ -84,6 +91,7 @@ export default function TenantDetailPage() {
       })
       .catch((e) => setError(e instanceof Error ? e.message : 'Error'));
     void api<Plan[]>('/platform/plans').then(setPlans).catch(() => undefined);
+    void api<Feature[]>('/platform/features').then(setFeatures).catch(() => undefined);
   }, [tenantId]);
   useEffect(() => {
     if (user) load();
@@ -110,6 +118,33 @@ export default function TenantDetailPage() {
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error');
+    }
+  }
+
+  // Acuerdos a medida (doc 04 §3.11): forzar una feature con nota obligatoria
+  // o quitar el acuerdo para volver a heredar del plan.
+  async function forceFeature(code: string, enabled: boolean) {
+    const note = prompt(`Motivo del acuerdo para ${enabled ? 'activar' : 'desactivar'} "${code}" (obligatorio):`);
+    if (!note || note.trim().length < 3) return;
+    setError(null);
+    try {
+      await api(`/platform/tenants/${tenantId}/overrides`, {
+        method: 'PUT',
+        json: { feature_code: code, enabled, note: note.trim() },
+      });
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error');
+    }
+  }
+
+  async function inheritFeature(code: string) {
+    setError(null);
+    try {
+      await api(`/platform/tenants/${tenantId}/overrides/${code}`, { method: 'DELETE' });
       load();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error');
@@ -219,6 +254,68 @@ export default function TenantDetailPage() {
             {saved && <span className="text-sm text-emerald-600">✓ guardado</span>}
           </div>
         </form>
+      </section>
+
+      <section className="rounded-lg border border-slate-200 bg-white p-4">
+        <h2 className="mb-1 font-medium">Features y acuerdos a medida</h2>
+        <p className="mb-3 text-xs text-slate-500">
+          Lo que el plan {tenant?.currentPlan?.name ?? ''} no incluye se puede forzar por acuerdo
+          (con motivo, queda auditado). Quitar el acuerdo vuelve a heredar del plan.
+        </p>
+        <table className="w-full text-sm">
+          <thead className="text-left text-slate-500">
+            <tr>
+              <th className="py-1">Feature</th>
+              <th>Por plan</th>
+              <th>Efectivo</th>
+              <th>Acuerdo</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {features.map((f) => {
+              const planHasIt = Boolean(
+                plans
+                  .find((p) => p.code === tenant?.currentPlan?.code)
+                  ?.planFeatures.some((pf) => pf.feature.code === f.code),
+              );
+              const override = tenant?.featureOverrides.find((o) => o.feature.code === f.code);
+              const effective = override ? override.enabled : planHasIt;
+              return (
+                <tr key={f.code} className="border-t border-slate-100">
+                  <td className="py-2">
+                    {f.name} <span className="text-xs text-slate-400">({f.code})</span>
+                  </td>
+                  <td>{planHasIt ? '✓' : '—'}</td>
+                  <td>
+                    <span className={`rounded px-2 py-0.5 text-xs ${effective ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                      {effective ? 'activa' : 'inactiva'}
+                    </span>
+                  </td>
+                  <td className="max-w-48 text-xs text-slate-500">
+                    {override ? `forzada ${override.enabled ? 'ON' : 'OFF'} — ${override.note}` : 'hereda del plan'}
+                  </td>
+                  <td className="space-x-1 text-right">
+                    {effective ? (
+                      <button className={buttonGhost} onClick={() => void forceFeature(f.code, false)}>
+                        Forzar OFF
+                      </button>
+                    ) : (
+                      <button className={buttonGhost} onClick={() => void forceFeature(f.code, true)}>
+                        Forzar ON
+                      </button>
+                    )}
+                    {override && (
+                      <button className={buttonGhost} onClick={() => void inheritFeature(f.code)}>
+                        Heredar del plan
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </section>
 
       <section className="rounded-lg border border-violet-200 bg-white p-4">

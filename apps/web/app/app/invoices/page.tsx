@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 
-import { api } from '../../../lib/api';
+import { API_URL, api, getToken } from '../../../lib/api';
 import { ErrorNote, Field, buttonClass, buttonGhost, dt, inputClass, money } from '../../../lib/ui';
 
 interface Invoice {
@@ -53,6 +53,22 @@ export default function InvoicesPage() {
         },
       });
       load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error');
+    }
+  }
+
+  // El PDF exige el Bearer token: se baja como blob y se abre en otra pestana.
+  async function openKude(id: string) {
+    setError(null);
+    try {
+      const res = await fetch(`${API_URL}/api/v1/invoices/${id}/kude`, {
+        headers: { Authorization: `Bearer ${getToken() ?? ''}` },
+      });
+      if (!res.ok) throw new Error('No se pudo generar el KuDE');
+      const url = URL.createObjectURL(await res.blob());
+      window.open(url, '_blank');
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error');
     }
@@ -176,6 +192,11 @@ export default function InvoicesPage() {
                         Anular
                       </button>
                     </>
+                  )}
+                  {['approved', 'cancelled', 'credited'].includes(i.status) && (
+                    <button className={buttonGhost} onClick={() => void openKude(i.id)}>
+                      KuDE (PDF)
+                    </button>
                   )}
                 </td>
               </tr>

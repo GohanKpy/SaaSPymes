@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Post, Query, Req, Res } from '@nestjs/common';
 import {
   invoiceCancel,
   invoiceCreate,
@@ -10,17 +10,35 @@ import {
   type InvoiceListQuery,
   type PaymentCreate,
 } from '@pymes/shared';
-import type { FastifyRequest } from 'fastify';
+import type { FastifyReply, FastifyRequest } from 'fastify';
 
 import { RequireFeature, Roles, type AuthRequest } from '../auth/decorators';
 import { tenantCtx } from '../common/tenant-ctx';
 import { ZodPipe } from '../common/zod.pipe';
 import { InvoicesService } from './invoices.service';
+import { KudeService } from './kude.service';
 
 @Controller('invoices')
 @RequireFeature('invoicing')
 export class InvoicesController {
-  constructor(private readonly invoices: InvoicesService) {}
+  constructor(
+    private readonly invoices: InvoicesService,
+    private readonly kude: KudeService,
+  ) {}
+
+  /** KuDE en PDF de una factura emitida (doc 04 §3.9). */
+  @Get(':id/kude')
+  async kudePdf(
+    @Param('id', new ZodPipe(uuid)) id: string,
+    @Req() req: FastifyRequest & AuthRequest,
+    @Res() reply: FastifyReply,
+  ) {
+    const { pdf, filename } = await this.kude.render(tenantCtx(req), id);
+    void reply
+      .header('content-type', 'application/pdf')
+      .header('content-disposition', `inline; filename="${filename}"`)
+      .send(pdf);
+  }
 
   @Get()
   list(

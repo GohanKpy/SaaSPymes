@@ -18,6 +18,7 @@ import { HealthController } from './health.controller';
 import { IntegrationsController } from './integrations/integrations.controller';
 import { InvoicesController } from './invoicing/invoices.controller';
 import { INVOICING_PROVIDER, InvoicesService } from './invoicing/invoices.service';
+import { KudeService } from './invoicing/kude.service';
 import { PlatformModule } from './platform/platform.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { AppointmentsController } from './scheduling/appointments.controller';
@@ -50,6 +51,7 @@ import { UsersController } from './tenant/users.controller';
     TenantEventsService,
     BotService,
     InvoicesService,
+    KudeService,
     {
       provide: INVOICING_PROVIDER,
       useFactory: (env: Env) => createInvoicingProvider(env.INVOICING_PROVIDER),

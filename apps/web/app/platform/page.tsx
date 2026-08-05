@@ -10,7 +10,18 @@ interface Plan {
   code: string;
   name: string;
   monthlyPrice: string;
+  maxUsers: number;
+  maxBranches: number;
+  isActive: boolean;
   planFeatures: { feature: { code: string; name: string } }[];
+}
+interface PlanForm {
+  code: string;
+  name: string;
+  monthly_price: string;
+  max_users: number;
+  max_branches: number;
+  feature_codes: string[];
 }
 interface Feature {
   id: string;
@@ -94,6 +105,46 @@ export default function PlatformPage() {
 
   const [pendingPlans, setPendingPlans] = useState<Record<string, string>>({});
   const [savedTenant, setSavedTenant] = useState<string | null>(null);
+
+  // Gestion de planes (doc 04 §3.11): crear y editar con features tildadas.
+  const emptyPlan: PlanForm = { code: '', name: '', monthly_price: '0', max_users: 3, max_branches: 1, feature_codes: [] };
+  const [planForm, setPlanForm] = useState<PlanForm | null>(null);
+  const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
+  const [planMsg, setPlanMsg] = useState<string | null>(null);
+
+  function startEditPlan(p: Plan) {
+    setEditingPlanId(p.id);
+    setPlanForm({
+      code: p.code,
+      name: p.name,
+      monthly_price: p.monthlyPrice,
+      max_users: p.maxUsers,
+      max_branches: p.maxBranches,
+      feature_codes: p.planFeatures.map((pf) => pf.feature.code),
+    });
+  }
+
+  async function savePlanForm(e: React.FormEvent) {
+    e.preventDefault();
+    if (!planForm) return;
+    setPlanMsg(null);
+    const body = { ...planForm, monthly_price: planForm.monthly_price || '0' };
+    try {
+      if (editingPlanId) {
+        const { code: _code, ...rest } = body;
+        await api(`/platform/plans/${editingPlanId}`, { method: 'PATCH', json: rest });
+      } else {
+        await api('/platform/plans', { method: 'POST', json: body });
+      }
+      setPlanForm(null);
+      setEditingPlanId(null);
+      setPlanMsg('✓ guardado');
+      setTimeout(() => setPlanMsg(null), 2500);
+      load();
+    } catch (e) {
+      setPlanMsg(e instanceof Error ? e.message : 'Error');
+    }
+  }
 
   async function setStatus(id: string, status: string) {
     try {
@@ -320,14 +371,94 @@ export default function PlatformPage() {
       </section>
 
       <section className="rounded-lg border border-slate-200 bg-white p-4">
-        <h2 className="mb-3 font-medium">Planes</h2>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="font-medium">Planes</h2>
+          <div className="flex items-center gap-2">
+            {planMsg && <span className="text-sm text-emerald-600">{planMsg}</span>}
+            <button
+              className={buttonGhost}
+              onClick={() => {
+                setEditingPlanId(null);
+                setPlanForm(planForm && !editingPlanId ? null : { ...emptyPlan });
+              }}
+            >
+              {planForm && !editingPlanId ? 'Cancelar' : '+ Nuevo plan'}
+            </button>
+          </div>
+        </div>
+
+        {planForm && (
+          <form
+            className="mb-4 grid grid-cols-2 items-end gap-3 rounded border border-sky-200 bg-sky-50/50 p-3 md:grid-cols-4"
+            onSubmit={(e) => void savePlanForm(e)}
+          >
+            <Field label="Codigo">
+              <input
+                className={inputClass}
+                value={planForm.code}
+                onChange={(e) => setPlanForm({ ...planForm, code: e.target.value })}
+                disabled={Boolean(editingPlanId)}
+                pattern="[a-z0-9_-]+"
+                required
+              />
+            </Field>
+            <Field label="Nombre">
+              <input className={inputClass} value={planForm.name} onChange={(e) => setPlanForm({ ...planForm, name: e.target.value })} required />
+            </Field>
+            <Field label="Precio mensual (Gs)">
+              <input className={inputClass} type="number" min={0} step={1000} value={planForm.monthly_price} onChange={(e) => setPlanForm({ ...planForm, monthly_price: e.target.value })} />
+            </Field>
+            <div className="flex gap-2">
+              <Field label="Max. usuarios">
+                <input className={inputClass} type="number" min={1} value={planForm.max_users} onChange={(e) => setPlanForm({ ...planForm, max_users: Number(e.target.value) })} />
+              </Field>
+              <Field label="Max. sucursales">
+                <input className={inputClass} type="number" min={1} value={planForm.max_branches} onChange={(e) => setPlanForm({ ...planForm, max_branches: Number(e.target.value) })} />
+              </Field>
+            </div>
+            <div className="col-span-2 md:col-span-3">
+              <Field label="Features incluidas">
+                <div className="flex flex-wrap gap-3">
+                  {features.map((f) => (
+                    <label key={f.code} className="flex items-center gap-1.5 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={planForm.feature_codes.includes(f.code)}
+                        onChange={(e) =>
+                          setPlanForm({
+                            ...planForm,
+                            feature_codes: e.target.checked
+                              ? [...planForm.feature_codes, f.code]
+                              : planForm.feature_codes.filter((c) => c !== f.code),
+                          })
+                        }
+                      />
+                      {f.name}
+                    </label>
+                  ))}
+                </div>
+              </Field>
+            </div>
+            <div>
+              <button className={buttonClass}>{editingPlanId ? 'Guardar cambios' : 'Crear plan'}</button>
+            </div>
+          </form>
+        )}
+
         <div className="grid gap-3 md:grid-cols-3">
           {plans.map((p) => (
-            <div key={p.id} className="rounded border border-slate-200 p-3 text-sm">
-              <p className="font-medium">
-                {p.name} <span className="text-slate-400">({p.code})</span>
+            <div key={p.id} className={`rounded border p-3 text-sm ${editingPlanId === p.id ? 'border-sky-400' : 'border-slate-200'}`}>
+              <div className="flex items-start justify-between">
+                <p className="font-medium">
+                  {p.name} <span className="text-slate-400">({p.code})</span>
+                </p>
+                <button className="text-xs text-sky-700 hover:underline" onClick={() => startEditPlan(p)}>
+                  Editar
+                </button>
+              </div>
+              <p className="text-slate-500">
+                {money(p.monthlyPrice)}/mes · {p.maxUsers} usuarios · {p.maxBranches} suc.
               </p>
-              <p className="text-slate-500">{money(p.monthlyPrice)}/mes</p>
               <ul className="mt-2 space-y-0.5 text-xs text-slate-600">
                 {p.planFeatures.map((pf) => (
                   <li key={pf.feature.code}>✓ {pf.feature.name}</li>
@@ -337,8 +468,8 @@ export default function PlatformPage() {
           ))}
         </div>
         <p className="mt-3 text-xs text-slate-400">
-          Features disponibles: {features.map((f) => f.code).join(', ')}. Los precios se editan via API
-          (PATCH /platform/plans/:id); pantalla completa de planes en la proxima iteracion.
+          Los acuerdos a medida por cliente (forzar una feature con o sin cargo extra) se gestionan
+          en la ficha de cada tenant.
         </p>
       </section>
     </main>

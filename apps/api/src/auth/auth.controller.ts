@@ -7,10 +7,12 @@ import {
   Req,
   Res,
   UnauthorizedException,
+  UseGuards,
 } from '@nestjs/common';
 import { loginRequest, type Env, type LoginRequest, type LoginResponse } from '@pymes/shared';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 
+import { RateLimit, RateLimitGuard } from '../common/rate-limit.guard';
 import { ZodPipe } from '../common/zod.pipe';
 import { ENV } from '../env.module';
 import { Inject } from '@nestjs/common';
@@ -41,6 +43,8 @@ export class AuthController {
   @Public()
   @Post('login')
   @HttpCode(200)
+  @UseGuards(RateLimitGuard)
+  @RateLimit(20, 300) // 20 intentos por IP cada 5 min (ademas del lockout por cuenta)
   async login(
     @Body(new ZodPipe(loginRequest)) dto: LoginRequest,
     @Req() req: FastifyRequest,
@@ -54,6 +58,8 @@ export class AuthController {
   @Public()
   @Post('refresh')
   @HttpCode(200)
+  @UseGuards(RateLimitGuard)
+  @RateLimit(120, 300)
   async refresh(
     @Req() req: FastifyRequest,
     @Res({ passthrough: true }) reply: FastifyReply,
