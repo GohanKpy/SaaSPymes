@@ -4,14 +4,27 @@ import PDFDocument from 'pdfkit';
 import { toBuffer } from 'qrcode';
 
 import { AppPrisma } from '../prisma/app-prisma.service';
+import { numeroALetras } from './letras';
 
 const money = (v: bigint | number) => new Intl.NumberFormat('es-PY').format(Number(v));
 
+// Geometria A4 con margen 40: contenido entre x=40 y x=555.
+const LEFT = 40;
+const RIGHT = 555;
+const WIDTH = RIGHT - LEFT;
+
+interface Branding {
+  logo?: string;
+  actividad?: string;
+  email_facturacion?: string;
+}
+
 /**
- * KuDE: representacion grafica de la factura electronica (doc 04 §3.9).
- * En laboratorio el CDC es sintetico del provider fake; el layout ya sigue
- * el formato KuDE (datos del emisor, timbrado, items, IVA, CDC y QR de
- * consulta) para que con SIFEN real solo cambie el origen de los datos.
+ * KuDE: representacion grafica de la factura electronica (doc 04 §3.9),
+ * con el layout del formato paraguayo: banda de titulo, caja del emisor
+ * (logo + datos), caja de timbrado, datos del receptor, tabla con columnas
+ * EXENTAS / IVA 5% / IVA 10%, total en letras, liquidacion de IVA y pie
+ * con QR + CDC. En laboratorio el CDC es sintetico del provider fake.
  */
 @Injectable()
 export class KudeService {
@@ -26,22 +39,27 @@ export class KudeService {
       if (!invoice) throw new NotFoundException();
       const tenant = await tx.tenant.findUnique({
         where: { id: ctx.tenantId },
-        select: { legalName: true, tradeName: true, ruc: true, timezone: true },
+        select: { legalName: true, tradeName: true, ruc: true, timezone: true, branding: true },
       });
-      return { invoice, tenant };
+      const sifen = await tx.integrationCredential.findFirst({ where: { type: 'sifen' } });
+      return { invoice, tenant, sifen };
     });
 
-    const { invoice, tenant } = data;
+    const { invoice, tenant, sifen } = data;
     if (!invoice.cdc || !['approved', 'cancelled', 'credited'].includes(invoice.status)) {
       throw new UnprocessableEntityException({
         title: 'El KuDE existe solo para facturas emitidas (aprobadas por SIFEN)',
       });
     }
 
+    const tz = tenant?.timezone ?? 'America/Asuncion';
+    const branding = (tenant?.branding ?? {}) as Branding;
+    const sifenConfig = (sifen?.publicConfig ?? {}) as { vigencia_desde?: string | null };
     const numero = `${invoice.establishment}-${invoice.expeditionPoint}-${invoice.docNumber}`;
-    // QR de consulta publica del documento (formato e-Kuatia; host real con SIFEN productivo)
     const qrPayload = `https://ekuatia.set.gov.py/consultas/qr?cdc=${invoice.cdc}`;
     const qr = await toBuffer(qrPayload, { margin: 1, width: 110 });
+
+    const logo = this.decodeLogo(branding.logo);
 
     const doc = new PDFDocument({ size: 'A4', margin: 40 });
     const chunks: Buffer[] = [];
@@ -50,90 +68,236 @@ export class KudeService {
       doc.on('end', () => resolve(Buffer.concat(chunks)));
     });
 
-    // Encabezado del emisor
-    doc.fontSize(15).font('Helvetica-Bold').text(tenant?.tradeName ?? tenant?.legalName ?? '');
-    doc.fontSize(9).font('Helvetica').fillColor('#444444');
-    doc.text(tenant?.legalName ?? '');
+    // ---- Banda de titulo -------------------------------------------------
+    doc.rect(LEFT, 40, WIDTH, 20).fillAndStroke('#eeeeee', '#444444');
+    doc
+      .fillColor('#111111')
+      .font('Helvetica-Bold')
+      .fontSize(11)
+      .text('KuDE DE FACTURA ELECTRONICA', LEFT, 46, { width: WIDTH, align: 'center' });
+
+    // ---- Caja del emisor + caja de timbrado ------------------------------
+    const headTop = 60;
+    const headH = 96;
+    doc.rect(LEFT, headTop, WIDTH, headH).stroke('#444444');
+    const boxW = 180;
+    const boxX = RIGHT - boxW;
+    doc.moveTo(boxX, headTop).lineTo(boxX, headTop + headH).stroke('#444444');
+
+    let textX = LEFT + 10;
+    if (logo) {
+      try {
+        doc.image(logo, LEFT + 8, headTop + 14, { fit: [70, 68] });
+        textX = LEFT + 88;
+      } catch {
+        // logo corrupto: el KuDE sale igual, sin imagen
+      }
+    }
+    doc.font('Helvetica-Bold').fontSize(12).fillColor('#111111');
+    doc.text(tenant?.tradeName ?? tenant?.legalName ?? '', textX, headTop + 10, {
+      width: boxX - textX - 8,
+    });
+    doc.font('Helvetica').fontSize(8).fillColor('#333333');
+    doc.text(tenant?.legalName ?? '', { width: boxX - textX - 8 });
+    if (branding.actividad) {
+      doc.text(`Actividad Economica: ${branding.actividad}`, { width: boxX - textX - 8 });
+    }
     if (tenant?.ruc) doc.text(`RUC: ${tenant.ruc}`);
-    doc.text(`Sucursal: ${invoice.branch?.name ?? ''}`);
+    if (invoice.branch?.address) doc.text(invoice.branch.address, { width: boxX - textX - 8 });
+    if (invoice.branch?.phone) doc.text(`Tel: ${invoice.branch.phone}`);
+    if (branding.email_facturacion) doc.text(branding.email_facturacion);
 
-    // Recuadro del documento
-    doc.fillColor('#000000').moveDown(0.5);
-    const boxTop = doc.y;
-    doc.rect(360, 40, 195, 84).stroke();
-    doc.fontSize(9).text(`Timbrado N° ${invoice.timbrado ?? ''}`, 368, 48, { width: 180 });
-    doc.text(`Inicio de vigencia: —`, { width: 180 });
-    doc.font('Helvetica-Bold').fontSize(11).text('FACTURA ELECTRONICA', { width: 180 });
-    doc.fontSize(11).text(numero, { width: 180 });
-    doc.font('Helvetica').fontSize(9);
-    doc.y = Math.max(doc.y, boxTop);
-
-    // Datos del receptor y de la operacion
-    doc.moveDown(1);
-    doc.x = 40;
-    const issued = invoice.issuedAt ?? invoice.createdAt;
+    doc.font('Helvetica').fontSize(9).fillColor('#111111');
+    doc.text(`Timbrado N°: ${invoice.timbrado ?? '—'}`, boxX + 10, headTop + 12, { width: boxW - 20 });
     doc.text(
-      `Fecha de emision: ${issued.toLocaleString('es-PY', { timeZone: tenant?.timezone ?? 'America/Asuncion', hour12: false })}`,
+      `Inicio Vigencia: ${sifenConfig.vigencia_desde ? this.fecha(sifenConfig.vigencia_desde) : '—'}`,
+      { width: boxW - 20 },
     );
-    const cliente = `${invoice.customer.firstName} ${invoice.customer.lastName ?? ''}`.trim();
-    doc.text(`Cliente: ${cliente}`);
-    if (invoice.customer.docNumber) {
-      doc.text(`${(invoice.customer.docType ?? 'ci').toUpperCase()}: ${invoice.customer.docNumber}${invoice.customer.rucDv ? `-${invoice.customer.rucDv}` : ''}`);
-    }
-    doc.text(`Moneda: ${invoice.currency} · Condicion: contado`);
+    doc.moveDown(0.4);
+    doc.font('Helvetica-Bold').fontSize(11);
+    doc.text('FACTURA ELECTRONICA', boxX + 10, doc.y, { width: boxW - 20, align: 'center' });
+    doc.fontSize(12).text(numero, boxX + 10, doc.y + 2, { width: boxW - 20, align: 'center' });
 
-    // Tabla de items
-    doc.moveDown(1);
-    const col = { desc: 40, qty: 330, unit: 380, iva: 455, total: 495 } as const;
-    doc.font('Helvetica-Bold');
-    doc.text('Descripcion', col.desc, doc.y, { continued: false });
-    const headerY = doc.y - 11;
-    doc.text('Cant.', col.qty, headerY);
-    doc.text('P. unit.', col.unit, headerY);
-    doc.text('IVA', col.iva, headerY);
-    doc.text('Total', col.total, headerY);
-    doc.moveTo(40, doc.y + 2).lineTo(555, doc.y + 2).stroke();
-    doc.font('Helvetica');
+    // ---- Datos del receptor ----------------------------------------------
+    const recTop = headTop + headH + 6;
+    const recH = 64;
+    doc.rect(LEFT, recTop, WIDTH, recH).stroke('#444444');
+    const colSplit = LEFT + WIDTH / 2 + 30;
+
+    const issued = invoice.issuedAt ?? invoice.createdAt;
+    const c = invoice.customer;
+    const docCliente =
+      c.docNumber != null
+        ? `${(c.docType ?? 'ci').toUpperCase()}: ${c.docNumber}${c.rucDv ? `-${c.rucDv}` : ''}`
+        : null;
+
+    doc.font('Helvetica').fontSize(8.5).fillColor('#111111');
+    const rowsL: [string, string][] = [
+      ['Fecha', issued.toLocaleString('es-PY', { timeZone: tz, hour12: false })],
+      ['Nombre o Razon Social', `${c.firstName} ${c.lastName ?? ''}`.trim()],
+      ['Direccion', c.address ?? '—'],
+      ['Email', c.email ?? '—'],
+    ];
+    const rowsR: [string, string][] = [
+      ['Condicion de Venta', 'CONTADO'],
+      ['Tipo de Operacion', 'Prestacion de servicios'],
+      [docCliente ? docCliente.split(':')[0] ?? 'Documento' : 'Documento', docCliente ? (docCliente.split(': ')[1] ?? '—') : '—'],
+      ['Telefono', c.phoneE164 ?? '—'],
+    ];
+    let ry = recTop + 8;
+    for (const [label, value] of rowsL) {
+      doc.font('Helvetica-Bold').text(`${label}:`, LEFT + 10, ry, { continued: true, width: colSplit - LEFT - 20 });
+      doc.font('Helvetica').text(` ${value}`);
+      ry += 13;
+    }
+    ry = recTop + 8;
+    for (const [label, value] of rowsR) {
+      doc.font('Helvetica-Bold').text(`${label}:`, colSplit, ry, { continued: true, width: RIGHT - colSplit - 10 });
+      doc.font('Helvetica').text(` ${value}`);
+      ry += 13;
+    }
+
+    // ---- Tabla de items ---------------------------------------------------
+    const tabTop = recTop + recH + 6;
+    // Columnas: CONCEPTO | P.UNIT | CANT | EXENTAS | IVA 5% | IVA 10%
+    const cols = [
+      { label: 'CONCEPTO', x: LEFT, w: 205, align: 'left' as const },
+      { label: 'PRECIO UNIT.', x: LEFT + 205, w: 75, align: 'right' as const },
+      { label: 'CANT.', x: LEFT + 280, w: 45, align: 'right' as const },
+      { label: 'EXENTAS', x: LEFT + 325, w: 63, align: 'right' as const },
+      { label: 'IVA 5%', x: LEFT + 388, w: 63, align: 'right' as const },
+      { label: 'IVA 10%', x: LEFT + 451, w: 64, align: 'right' as const },
+    ];
+    const headRowH = 16;
+    doc.rect(LEFT, tabTop, WIDTH, headRowH).fillAndStroke('#eeeeee', '#444444');
+    doc.fillColor('#111111').font('Helvetica-Bold').fontSize(8);
+    for (const col of cols) {
+      doc.text(col.label, col.x + 4, tabTop + 5, { width: col.w - 8, align: col.align });
+    }
+
+    doc.font('Helvetica').fontSize(8.5);
+    let y = tabTop + headRowH;
+    const sums = { exentas: 0n, iva5: 0n, iva10: 0n };
     for (const item of invoice.items) {
-      const y = doc.y + 4;
-      doc.text(item.description, col.desc, y, { width: 280 });
-      const rowY = y;
-      doc.text(String(item.quantity), col.qty, rowY);
-      doc.text(money(item.unitPrice), col.unit, rowY);
-      doc.text(`${item.taxRate}%`, col.iva, rowY);
-      doc.text(money(item.lineTotal), col.total, rowY);
+      const rowH = 16;
+      const cells = this.itemCells(item);
+      sums.exentas += cells.exentas;
+      sums.iva5 += cells.iva5;
+      sums.iva10 += cells.iva10;
+      const values = [
+        item.description,
+        money(item.unitPrice),
+        String(Number(item.quantity)),
+        cells.exentas > 0n ? money(cells.exentas) : '0',
+        cells.iva5 > 0n ? money(cells.iva5) : '0',
+        cells.iva10 > 0n ? money(cells.iva10) : '0',
+      ];
+      doc.rect(LEFT, y, WIDTH, rowH).stroke('#bbbbbb');
+      values.forEach((value, i) => {
+        const col = cols[i];
+        if (!col) return;
+        doc.text(value, col.x + 4, y + 4, { width: col.w - 8, align: col.align });
+      });
+      y += rowH;
     }
-    doc.moveTo(40, doc.y + 4).lineTo(555, doc.y + 4).stroke();
+    // Lineas verticales de la tabla
+    for (const col of cols.slice(1)) {
+      doc.moveTo(col.x, tabTop).lineTo(col.x, y).stroke('#bbbbbb');
+    }
 
-    // Totales (IVA incluido, doc 04 §3.9)
-    doc.moveDown(1);
-    doc.x = 380;
-    doc.text(`Subtotal: ${money(invoice.subtotal)} Gs`);
-    doc.text(`IVA: ${money(invoice.taxTotal)} Gs`);
-    doc.font('Helvetica-Bold').fontSize(11).text(`TOTAL: ${money(invoice.total)} Gs`);
-    doc.font('Helvetica').fontSize(9);
+    // Sub-totales y total
+    const subH = 16;
+    doc.rect(LEFT, y, WIDTH, subH).stroke('#444444');
+    doc.font('Helvetica-Bold');
+    doc.text('SUB-TOTALES:', LEFT + 4, y + 4, { width: 325 - 8, align: 'right' });
+    doc.text(money(sums.exentas), (cols[3]?.x ?? 0) + 4, y + 4, { width: (cols[3]?.w ?? 0) - 8, align: 'right' });
+    doc.text(money(sums.iva5), (cols[4]?.x ?? 0) + 4, y + 4, { width: (cols[4]?.w ?? 0) - 8, align: 'right' });
+    doc.text(money(sums.iva10), (cols[5]?.x ?? 0) + 4, y + 4, { width: (cols[5]?.w ?? 0) - 8, align: 'right' });
+    y += subH;
 
-    // Estado (anulada cruza el documento)
+    doc.rect(LEFT, y, WIDTH, subH).stroke('#444444');
+    doc.fontSize(9.5);
+    doc.text('TOTAL A PAGAR:', LEFT + 4, y + 3, { width: WIDTH - 90, align: 'right' });
+    doc.text(`${money(invoice.total)}`, RIGHT - 84, y + 3, { width: 80, align: 'right' });
+    y += subH;
+
+    doc.rect(LEFT, y, WIDTH, subH).stroke('#444444');
+    doc.fontSize(8.5);
+    doc.text('TOTAL A PAGAR EN LETRAS:', LEFT + 4, y + 4, { continued: true });
+    doc.font('Helvetica').text(` Guaranies ${numeroALetras(invoice.total)}`);
+    y += subH;
+
+    // Liquidacion de IVA (montos de IVA contenidos, IVA incluido: doc 04 §3.9).
+    // Redondeo al guarani mas cercano, igual que el calculo de tax_total.
+    const iva5 = Math.round(Number(sums.iva5) / 21);
+    const iva10 = Math.round(Number(sums.iva10) / 11);
+    doc.rect(LEFT, y, WIDTH, subH).stroke('#444444');
+    doc.font('Helvetica-Bold').text('LIQUIDACION DE IVA:', LEFT + 4, y + 4, { continued: true });
+    doc.font('Helvetica').text(
+      `   5%: ${money(iva5)}      10%: ${money(iva10)}      TOTAL IVA: ${money(invoice.taxTotal)}`,
+    );
+    y += subH;
+
+    // ---- Marca de anulada -------------------------------------------------
     if (invoice.status === 'cancelled') {
       doc.save();
-      doc.rotate(-25, { origin: [300, 400] });
-      doc.fontSize(52).fillColor('#cc0000').opacity(0.35).text('ANULADA', 140, 380);
+      doc.rotate(-25, { origin: [300, 420] });
+      doc.fontSize(56).fillColor('#cc0000').opacity(0.3);
+      doc.text('ANULADA', 150, 400, { width: 400, align: 'center' });
       doc.restore();
-      doc.opacity(1).fillColor('#000000').fontSize(9);
+      doc.opacity(1).fillColor('#111111');
     }
 
-    // Pie KuDE: CDC + QR de consulta
-    doc.x = 40;
-    doc.y = 700;
-    doc.moveTo(40, 695).lineTo(555, 695).stroke();
-    doc.image(qr, 40, 705, { width: 80 });
-    doc.fontSize(8).text('Consulte la validez de este documento con el CDC en:', 130, 710);
-    doc.text('https://ekuatia.set.gov.py/consultas (laboratorio: CDC sintetico)', 130);
-    doc.font('Helvetica-Bold').text(`CDC: ${invoice.cdc}`, 130, doc.y + 4);
-    doc.font('Helvetica').text(`KuDE generado el ${new Date().toLocaleString('es-PY', { timeZone: tenant?.timezone ?? 'America/Asuncion', hour12: false })}`, 130, doc.y + 4);
+    // ---- Pie: QR + CDC ----------------------------------------------------
+    const footTop = 700;
+    doc.rect(LEFT, footTop, WIDTH, 96).stroke('#444444');
+    doc.image(qr, LEFT + 8, footTop + 8, { width: 80 });
+    const fx = LEFT + 100;
+    doc.font('Helvetica').fontSize(8).fillColor('#111111');
+    doc.text('Consulte la validez de esta FACTURA ELECTRONICA con el numero CDC impreso abajo en:', fx, footTop + 10, { width: RIGHT - fx - 10 });
+    doc.fillColor('#1155cc').text('https://ekuatia.set.gov.py/consultas/', { width: RIGHT - fx - 10 });
+    doc.fillColor('#111111').font('Helvetica-Bold').fontSize(9);
+    doc.text(`CDC: ${invoice.cdc}`, fx, doc.y + 6, { width: RIGHT - fx - 10 });
+    doc.font('Helvetica').fontSize(7.5).fillColor('#555555');
+    doc.text(
+      'ESTE DOCUMENTO ES UNA REPRESENTACION GRAFICA DE UN DOCUMENTO ELECTRONICO (XML). Laboratorio: CDC sintetico del provider fake.',
+      fx,
+      doc.y + 6,
+      { width: RIGHT - fx - 10 },
+    );
+    doc.fontSize(7).text(
+      `KuDE generado el ${new Date().toLocaleString('es-PY', { timeZone: tz, hour12: false })}`,
+      fx,
+      doc.y + 4,
+    );
 
     doc.end();
     const pdf = await done;
     return { pdf, filename: `kude-${numero}.pdf` };
+  }
+
+  /** Reparte el total de la linea en la columna de su tasa (formato KuDE). */
+  private itemCells(item: { taxRate: number; lineTotal: bigint }) {
+    return {
+      exentas: item.taxRate === 0 ? item.lineTotal : 0n,
+      iva5: item.taxRate === 5 ? item.lineTotal : 0n,
+      iva10: item.taxRate === 10 ? item.lineTotal : 0n,
+    };
+  }
+
+  private decodeLogo(logo: string | undefined): Buffer | null {
+    if (!logo) return null;
+    const match = /^data:image\/(?:png|jpeg);base64,(.+)$/.exec(logo);
+    if (!match?.[1]) return null;
+    try {
+      return Buffer.from(match[1], 'base64');
+    } catch {
+      return null;
+    }
+  }
+
+  private fecha(iso: string): string {
+    const [y, m, d] = iso.split('-');
+    return `${d}/${m}/${y}`;
   }
 }

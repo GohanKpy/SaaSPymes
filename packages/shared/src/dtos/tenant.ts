@@ -8,7 +8,23 @@ export const tenantSelfPatch = z
     trade_name: z.string().min(1).max(200).nullable(),
     ruc: rucWithDv.nullable(),
     timezone: z.string(),
-    branding: z.record(z.string(), z.unknown()),
+    // Marca del negocio: logo (data URL, para el KuDE y el panel), actividad
+    // economica y email de facturacion. El logo vive en branding (doc 03);
+    // el pase a object storage llega con la fase 2.
+    branding: z
+      .record(z.string(), z.unknown())
+      .refine((b) => {
+        const logo = b['logo'];
+        return (
+          logo === undefined ||
+          logo === null ||
+          (typeof logo === 'string' && /^data:image\/(png|jpeg);base64,/.test(logo))
+        );
+      }, 'logo debe ser un data URL PNG o JPEG')
+      .refine(
+        (b) => JSON.stringify(b).length <= 500_000,
+        'branding demasiado grande (logo max ~350 KB)',
+      ),
   })
   .partial()
   .strict();

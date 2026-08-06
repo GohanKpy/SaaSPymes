@@ -39,19 +39,75 @@ const PERMISOS: { key: keyof BotSettings; label: string }[] = [
   { key: 'accessCustomerData', label: 'Puede ver datos de contacto del cliente' },
 ];
 
+interface TenantMe {
+  branding: Record<string, unknown>;
+}
+
 export default function SettingsPage() {
   const [integrations, setIntegrations] = useState<Integration[]>([]);
   const [bot, setBot] = useState<BotSettings | null>(null);
   const [wa, setWa] = useState({ phone_number_id: '', access_token: '', verify_token: 'dev-verify-token', live: false });
-  const [sifen, setSifen] = useState({ timbrado: '', establishment: '001', expedition_point: '001' });
+  const [sifen, setSifen] = useState({ timbrado: '', establishment: '001', expedition_point: '001', vigencia_desde: '' });
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
+
+  // Marca del negocio: logo + datos que se imprimen en el KuDE.
+  const [branding, setBranding] = useState<Record<string, unknown>>({});
+  const [marca, setMarca] = useState({ logo: '', actividad: '', email_facturacion: '' });
 
   const load = useCallback(() => {
     void api<Integration[]>('/integrations').then(setIntegrations).catch((e) => setError(String(e.message)));
     void api<BotSettings>('/bot/settings').then(setBot).catch(() => setBot(null));
+    void api<TenantMe>('/tenant')
+      .then((t) => {
+        setBranding(t.branding ?? {});
+        setMarca({
+          logo: typeof t.branding?.logo === 'string' ? t.branding.logo : '',
+          actividad: typeof t.branding?.actividad === 'string' ? t.branding.actividad : '',
+          email_facturacion:
+            typeof t.branding?.email_facturacion === 'string' ? t.branding.email_facturacion : '',
+        });
+      })
+      .catch(() => undefined);
   }, []);
   useEffect(() => load(), [load]);
+
+  function onLogoFile(file: File | undefined) {
+    if (!file) return;
+    if (!['image/png', 'image/jpeg'].includes(file.type)) {
+      setError('El logo debe ser PNG o JPEG');
+      return;
+    }
+    if (file.size > 350_000) {
+      setError('El logo no puede superar 350 KB (usa una version reducida)');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => setMarca((m) => ({ ...m, logo: String(reader.result) }));
+    reader.readAsDataURL(file);
+  }
+
+  async function saveMarca(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    try {
+      await api('/tenant', {
+        method: 'PATCH',
+        json: {
+          branding: {
+            ...branding,
+            logo: marca.logo || undefined,
+            actividad: marca.actividad || undefined,
+            email_facturacion: marca.email_facturacion || undefined,
+          },
+        },
+      });
+      setSaved('Marca del negocio guardada: se refleja en el KuDE de las facturas');
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error');
+    }
+  }
 
   async function saveWa(e: React.FormEvent) {
     e.preventDefault();
@@ -67,7 +123,10 @@ export default function SettingsPage() {
   async function saveSifen(e: React.FormEvent) {
     e.preventDefault();
     try {
-      await api('/integrations/sifen', { method: 'PUT', json: sifen });
+      await api('/integrations/sifen', {
+        method: 'PUT',
+        json: { ...sifen, vigencia_desde: sifen.vigencia_desde || undefined },
+      });
       setSaved('Datos SIFEN guardados');
       load();
     } catch (e) {
@@ -92,6 +151,53 @@ export default function SettingsPage() {
       <h1 className="text-xl font-semibold">Ajustes e integraciones</h1>
       <ErrorNote error={error} />
       {saved && <p className="rounded bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{saved}</p>}
+
+      <section className="rounded-lg border border-slate-200 bg-white p-4">
+        <h2 className="font-medium">Marca del negocio</h2>
+        <p className="mb-3 text-xs text-slate-500">
+          El logo y estos datos se imprimen en el encabezado del KuDE (PDF de tus facturas).
+        </p>
+        <form className="grid grid-cols-1 items-start gap-4 md:grid-cols-3" onSubmit={(e) => void saveMarca(e)}>
+          <div className="space-y-2">
+            <Field label="Logo (PNG o JPEG, max 350 KB)">
+              <input
+                className="block w-full text-sm"
+                type="file"
+                accept="image/png,image/jpeg"
+                onChange={(e) => onLogoFile(e.target.files?.[0])}
+              />
+            </Field>
+            {marca.logo && (
+              <div className="flex items-center gap-3">
+                {/* data URL local: <img> directo, next/image no aplica */}
+                <img src={marca.logo} alt="logo" className="h-16 w-16 rounded border border-slate-200 object-contain" />
+                <button type="button" className="text-xs text-red-600 hover:underline" onClick={() => setMarca({ ...marca, logo: '' })}>
+                  Quitar logo
+                </button>
+              </div>
+            )}
+          </div>
+          <Field label="Actividad economica">
+            <input
+              className={inputClass}
+              placeholder="Ej: Peluqueria y estetica"
+              value={marca.actividad}
+              onChange={(e) => setMarca({ ...marca, actividad: e.target.value })}
+            />
+          </Field>
+          <div className="space-y-3">
+            <Field label="Email de facturacion">
+              <input
+                className={inputClass}
+                type="email"
+                value={marca.email_facturacion}
+                onChange={(e) => setMarca({ ...marca, email_facturacion: e.target.value })}
+              />
+            </Field>
+            <button className={buttonClass}>Guardar marca</button>
+          </div>
+        </form>
+      </section>
 
       {bot && (
         <section className="rounded-lg border border-violet-200 bg-white p-4">
@@ -201,6 +307,9 @@ export default function SettingsPage() {
                 <input className={inputClass} value={sifen.expedition_point} onChange={(e) => setSifen({ ...sifen, expedition_point: e.target.value })} required />
               </Field>
             </div>
+            <Field label="Inicio de vigencia del timbrado (se imprime en el KuDE)">
+              <input className={inputClass} type="date" value={sifen.vigencia_desde} onChange={(e) => setSifen({ ...sifen, vigencia_desde: e.target.value })} />
+            </Field>
             <button className={buttonClass}>Guardar SIFEN</button>
           </form>
         </section>

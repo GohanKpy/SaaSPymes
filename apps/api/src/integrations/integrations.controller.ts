@@ -97,6 +97,7 @@ export class IntegrationsController {
         timbrado: dto.timbrado,
         establishment: dto.establishment,
         expedition_point: dto.expedition_point,
+        vigencia_desde: dto.vigencia_desde ?? null,
       },
       secret: { cert_passphrase: dto.cert_passphrase ?? null },
     });

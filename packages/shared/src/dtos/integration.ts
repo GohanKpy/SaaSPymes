@@ -30,6 +30,11 @@ export const sifenIntegrationPut = z
     timbrado: z.string().regex(/^\d{8}$/, 'timbrado de 8 digitos'),
     establishment: z.string().regex(/^\d{3}$/, '3 digitos, ej. 001'),
     expedition_point: z.string().regex(/^\d{3}$/, '3 digitos, ej. 001'),
+    /** Inicio de vigencia del timbrado (se imprime en el KuDE). */
+    vigencia_desde: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, 'fecha YYYY-MM-DD')
+      .optional(),
     // El certificado .p12 real llega con la integracion definitiva; la
     // passphrase ya viaja cifrada para dejar el circuito listo.
     cert_passphrase: z.string().optional(),
