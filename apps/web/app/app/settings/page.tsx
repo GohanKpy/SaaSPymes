@@ -40,6 +40,9 @@ const PERMISOS: { key: keyof BotSettings; label: string }[] = [
 ];
 
 interface TenantMe {
+  legalName: string;
+  tradeName: string | null;
+  ruc: string | null;
   branding: Record<string, unknown>;
 }
 
@@ -51,9 +54,10 @@ export default function SettingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
 
-  // Marca del negocio: logo + datos que se imprimen en el KuDE.
+  // Datos de la empresa + marca: todo lo que se imprime en el KuDE se edita aca.
   const [branding, setBranding] = useState<Record<string, unknown>>({});
   const [marca, setMarca] = useState({ logo: '', actividad: '', email_facturacion: '' });
+  const [empresa, setEmpresa] = useState({ legal_name: '', trade_name: '', ruc: '' });
 
   const load = useCallback(() => {
     void api<Integration[]>('/integrations').then(setIntegrations).catch((e) => setError(String(e.message)));
@@ -61,6 +65,7 @@ export default function SettingsPage() {
     void api<TenantMe>('/tenant')
       .then((t) => {
         setBranding(t.branding ?? {});
+        setEmpresa({ legal_name: t.legalName, trade_name: t.tradeName ?? '', ruc: t.ruc ?? '' });
         setMarca({
           logo: typeof t.branding?.logo === 'string' ? t.branding.logo : '',
           actividad: typeof t.branding?.actividad === 'string' ? t.branding.actividad : '',
@@ -94,6 +99,9 @@ export default function SettingsPage() {
       await api('/tenant', {
         method: 'PATCH',
         json: {
+          legal_name: empresa.legal_name,
+          trade_name: empresa.trade_name || null,
+          ruc: empresa.ruc || null,
           branding: {
             ...branding,
             logo: marca.logo || undefined,
@@ -102,7 +110,7 @@ export default function SettingsPage() {
           },
         },
       });
-      setSaved('Marca del negocio guardada: se refleja en el KuDE de las facturas');
+      setSaved('Datos de la empresa guardados: se reflejan en el KuDE de las facturas');
       load();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error');
@@ -153,11 +161,20 @@ export default function SettingsPage() {
       {saved && <p className="rounded bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{saved}</p>}
 
       <section className="rounded-lg border border-slate-200 bg-white p-4">
-        <h2 className="font-medium">Marca del negocio</h2>
+        <h2 className="font-medium">Datos de la empresa y marca</h2>
         <p className="mb-3 text-xs text-slate-500">
-          El logo y estos datos se imprimen en el encabezado del KuDE (PDF de tus facturas).
+          Todo lo que se imprime en el encabezado del KuDE (PDF de tus facturas) se edita aca.
         </p>
         <form className="grid grid-cols-1 items-start gap-4 md:grid-cols-3" onSubmit={(e) => void saveMarca(e)}>
+          <Field label="Razon social">
+            <input className={inputClass} value={empresa.legal_name} onChange={(e) => setEmpresa({ ...empresa, legal_name: e.target.value })} required />
+          </Field>
+          <Field label="Nombre de fantasia">
+            <input className={inputClass} value={empresa.trade_name} onChange={(e) => setEmpresa({ ...empresa, trade_name: e.target.value })} />
+          </Field>
+          <Field label="RUC (con digito verificador)">
+            <input className={inputClass} placeholder="80012345-6" value={empresa.ruc} onChange={(e) => setEmpresa({ ...empresa, ruc: e.target.value })} />
+          </Field>
           <div className="space-y-2">
             <Field label="Logo (PNG o JPEG, max 350 KB)">
               <input
