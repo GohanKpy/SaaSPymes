@@ -38,6 +38,8 @@ const APP_TABLES = [
   'invoice_items',
   'payments',
   'bot_settings',
+  'bot_usage_monthly',
+  'bot_tool_calls',
   'integration_credentials',
   'notification_emails',
   'audit_log',
@@ -87,6 +89,17 @@ async function seedTenant(name: string, phone: string): Promise<SeededTenant> {
     const conversation = await tx.conversation.create({
       data: { tenantId: tenant.id, phoneE164: phone },
     });
+    await tx.botToolCall.create({
+      data: {
+        tenantId: tenant.id,
+        conversationId: conversation.id,
+        tool: 'list_services',
+        ok: true,
+      },
+    });
+    await tx.botUsageMonthly.create({
+      data: { tenantId: tenant.id, period: '2026-08', inputTokens: 1n, outputTokens: 1n },
+    });
     await tx.message.create({
       data: {
         tenantId: tenant.id,
@@ -127,6 +140,8 @@ async function wipeTenant(tenantId: string): Promise<void> {
   await tenantTx(migrator, { tenantId, actorType: 'system' }, async (tx) => {
     // Orden por dependencias FK; audit_log al final (los deletes lo alimentan).
     for (const table of [
+      'bot_tool_calls',
+      'bot_usage_monthly',
       'messages',
       'conversations',
       'payments',

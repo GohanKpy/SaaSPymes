@@ -116,6 +116,7 @@ model Tenant {
   invoices           Invoice[]
   botSettings        BotSettings?
   botUsage           BotUsageMonthly[]
+  botToolCalls       BotToolCall[]
   integrationCreds   IntegrationCredential[]
   notificationEmails NotificationEmail[]
 
@@ -411,13 +412,17 @@ model Conversation {
   phoneE164      String    @map("phone_e164")
   status         String    @default("bot_active") // bot_active|paused|agent|closed
   assignedUserId String?   @map("assigned_user_id") @db.Uuid
+  // El proveedor de IA fallo y el bot dejo el aviso predefinido: la bandeja
+  // la marca hasta que un humano (o el bot recuperado) vuelva a responder.
+  needsHuman     Boolean   @default(false) @map("needs_human")
   lastMessageAt  DateTime? @map("last_message_at") @db.Timestamptz(6)
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
 
-  tenant   Tenant    @relation(fields: [tenantId], references: [id])
-  customer Customer? @relation(fields: [tenantId, customerId], references: [tenantId, id])
-  messages Message[]
+  tenant    Tenant        @relation(fields: [tenantId], references: [id])
+  customer  Customer?     @relation(fields: [tenantId, customerId], references: [tenantId, id])
+  messages  Message[]
+  toolCalls BotToolCall[]
 
   @@id([id])
   @@unique([tenantId, id])
@@ -563,6 +568,27 @@ model BotUsageMonthly {
 
   @@id([tenantId, period])
   @@map("bot_usage_monthly")
+  @@schema("app")
+}
+
+// Trazabilidad persistente de las herramientas del bot (auditoria 2026-08-07):
+// antes solo quedaba en los logs del contenedor y se perdia con el redeploy.
+model BotToolCall {
+  id             BigInt   @id @default(autoincrement())
+  tenantId       String   @map("tenant_id") @db.Uuid
+  conversationId String   @map("conversation_id") @db.Uuid
+  tool           String
+  args           Json     @default("{}")
+  ok             Boolean
+  detail         String? // resultado (ok) o mensaje de error, truncado
+  durationMs     Int      @default(0) @map("duration_ms")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id])
+  conversation Conversation @relation(fields: [tenantId, conversationId], references: [tenantId, id])
+
+  @@index([tenantId, conversationId, id(sort: Desc)], map: "bot_tool_calls_conv_idx")
+  @@map("bot_tool_calls")
   @@schema("app")
 }
 

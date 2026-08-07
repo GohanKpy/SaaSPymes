@@ -6,6 +6,12 @@ import type { ProviderTurn } from './turn';
 
 const DEFAULT_MODEL = 'gpt-4o-mini'; // modelo economico (ADR 0002)
 const MAX_ITERATIONS = 6;
+// Exactitud sobre creatividad (auditoria 2026-08-07): el bot opera con datos
+// de negocio, no escribe ficcion. Timeout corto + 1 reintento: un cuelgue del
+// proveedor no puede dejar la conversacion colgada mas alla del fallback.
+const TEMPERATURE = 0.1;
+const REQUEST_TIMEOUT_MS = 30_000;
+const MAX_RETRIES = 1;
 
 export const runOpenAiTurn: ProviderTurn = async ({
   apiKey,
@@ -15,7 +21,7 @@ export const runOpenAiTurn: ProviderTurn = async ({
   tools,
   maxTokens,
 }) => {
-  const client = new OpenAI({ apiKey });
+  const client = new OpenAI({ apiKey, timeout: REQUEST_TIMEOUT_MS, maxRetries: MAX_RETRIES });
 
   const definitions: ChatCompletionTool[] = tools.map((tool) => ({
     type: 'function',
@@ -39,6 +45,7 @@ export const runOpenAiTurn: ProviderTurn = async ({
     const completion = await client.chat.completions.create({
       model: model ?? DEFAULT_MODEL,
       max_tokens: maxTokens,
+      temperature: TEMPERATURE,
       messages,
       ...(definitions.length > 0 ? { tools: definitions } : {}),
     });

@@ -79,7 +79,7 @@ export class ConversationsService {
   /** Mensaje del agente humano (doc 04 §3.7). Si la integracion WhatsApp
    *  del tenant esta en modo live, ademas sale de verdad por Cloud API. */
   async sendAsAgent(ctx: TenantContext, conversationId: string, body: string) {
-    const message = await this.appDb.tx(ctx, async (tx) => {
+    const { message, wasNeedsHuman } = await this.appDb.tx(ctx, async (tx) => {
       const conversation = await tx.conversation.findFirst({ where: { id: conversationId } });
       if (!conversation) throw new NotFoundException();
       const created = await tx.message.create({
@@ -95,10 +95,17 @@ export class ConversationsService {
       });
       await tx.conversation.update({
         where: { id: conversationId },
-        data: { lastMessageAt: created.createdAt },
+        // Un humano ya atendio: se limpia la marca de fallo del bot.
+        data: { lastMessageAt: created.createdAt, needsHuman: false },
       });
-      return created;
+      return { message: created, wasNeedsHuman: conversation.needsHuman };
     });
+    if (wasNeedsHuman) {
+      this.events.emit(ctx.tenantId, 'conversation.updated', {
+        id: conversationId,
+        needs_human: false,
+      });
+    }
     this.events.emit(ctx.tenantId, 'message.new', serializeMessage(message));
     this.waSender.dispatch(ctx.tenantId, conversationId, message.id);
     return message;

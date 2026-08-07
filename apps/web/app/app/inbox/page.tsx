@@ -9,6 +9,7 @@ interface Conversation {
   id: string;
   phoneE164: string;
   status: string;
+  needsHuman?: boolean;
   lastMessageAt: string | null;
   customer: {
     firstName: string;
@@ -155,6 +156,11 @@ export default function InboxPage() {
               >
                 <p className="font-medium">
                   {c.customer ? `${c.customer.firstName} ${c.customer.lastName ?? ''}` : c.phoneE164}
+                  {c.needsHuman && (
+                    <span className="ml-2 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-700">
+                      Necesita humano
+                    </span>
+                  )}
                 </p>
                 <p className="text-xs text-slate-500">
                   {c.phoneE164} · {STATUS_LABEL[c.status] ?? c.status} · {dt(c.lastMessageAt)}
@@ -179,6 +185,11 @@ export default function InboxPage() {
                   {current.customer
                     ? `${current.customer.firstName} ${current.customer.lastName ?? ''}`
                     : current.phoneE164}
+                  {current.needsHuman && (
+                    <span className="ml-2 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-700">
+                      El bot no pudo responder: atender manualmente
+                    </span>
+                  )}
                 </span>
                 <button className={buttonGhost} onClick={() => void toggleBot(current)}>
                   {current.status === 'bot_active' ? 'Pausar bot' : 'Reactivar bot'}

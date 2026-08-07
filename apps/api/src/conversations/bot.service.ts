@@ -41,6 +41,15 @@ function renderInstructions(
 const BUDGET_NOTICE =
   'Gracias por escribirnos. En este momento una persona del negocio va a continuar la conversacion por este mismo chat.';
 
+/**
+ * Aviso unico si el proveedor de IA falla (auditoria 2026-08-07): el cliente
+ * no puede quedar sin respuesta ni enterarse del problema tecnico. La
+ * conversacion queda marcada "necesita humano" en la bandeja; el proximo
+ * mensaje del cliente vuelve a intentar con el bot.
+ */
+const FALLBACK_NOTICE =
+  'Gracias por tu mensaje! En breve una persona del equipo te responde por este mismo chat.';
+
 // Debounce humano (pedido 2026-08-07): esperar tras el ULTIMO mensaje del
 // cliente antes de responder, para contestar todo junto si escribe en rafaga.
 const REPLY_DEBOUNCE_MS = 15_000;
@@ -171,6 +180,7 @@ export class BotService {
         return;
       }
       const handlers = this.withToolLogging(
+        tenantId,
         conversation.id,
         this.buildHandlers(tenantId, conversation.id, settings.autoConfirmBookings, timezone),
       );
@@ -191,24 +201,41 @@ export class BotService {
       const basePrompt = renderInstructions(engineConfig.basePrompt ?? DEFAULT_BASE_PROMPT, vars);
       const instructions = renderInstructions(settings.instructionsText, vars);
 
-      const result = await runBotTurn({
-        provider: engineConfig.provider,
-        apiKey,
-        model: engineConfig.model,
-        businessName: tenant?.tradeName ?? tenant?.legalName ?? 'el negocio',
-        timezone,
-        basePrompt,
-        instructions,
-        instructionsPriority: settings.instructionsOverride,
-        customerContext,
-        permissions: settings,
-        handlers,
-        history: history.map((m) => ({
-          direction: m.direction as 'in' | 'out',
-          senderType: m.senderType,
-          body: m.body,
-        })),
-      });
+      let result;
+      try {
+        result = await runBotTurn({
+          provider: engineConfig.provider,
+          apiKey,
+          model: engineConfig.model,
+          businessName: tenant?.tradeName ?? tenant?.legalName ?? 'el negocio',
+          timezone,
+          basePrompt,
+          instructions,
+          instructionsPriority: settings.instructionsOverride,
+          customerContext,
+          permissions: settings,
+          handlers,
+          history: history.map((m) => ({
+            direction: m.direction as 'in' | 'out',
+            senderType: m.senderType,
+            body: m.body,
+          })),
+        });
+      } catch (error) {
+        // Fallback seguro (auditoria 2026-08-07): timeout, 5xx o falta de
+        // credito del proveedor ya agotaron el reintento del runner. Antes el
+        // bot callaba y el cliente quedaba hablando solo.
+        this.logger.error(
+          `proveedor IA fallo tenant=${tenantId} conv=${conversationId}`,
+          error instanceof Error ? error.stack : String(error),
+        );
+        const lastBot = [...history].reverse().find((m) => m.senderType === 'bot');
+        if (lastBot?.body !== FALLBACK_NOTICE) {
+          await this.storeBotReply(tenantId, conversationId, FALLBACK_NOTICE);
+        }
+        await this.setNeedsHuman(tenantId, conversationId, true);
+        return;
+      }
 
       // El consumo se registra aunque el modelo no haya producido texto:
       // los tokens ya se gastaron (ADR 0006).
@@ -233,6 +260,11 @@ export class BotService {
 
       if (!result.reply) return;
       await this.storeBotReply(tenantId, conversationId, result.reply);
+      // El bot volvio a responder con exito: la marca "necesita humano" de un
+      // fallo anterior del proveedor ya no aplica.
+      if (conversation.needsHuman) {
+        await this.setNeedsHuman(tenantId, conversationId, false);
+      }
     } catch (error) {
       // El bot jamas tumba el pipeline de chat: se loguea y el panel decide.
       this.logger.error(
@@ -264,24 +296,71 @@ export class BotService {
     this.waSender.dispatch(tenantId, conversationId, stored.id);
   }
 
+  /** Marca/desmarca la conversacion como "necesita humano" y avisa a la
+   *  bandeja por SSE. */
+  private async setNeedsHuman(
+    tenantId: string,
+    conversationId: string,
+    needsHuman: boolean,
+  ): Promise<void> {
+    await this.appDb.tx({ tenantId, actorType: 'bot' }, (tx) =>
+      tx.conversation.update({ where: { id: conversationId }, data: { needsHuman } }),
+    );
+    this.events.emit(tenantId, 'conversation.updated', {
+      id: conversationId,
+      needs_human: needsHuman,
+    });
+  }
+
   /**
    * Deja rastro de cada tool call del bot (nombre, argumentos, resultado o
    * error): sin esto, un fallo de reserva es invisible porque el error solo
-   * viaja de vuelta al modelo.
+   * viaja de vuelta al modelo. Ademas del log del contenedor queda una fila
+   * en app.bot_tool_calls (auditoria 2026-08-07): sobrevive al redeploy y es
+   * consultable por tenant. El registro es best-effort: un fallo al auditar
+   * jamas rompe la herramienta.
    */
-  private withToolLogging(conversationId: string, handlers: BotToolHandlers): BotToolHandlers {
+  private withToolLogging(
+    tenantId: string,
+    conversationId: string,
+    handlers: BotToolHandlers,
+  ): BotToolHandlers {
+    const persist = (tool: string, rendered: string, ok: boolean, detail: string, ms: number) =>
+      this.appDb
+        .tx({ tenantId, actorType: 'bot' }, (tx) =>
+          tx.botToolCall.create({
+            data: {
+              tenantId,
+              conversationId,
+              tool,
+              args: JSON.parse(rendered) as object,
+              ok,
+              detail: detail.slice(0, 2000),
+              durationMs: ms,
+            },
+          }),
+        )
+        .catch((error: unknown) =>
+          this.logger.warn(
+            `no se pudo auditar tool=${tool} conv=${conversationId}: ${error instanceof Error ? error.message : String(error)}`,
+          ),
+        );
     const wrap =
       <A extends unknown[], R>(name: string, fn: (...args: A) => Promise<R>) =>
       async (...args: A): Promise<R> => {
         const rendered = JSON.stringify(args);
+        const startedAt = Date.now();
         try {
           const result = await fn(...args);
           this.logger.log(`tool=${name} conv=${conversationId} args=${rendered} ok`);
+          void persist(name, rendered, true, JSON.stringify(result), Date.now() - startedAt);
           return result;
         } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
           this.logger.warn(
-            `tool=${name} conv=${conversationId} args=${rendered} error="${error instanceof Error ? error.message : String(error)}"`,
+            `tool=${name} conv=${conversationId} args=${rendered} error="${detail}"`,
           );
+          void persist(name, rendered, false, detail, Date.now() - startedAt);
           throw error;
         }
       };

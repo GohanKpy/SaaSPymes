@@ -6,6 +6,11 @@ import type { ToolDef } from './tools';
 import type { ProviderTurn, TurnMessage } from './turn';
 
 const DEFAULT_MODEL = 'claude-haiku-4-5'; // modelo economico (doc 01 §4)
+// Mismos parametros operativos que el runner de OpenAI (auditoria 2026-08-07):
+// exactitud sobre creatividad, y un cuelgue del proveedor corta en 30 s.
+const TEMPERATURE = 0.1;
+const REQUEST_TIMEOUT_MS = 30_000;
+const MAX_RETRIES = 1;
 
 export const runAnthropicTurn: ProviderTurn = async ({
   apiKey,
@@ -15,11 +20,12 @@ export const runAnthropicTurn: ProviderTurn = async ({
   tools,
   maxTokens,
 }) => {
-  const client = new Anthropic({ apiKey });
+  const client = new Anthropic({ apiKey, timeout: REQUEST_TIMEOUT_MS, maxRetries: MAX_RETRIES });
 
   const finalMessage = await client.beta.messages.toolRunner({
     model: model ?? DEFAULT_MODEL,
     max_tokens: maxTokens,
+    temperature: TEMPERATURE,
     system,
     tools: tools.map((tool: ToolDef) =>
       betaTool({
