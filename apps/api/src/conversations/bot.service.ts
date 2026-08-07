@@ -262,11 +262,14 @@ export class BotService {
               currency: true,
               durationMin: true,
               bookableByBot: true,
+              category: { select: { name: true, sortOrder: true } },
             },
+            orderBy: [{ category: { sortOrder: 'asc' } }, { name: 'asc' }],
           });
           return services.map((s) => ({
             id: s.id,
             name: s.name,
+            categoria: s.category?.name ?? null,
             descripcion: s.description,
             price: s.price.toString(),
             currency: s.currency,
@@ -300,7 +303,30 @@ export class BotService {
           service_id: serviceId,
           date,
         });
-        return slots.map(horaLocal);
+        if (slots.length > 0) {
+          return { date, horarios_disponibles: slots.map(horaLocal) };
+        }
+        // Dia sin horarios (ej. consulta de noche): buscar la proxima fecha
+        // con disponibilidad para que el bot SIEMPRE tenga algo que ofrecer.
+        for (let offset = 1; offset <= 14; offset++) {
+          const next = new Date(`${date}T12:00:00Z`);
+          next.setUTCDate(next.getUTCDate() + offset);
+          const nextDate = next.toISOString().slice(0, 10);
+          const nextSlots = await this.appointments.availability(ctx, {
+            branch_id: branch,
+            service_id: serviceId,
+            date: nextDate,
+          });
+          if (nextSlots.length > 0) {
+            return {
+              date,
+              horarios_disponibles: [],
+              proxima_fecha_con_horarios: nextDate,
+              horarios_de_proxima_fecha: nextSlots.map(horaLocal),
+            };
+          }
+        }
+        return { date, horarios_disponibles: [] };
       },
 
       bookAppointment: async ({ serviceId, date, horaLocal: horaPedida }) => {

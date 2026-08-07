@@ -23,6 +23,7 @@ export interface BotToolHandlers {
     {
       id: string;
       name: string;
+      categoria: string | null;
       descripcion: string | null;
       price: string;
       currency: string;
@@ -31,8 +32,16 @@ export interface BotToolHandlers {
       agendable: boolean;
     }[]
   >;
-  /** Horarios libres del dia, como "HH:MM" en hora local del negocio. */
-  getAvailableSlots(serviceId: string, date: string): Promise<string[]>;
+  /** Horarios libres del dia (hora local); si no hay, incluye la proxima fecha con disponibilidad. */
+  getAvailableSlots(
+    serviceId: string,
+    date: string,
+  ): Promise<{
+    date: string;
+    horarios_disponibles: string[];
+    proxima_fecha_con_horarios?: string;
+    horarios_de_proxima_fecha?: string[];
+  }>;
   bookAppointment(args: {
     serviceId: string;
     date: string;
@@ -81,7 +90,7 @@ export function buildBotTools(permissions: BotPermissions, handlers: BotToolHand
     tools.push({
       name: 'get_available_slots',
       description:
-        'Devuelve los horarios libres (hora local del negocio, formato HH:MM) para un servicio en una fecha dada. SIEMPRE llama primero a list_services y usa el id exacto que devuelve; nunca inventes un service_id.',
+        'Devuelve los horarios libres (hora local del negocio, formato HH:MM) para un servicio en una fecha dada. Si esa fecha no tiene horarios, la respuesta incluye la proxima fecha con disponibilidad y sus horarios: ofrecelos. SIEMPRE llama primero a list_services y usa el id exacto que devuelve; nunca inventes un service_id.',
       parameters: {
         type: 'object',
         properties: {
@@ -92,13 +101,7 @@ export function buildBotTools(permissions: BotPermissions, handlers: BotToolHand
         additionalProperties: false,
       },
       run: async (args) =>
-        JSON.stringify({
-          date: args.date,
-          horarios_disponibles: await handlers.getAvailableSlots(
-            args.service_id ?? '',
-            args.date ?? '',
-          ),
-        }),
+        JSON.stringify(await handlers.getAvailableSlots(args.service_id ?? '', args.date ?? '')),
     });
   }
   if (permissions.allowBooking) {

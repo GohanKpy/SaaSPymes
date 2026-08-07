@@ -126,7 +126,7 @@ export default function WebchatTester() {
             {messages.map((m) => (
               <div key={m.id} className={`flex ${m.direction === 'in' ? 'justify-end' : 'justify-start'}`}>
                 <div className={`max-w-[75%] rounded-lg px-3 py-2 text-sm ${m.direction === 'in' ? 'bg-emerald-100' : 'bg-slate-100'}`}>
-                  <p>{m.body}</p>
+                  <p className="whitespace-pre-line">{m.body}</p>
                   <p className="mt-0.5 text-[10px] text-slate-400">
                     {m.direction === 'in' ? 'vos' : m.sender_type === 'bot' ? 'bot' : 'negocio'}
                   </p>

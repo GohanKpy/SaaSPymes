@@ -189,7 +189,7 @@ export default function InboxPage() {
                             : 'bg-sky-100'
                       }`}
                     >
-                      <p>{m.body}</p>
+                      <p className="whitespace-pre-line">{m.body}</p>
                       <p className="mt-0.5 text-[10px] text-slate-400">
                         {m.sender_type} · {dt(m.created_at)}
                       </p>
