@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { rucWithDv, uuid } from '../validators';
+import { montoGs, rucWithDv, uuid } from '../validators';
 
 export const tenantCreate = z
   .object({
@@ -47,7 +47,7 @@ export const planCreate = z
       .max(40)
       .regex(/^[a-z0-9_-]+$/),
     name: z.string().min(1).max(120),
-    monthly_price: z.coerce.bigint().min(0n),
+    monthly_price: montoGs(z.coerce.bigint().min(0n)),
     currency: z.string().length(3).default('PYG'),
     max_users: z.number().int().min(1).default(1),
     max_branches: z.number().int().min(1).default(1),
@@ -65,7 +65,7 @@ export const overridePut = z
   .object({
     feature_code: z.string().min(1),
     enabled: z.boolean(),
-    extra_fee: z.coerce.bigint().min(0n).default(0n),
+    extra_fee: montoGs(z.coerce.bigint().min(0n).default(0n)),
     limits: z.record(z.string(), z.unknown()).nullable().optional(),
     note: z.string().min(3).max(1000), // motivo del acuerdo: obligatorio (doc 03)
   })

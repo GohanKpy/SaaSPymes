@@ -34,6 +34,21 @@ export const rucWithDv = z
 
 export const uuid = z.uuid();
 
+/**
+ * Monto en guaranies: entero, sin decimales. Un humano tipea "150.000" o
+ * "150,000" (separador de miles); en Gs el punto jamas es decimal, asi que
+ * solo se limpia el agrupado exacto de a 3 digitos — cualquier otro formato
+ * sigue su curso y falla la validacion con el error de campo.
+ */
+const limpiarMiles = (v: unknown): unknown => {
+  if (typeof v !== 'string') return v;
+  const trimmed = v.trim();
+  return /^\d{1,3}([.,]\d{3})+$/.test(trimmed) ? trimmed.replace(/[.,]/g, '') : trimmed;
+};
+
+/** Envuelve un schema de monto para aceptar el formato humano con miles. */
+export const montoGs = <T extends z.ZodType>(schema: T) => z.preprocess(limpiarMiles, schema);
+
 /** Paginacion cursor-based (doc 04 §1). */
 export const paginationQuery = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),

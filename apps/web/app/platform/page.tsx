@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 
-import { api, logout } from '../../lib/api';
+import { ApiError, api, logout } from '../../lib/api';
 import { ErrorNote, Field, buttonClass, buttonGhost, inputClass, money, useSession } from '../../lib/ui';
 
 interface Plan {
@@ -128,7 +128,8 @@ export default function PlatformPage() {
   const emptyPlan: PlanForm = { code: '', name: '', monthly_price: '0', max_users: 3, max_branches: 1, feature_codes: [] };
   const [planForm, setPlanForm] = useState<PlanForm | null>(null);
   const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
-  const [planMsg, setPlanMsg] = useState<string | null>(null);
+  // ok distingue exito de error: el mensaje se pinta verde o rojo segun eso.
+  const [planMsg, setPlanMsg] = useState<{ text: string; ok: boolean } | null>(null);
 
   function startEditPlan(p: Plan) {
     setEditingPlanId(p.id);
@@ -156,11 +157,20 @@ export default function PlatformPage() {
       }
       setPlanForm(null);
       setEditingPlanId(null);
-      setPlanMsg('✓ guardado');
+      setPlanMsg({ text: '✓ guardado', ok: true });
       setTimeout(() => setPlanMsg(null), 2500);
       load();
     } catch (e) {
-      setPlanMsg(e instanceof Error ? e.message : 'Error');
+      // Con errores de campo del API (422) se muestra QUE campo fallo, no
+      // solo el titulo generico "Datos invalidos".
+      const fields =
+        e instanceof ApiError && e.problem.errors
+          ? ': ' +
+            Object.entries(e.problem.errors)
+              .map(([campo, msgs]) => `${campo} (${msgs.join(', ')})`)
+              .join(' · ')
+          : '';
+      setPlanMsg({ text: (e instanceof Error ? e.message : 'Error') + fields, ok: false });
     }
   }
 
@@ -437,7 +447,11 @@ export default function PlatformPage() {
         <div className="mb-3 flex items-center justify-between">
           <h2 className="font-medium">Planes</h2>
           <div className="flex items-center gap-2">
-            {planMsg && <span className="text-sm text-emerald-600">{planMsg}</span>}
+            {planMsg && (
+              <span className={`text-sm ${planMsg.ok ? 'text-emerald-600' : 'text-red-600'}`}>
+                {planMsg.text}
+              </span>
+            )}
             <button
               className={buttonGhost}
               onClick={() => {

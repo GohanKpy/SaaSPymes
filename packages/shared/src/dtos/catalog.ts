@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { montoGs } from '../validators';
+
 export const categoryCreate = z
   .object({
     name: z.string().min(1).max(120),
@@ -17,7 +19,7 @@ export const serviceCreate = z
     name: z.string().min(1).max(200),
     description: z.string().max(2000).optional(),
     // Montos en guaranies sin decimales (convencion del plan); string por BigInt.
-    price: z.coerce.bigint().min(0n),
+    price: montoGs(z.coerce.bigint().min(0n)),
     currency: z.string().length(3).default('PYG'),
     tax_rate: z.union([z.literal(0), z.literal(5), z.literal(10)]).default(10),
     duration_min: z.number().int().positive().optional(),
