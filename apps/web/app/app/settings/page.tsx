@@ -36,7 +36,7 @@ const PERMISOS: { key: keyof BotSettings; label: string }[] = [
   { key: 'allowBooking', label: 'Puede agendar turnos' },
   { key: 'autoConfirmBookings', label: 'Turnos del bot se confirman solos (sin confirmacion manual)' },
   { key: 'accessHistory', label: 'Puede ver historial del cliente de la conversacion' },
-  { key: 'accessCustomerData', label: 'Puede ver datos de contacto del cliente' },
+  { key: 'accessCustomerData', label: 'Puede ver datos del cliente y agendarlo si se presenta en el chat' },
 ];
 
 interface TenantMe {

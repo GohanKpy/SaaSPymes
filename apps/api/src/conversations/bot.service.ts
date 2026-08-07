@@ -186,6 +186,7 @@ export class BotService {
       getAvailableSlots: wrap('get_available_slots', handlers.getAvailableSlots),
       bookAppointment: wrap('book_appointment', handlers.bookAppointment),
       getCustomerHistory: wrap('get_customer_history', handlers.getCustomerHistory),
+      saveCustomerName: wrap('save_customer_name', handlers.saveCustomerName),
     };
   }
 
@@ -308,6 +309,76 @@ export class BotService {
             horaLocal: horaLocal(appointment.startsAt.toISOString()),
             serviceName: appointment.service?.name ?? '',
           };
+        });
+      },
+
+      saveCustomerName: async (fullName) => {
+        const cleaned = fullName.trim().replace(/\s+/g, ' ');
+        if (cleaned.length < 2 || cleaned.length > 200) {
+          throw new Error('full_name invalido: envia el nombre tal como lo confirmo el cliente');
+        }
+        const [firstName, ...rest] = cleaned.split(' ');
+        const lastName = rest.length > 0 ? rest.join(' ') : null;
+        return this.appDb.tx(ctx, async (tx) => {
+          const conversation = await tx.conversation.findFirst({ where: { id: conversationId } });
+          if (!conversation) throw new Error('conversacion inexistente');
+
+          // Cliente ya vinculado: solo se completa el placeholder del alta
+          // automatica; un nombre cargado por el negocio jamas se pisa.
+          if (conversation.customerId) {
+            const existing = await tx.customer.findFirst({
+              where: { id: conversation.customerId },
+            });
+            if (existing && existing.firstName !== 'Cliente') {
+              return {
+                saved: false,
+                detail: `el cliente ya esta agendado como ${existing.firstName} ${existing.lastName ?? ''}`.trim(),
+              };
+            }
+            if (existing) {
+              await tx.customer.update({
+                where: { id: existing.id },
+                data: { firstName: firstName ?? cleaned, lastName },
+              });
+              return { saved: true, detail: `agendado como ${cleaned}` };
+            }
+          }
+
+          // Sin vinculo: reusar la ficha del mismo telefono o crear una nueva.
+          const byPhone = await tx.customer.findFirst({
+            where: { phoneE164: conversation.phoneE164, deletedAt: null },
+          });
+          if (byPhone) {
+            await tx.conversation.update({
+              where: { id: conversationId },
+              data: { customerId: byPhone.id },
+            });
+            if (byPhone.firstName === 'Cliente') {
+              await tx.customer.update({
+                where: { id: byPhone.id },
+                data: { firstName: firstName ?? cleaned, lastName },
+              });
+              return { saved: true, detail: `agendado como ${cleaned}` };
+            }
+            return {
+              saved: false,
+              detail: `el cliente ya esta agendado como ${byPhone.firstName} ${byPhone.lastName ?? ''}`.trim(),
+            };
+          }
+          const created = await tx.customer.create({
+            data: {
+              tenantId,
+              firstName: firstName ?? cleaned,
+              lastName,
+              phoneE164: conversation.phoneE164,
+            },
+          });
+          await tx.conversation.update({
+            where: { id: conversationId },
+            data: { customerId: created.id },
+          });
+          this.events.emit(tenantId, 'conversation.updated', { id: conversationId });
+          return { saved: true, detail: `agendado como ${cleaned}` };
         });
       },
 

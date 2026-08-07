@@ -32,7 +32,19 @@ export class ConversationsService {
           ...(query.status ? { status: query.status } : {}),
           ...(query.q ? { phoneE164: { contains: query.q } } : {}),
         },
-        include: { customer: { select: { id: true, firstName: true, lastName: true } } },
+        // email/doc/telefono del cliente alimentan el buscador de la bandeja.
+        include: {
+          customer: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+              docNumber: true,
+              phoneE164: true,
+            },
+          },
+        },
         orderBy: [{ lastMessageAt: { sort: 'desc', nulls: 'last' } }, { id: 'desc' }],
         take: query.limit + 1,
         ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {}),

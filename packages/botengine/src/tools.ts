@@ -38,6 +38,8 @@ export interface BotToolHandlers {
   getCustomerHistory(): Promise<
     { startsAt: string; serviceName: string | null; visitStatus: string }[]
   >;
+  /** Registra/actualiza el nombre del cliente de la conversacion en la agenda. */
+  saveCustomerName(fullName: string): Promise<{ saved: boolean; detail: string }>;
 }
 
 export interface JsonSchema {
@@ -116,6 +118,25 @@ export function buildBotTools(permissions: BotPermissions, handlers: BotToolHand
             horaLocal: args.hora_local ?? '',
           }),
         ),
+    });
+  }
+  if (permissions.accessCustomerData) {
+    tools.push({
+      name: 'save_customer_name',
+      description:
+        'Registra al cliente de esta conversacion en la agenda del negocio con su nombre. Usala SOLO despues de que el cliente CONFIRME su nombre completo (pregunta "¿Tu nombre completo es ...?" antes). Nunca pises un nombre ya registrado: si la herramienta responde que ya estaba agendado, no insistas.',
+      parameters: {
+        type: 'object',
+        properties: {
+          full_name: {
+            type: 'string',
+            description: 'nombre y apellido tal como los confirmo el cliente',
+          },
+        },
+        required: ['full_name'],
+        additionalProperties: false,
+      },
+      run: async (args) => JSON.stringify(await handlers.saveCustomerName(args.full_name ?? '')),
     });
   }
   if (permissions.accessHistory) {

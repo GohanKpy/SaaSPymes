@@ -10,7 +10,13 @@ interface Conversation {
   phoneE164: string;
   status: string;
   lastMessageAt: string | null;
-  customer: { firstName: string; lastName: string | null } | null;
+  customer: {
+    firstName: string;
+    lastName: string | null;
+    email: string | null;
+    docNumber: string | null;
+    phoneE164: string | null;
+  } | null;
 }
 interface Message {
   id: string;
@@ -36,8 +42,9 @@ export default function InboxPage() {
   const [selected, setSelected] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState('');
+  const [filter, setFilter] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   const loadConversations = useCallback(() => {
     void api<{ data: Conversation[] }>('/conversations')
@@ -69,9 +76,30 @@ export default function InboxPage() {
     return () => source.close();
   }, [selected, loadConversations]);
 
+  // Scroll SOLO dentro del panel de mensajes: scrollIntoView escalaba a la
+  // pagina entera y "bajaba" toda la vista al elegir un chat largo.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
   }, [messages]);
+
+  // Filtro por cualquier dato del cliente o el telefono de la conversacion.
+  const visible = conversations.filter((c) => {
+    const q = filter.trim().toLowerCase();
+    if (!q) return true;
+    const haystack = [
+      c.phoneE164,
+      c.customer?.firstName,
+      c.customer?.lastName,
+      c.customer?.email,
+      c.customer?.docNumber,
+      c.customer?.phoneE164,
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+    return haystack.includes(q);
+  });
 
   async function send(e: React.FormEvent) {
     e.preventDefault();
@@ -97,30 +125,43 @@ export default function InboxPage() {
     <div className="space-y-3">
       <h1 className="text-xl font-semibold">Bandeja de chat</h1>
       <ErrorNote error={error} />
-      <div className="grid min-h-[60vh] grid-cols-3 overflow-hidden rounded-lg border border-slate-200 bg-white">
-        <aside className="border-r border-slate-100">
-          {conversations.map((c) => (
-            <button
-              key={c.id}
-              onClick={() => {
-                setSelected(c.id);
-                loadMessages(c.id);
-              }}
-              className={`block w-full border-b border-slate-50 px-3 py-2 text-left text-sm hover:bg-slate-50 ${selected === c.id ? 'bg-sky-50' : ''}`}
-            >
-              <p className="font-medium">
-                {c.customer ? `${c.customer.firstName} ${c.customer.lastName ?? ''}` : c.phoneE164}
+      <div className="grid h-[calc(100vh-180px)] min-h-[420px] grid-cols-3 overflow-hidden rounded-lg border border-slate-200 bg-white">
+        <aside className="flex flex-col border-r border-slate-100">
+          <div className="border-b border-slate-100 p-2">
+            <input
+              className={inputClass}
+              placeholder="Buscar: nombre, telefono, email, doc…"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+            />
+          </div>
+          <div className="flex-1 overflow-y-auto">
+            {visible.map((c) => (
+              <button
+                key={c.id}
+                onClick={() => {
+                  setSelected(c.id);
+                  loadMessages(c.id);
+                }}
+                className={`block w-full border-b border-slate-50 px-3 py-2 text-left text-sm hover:bg-slate-50 ${selected === c.id ? 'bg-sky-50' : ''}`}
+              >
+                <p className="font-medium">
+                  {c.customer ? `${c.customer.firstName} ${c.customer.lastName ?? ''}` : c.phoneE164}
+                </p>
+                <p className="text-xs text-slate-500">
+                  {c.phoneE164} · {c.status === 'bot_active' ? 'bot activo' : c.status} ·{' '}
+                  {dt(c.lastMessageAt)}
+                </p>
+              </button>
+            ))}
+            {visible.length === 0 && (
+              <p className="p-4 text-sm text-slate-400">
+                {conversations.length === 0
+                  ? 'Sin conversaciones. Proba el chat de prueba en /chat.'
+                  : 'Ninguna conversacion coincide con la busqueda.'}
               </p>
-              <p className="text-xs text-slate-500">
-                {c.phoneE164} · {c.status === 'bot_active' ? 'bot activo' : c.status} · {dt(c.lastMessageAt)}
-              </p>
-            </button>
-          ))}
-          {conversations.length === 0 && (
-            <p className="p-4 text-sm text-slate-400">
-              Sin conversaciones. Proba el chat de prueba en /chat.
-            </p>
-          )}
+            )}
+          </div>
         </aside>
 
         <section className="col-span-2 flex flex-col">
@@ -136,7 +177,7 @@ export default function InboxPage() {
                   {current.status === 'bot_active' ? 'Pausar bot' : 'Reactivar bot'}
                 </button>
               </header>
-              <div className="flex-1 space-y-2 overflow-y-auto p-4">
+              <div ref={scrollRef} className="flex-1 space-y-2 overflow-y-auto p-4">
                 {messages.map((m) => (
                   <div key={m.id} className={`flex ${m.direction === 'in' ? 'justify-start' : 'justify-end'}`}>
                     <div
@@ -155,7 +196,6 @@ export default function InboxPage() {
                     </div>
                   </div>
                 ))}
-                <div ref={bottomRef} />
               </div>
               <form className="flex gap-2 border-t border-slate-100 p-3" onSubmit={(e) => void send(e)}>
                 <input

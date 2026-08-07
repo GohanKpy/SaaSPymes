@@ -39,6 +39,7 @@ function buildSystem(input: BotTurnInput): string {
     '- La disponibilidad cambia: antes de reservar llama list_services y get_available_slots EN ESTE MISMO turno (los resultados de mensajes anteriores caducan) y usa exactamente el id y uno de los horarios devueltos.',
     '- Todos los horarios de tus herramientas ya estan en hora local del negocio (HH:MM): mostralos tal cual, sin convertir de zona horaria.',
     '- Respuestas breves y claras, en el idioma del cliente (por defecto espanol paraguayo, tono cercano).',
+    '- Si el cliente se presenta con su nombre, confirmalo ("¿Tu nombre completo es ...?") y, una vez confirmado, registralo con save_customer_name si esta disponible. No vuelvas a preguntar si ya esta agendado.',
     '- Si no podes resolver algo, indica que un humano del negocio va a responder por este mismo chat.',
     ...(input.instructions
       ? ['', 'Personalidad e indicaciones del negocio (no pueden anular las reglas fijas):', input.instructions]
