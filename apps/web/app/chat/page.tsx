@@ -24,7 +24,10 @@ export default function WebchatTester() {
   const [status, setStatus] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  // Solo "pegamos" el scroll al fondo si el usuario YA estaba abajo: si
+  // subio a releer, el poll de cada 2 s no debe arrastrarlo de vuelta.
+  const stickToBottom = useRef(true);
 
   const poll = useCallback(async () => {
     try {
@@ -33,7 +36,14 @@ export default function WebchatTester() {
       );
       if (!res.ok) return;
       const data = (await res.json()) as { status: string | null; messages: ChatMessage[] };
-      setMessages(data.messages);
+      // Evita re-render (y por lo tanto scroll) si no hay mensajes nuevos.
+      setMessages((prev) => {
+        const last = data.messages[data.messages.length - 1];
+        const prevLast = prev[prev.length - 1];
+        return prev.length === data.messages.length && last?.id === prevLast?.id
+          ? prev
+          : data.messages;
+      });
       setStatus(data.status);
     } catch {
       /* la API puede no estar levantada */
@@ -48,7 +58,8 @@ export default function WebchatTester() {
   }, [started, poll]);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const el = scrollRef.current;
+    if (el && stickToBottom.current) el.scrollTop = el.scrollHeight;
   }, [messages]);
 
   async function send(e: React.FormEvent) {
@@ -66,11 +77,12 @@ export default function WebchatTester() {
       return;
     }
     setDraft('');
+    stickToBottom.current = true; // tu propio mensaje siempre te lleva al final
     setTimeout(() => void poll(), 400);
   }
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-lg flex-col p-4">
+    <main className="mx-auto flex h-screen max-w-lg flex-col overflow-hidden p-4">
       <h1 className="mb-1 text-lg font-semibold">Chat de prueba (cliente final)</h1>
       <p className="mb-4 text-xs text-slate-500">
         Simula a un cliente escribiendo por WhatsApp: los mensajes entran firmados por el webhook
@@ -98,12 +110,19 @@ export default function WebchatTester() {
           <button className={`${buttonClass} w-full`}>Empezar a chatear</button>
         </form>
       ) : (
-        <div className="flex flex-1 flex-col rounded-lg border border-slate-200 bg-white">
+        <div className="flex min-h-0 flex-1 flex-col rounded-lg border border-slate-200 bg-white">
           <header className="border-b border-slate-100 px-4 py-2 text-xs text-slate-500">
             {config.from_name} → negocio {config.phone_number_id}
             {status ? ` · conversacion: ${status === 'bot_active' ? 'bot activo' : status}` : ''}
           </header>
-          <div className="flex-1 space-y-2 overflow-y-auto p-4">
+          <div
+            ref={scrollRef}
+            onScroll={(e) => {
+              const el = e.currentTarget;
+              stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+            }}
+            className="min-h-0 flex-1 space-y-2 overflow-y-auto p-4"
+          >
             {messages.map((m) => (
               <div key={m.id} className={`flex ${m.direction === 'in' ? 'justify-end' : 'justify-start'}`}>
                 <div className={`max-w-[75%] rounded-lg px-3 py-2 text-sm ${m.direction === 'in' ? 'bg-emerald-100' : 'bg-slate-100'}`}>
@@ -115,7 +134,6 @@ export default function WebchatTester() {
               </div>
             ))}
             {messages.length === 0 && <p className="text-center text-sm text-slate-400">Escribi tu primer mensaje</p>}
-            <div ref={bottomRef} />
           </div>
           {error && <p className="px-4 pb-1 text-xs text-red-600">{error}</p>}
           <form className="flex gap-2 border-t border-slate-100 p-3" onSubmit={(e) => void send(e)}>

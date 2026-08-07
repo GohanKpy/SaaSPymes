@@ -126,7 +126,7 @@ export default function InboxPage() {
       <h1 className="text-xl font-semibold">Bandeja de chat</h1>
       <ErrorNote error={error} />
       <div className="grid h-[calc(100vh-180px)] min-h-[420px] grid-cols-3 overflow-hidden rounded-lg border border-slate-200 bg-white">
-        <aside className="flex flex-col border-r border-slate-100">
+        <aside className="flex min-h-0 flex-col border-r border-slate-100">
           <div className="border-b border-slate-100 p-2">
             <input
               className={inputClass}
@@ -135,7 +135,7 @@ export default function InboxPage() {
               onChange={(e) => setFilter(e.target.value)}
             />
           </div>
-          <div className="flex-1 overflow-y-auto">
+          <div className="min-h-0 flex-1 overflow-y-auto">
             {visible.map((c) => (
               <button
                 key={c.id}
@@ -164,7 +164,7 @@ export default function InboxPage() {
           </div>
         </aside>
 
-        <section className="col-span-2 flex flex-col">
+        <section className="col-span-2 flex min-h-0 flex-col">
           {current ? (
             <>
               <header className="flex items-center justify-between border-b border-slate-100 px-4 py-2 text-sm">
@@ -177,7 +177,7 @@ export default function InboxPage() {
                   {current.status === 'bot_active' ? 'Pausar bot' : 'Reactivar bot'}
                 </button>
               </header>
-              <div ref={scrollRef} className="flex-1 space-y-2 overflow-y-auto p-4">
+              <div ref={scrollRef} className="min-h-0 flex-1 space-y-2 overflow-y-auto p-4">
                 {messages.map((m) => (
                   <div key={m.id} className={`flex ${m.direction === 'in' ? 'justify-start' : 'justify-end'}`}>
                     <div
