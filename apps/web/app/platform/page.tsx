@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { ApiError, api, logout } from '../../lib/api';
+import { OperatorsSection, ProfileSection } from './operators';
 import { ErrorNote, Field, buttonClass, buttonGhost, inputClass, money, useSession } from '../../lib/ui';
 
 interface Plan {
@@ -357,7 +358,7 @@ export default function PlatformPage() {
               ))}
             </select>
           </Field>
-          <Field label="Email del root">
+          <Field label="Email del root (para login)">
             <input className={inputClass} type="email" value={form.root_email} onChange={(e) => setForm({ ...form, root_email: e.target.value })} required />
           </Field>
           <Field label="Nombre del root">
@@ -549,6 +550,9 @@ export default function PlatformPage() {
           en la ficha de cada tenant.
         </p>
       </section>
+
+      {user.role === 'admin' && <OperatorsSection />}
+      <ProfileSection />
     </main>
   );
 }

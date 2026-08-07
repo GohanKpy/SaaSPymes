@@ -6,6 +6,10 @@ import {
   overridePut,
   planCreate,
   planUpdate,
+  platformPasswordChange,
+  platformProfilePatch,
+  platformUserCreate,
+  platformUserUpdate,
   securitySettingsPut,
   tenantCreate,
   tenantPatch,
@@ -16,6 +20,10 @@ import {
   type OverridePut,
   type PlanCreate,
   type PlanUpdate,
+  type PlatformPasswordChange,
+  type PlatformProfilePatch,
+  type PlatformUserCreate,
+  type PlatformUserUpdate,
   type SecuritySettingsPut,
   type TenantCreate,
   type TenantPatch,
@@ -28,6 +36,7 @@ import { BotEngineService } from './bot-engine.service';
 import { PlatformNetworkGuard } from './platform-network.guard';
 import { SecuritySettingsService } from './security-settings.service';
 import { PlansService } from './plans.service';
+import { PlatformUsersService } from './platform-users.service';
 import { TenantsService } from './tenants.service';
 
 function actor(req: FastifyRequest & AuthRequest): string {
@@ -45,7 +54,67 @@ export class PlatformController {
     private readonly plans: PlansService,
     private readonly botEngine: BotEngineService,
     private readonly security: SecuritySettingsService,
+    private readonly users: PlatformUsersService,
   ) {}
+
+  // --- Mi perfil (cualquier operador del portal) ---
+
+  @Get('me')
+  me(@Req() req: FastifyRequest & AuthRequest) {
+    return this.users.profile(actor(req));
+  }
+
+  @Patch('me')
+  updateMe(
+    @Body(new ZodPipe(platformProfilePatch)) dto: PlatformProfilePatch,
+    @Req() req: FastifyRequest & AuthRequest,
+  ) {
+    return this.users.updateProfile(actor(req), dto, req.ip);
+  }
+
+  @Post('me/password')
+  changeMyPassword(
+    @Body(new ZodPipe(platformPasswordChange)) dto: PlatformPasswordChange,
+    @Req() req: FastifyRequest & AuthRequest,
+  ) {
+    return this.users.changePassword(actor(req), dto, req.ip);
+  }
+
+  // --- Operadores del portal (solo padmin) ---
+
+  @Get('users')
+  @PlatformRoles('admin')
+  listUsers() {
+    return this.users.list();
+  }
+
+  @Post('users')
+  @PlatformRoles('admin')
+  createUser(
+    @Body(new ZodPipe(platformUserCreate)) dto: PlatformUserCreate,
+    @Req() req: FastifyRequest & AuthRequest,
+  ) {
+    return this.users.create(actor(req), dto, req.ip);
+  }
+
+  @Patch('users/:id')
+  @PlatformRoles('admin')
+  updateUser(
+    @Param('id', new ZodPipe(uuid)) id: string,
+    @Body(new ZodPipe(platformUserUpdate)) dto: PlatformUserUpdate,
+    @Req() req: FastifyRequest & AuthRequest,
+  ) {
+    return this.users.update(actor(req), id, dto, req.ip);
+  }
+
+  @Post('users/:id/reset-password')
+  @PlatformRoles('admin')
+  resetOperatorPassword(
+    @Param('id', new ZodPipe(uuid)) id: string,
+    @Req() req: FastifyRequest & AuthRequest,
+  ) {
+    return this.users.resetPassword(actor(req), id, req.ip);
+  }
 
   /** Motor del bot (ADR 0003): ver estado sin secretos. */
   @Get('settings/bot')

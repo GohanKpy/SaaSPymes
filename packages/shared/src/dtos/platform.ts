@@ -95,3 +95,41 @@ export const featureCreate = z
 export type FeatureCreate = z.infer<typeof featureCreate>;
 
 export const tenantIdParam = z.object({ id: uuid });
+
+/** Perfil propio del operador del portal admin. */
+export const platformProfilePatch = z
+  .object({
+    full_name: z.string().min(1).max(200),
+    email: z.email(),
+  })
+  .partial()
+  .strict();
+export type PlatformProfilePatch = z.infer<typeof platformProfilePatch>;
+
+export const platformPasswordChange = z
+  .object({
+    current_password: z.string().min(1),
+    new_password: z.string().min(10).max(200),
+  })
+  .strict();
+export type PlatformPasswordChange = z.infer<typeof platformPasswordChange>;
+
+/** Operadores del portal: 'admin' administra todo; 'agent' lee y da soporte. */
+export const platformUserCreate = z
+  .object({
+    email: z.email(),
+    full_name: z.string().min(1).max(200),
+    role: z.enum(['admin', 'agent']),
+  })
+  .strict();
+export type PlatformUserCreate = z.infer<typeof platformUserCreate>;
+
+export const platformUserUpdate = z
+  .object({
+    full_name: z.string().min(1).max(200),
+    role: z.enum(['admin', 'agent']),
+    is_active: z.boolean(),
+  })
+  .partial()
+  .strict();
+export type PlatformUserUpdate = z.infer<typeof platformUserUpdate>;
