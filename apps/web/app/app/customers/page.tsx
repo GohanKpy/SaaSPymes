@@ -20,6 +20,8 @@ interface Customer {
   notes: string | null;
   notifyWhatsapp: boolean;
   notifyEmail: boolean;
+  lastConversationSummary: string | null;
+  lastSummaryAt: string | null;
 }
 
 // Ficha completa de la agenda (doc 03 app.customers): solo el nombre es
@@ -202,6 +204,18 @@ export default function CustomersPage() {
             <input className={inputClass} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
           </Field>
         </div>
+        {editing && (() => {
+          const c = rows.find((r) => r.id === editing);
+          return c?.lastConversationSummary ? (
+            <div className="col-span-2 rounded border border-violet-200 bg-violet-50/50 p-3 md:col-span-4">
+              <p className="text-xs font-medium text-violet-800">
+                Resumen de la ultima conversacion
+                {c.lastSummaryAt ? ` (${new Date(c.lastSummaryAt).toLocaleString('es-PY')})` : ''}
+              </p>
+              <p className="mt-1 whitespace-pre-line text-sm text-slate-700">{c.lastConversationSummary}</p>
+            </div>
+          ) : null;
+        })()}
         <div className="col-span-2 flex flex-wrap items-center gap-4 md:col-span-4">
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={form.notify_whatsapp} onChange={(e) => setForm({ ...form, notify_whatsapp: e.target.checked })} />

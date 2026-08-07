@@ -68,6 +68,7 @@ export class BotController {
           enabled: dto.enabled,
           instructionsText: dto.instructions_text,
           instructionsOverride: dto.instructions_override,
+          summariesEnabled: dto.summaries_enabled,
           accessCatalog: dto.access_catalog,
           accessHistory: dto.access_history,
           accessCustomerData: dto.access_customer_data,

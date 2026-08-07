@@ -58,6 +58,14 @@ export interface BotToolHandlers {
   >;
   /** Registra/actualiza el nombre del cliente de la conversacion en la agenda. */
   saveCustomerName(fullName: string): Promise<{ saved: boolean; detail: string }>;
+  /** Completa datos vacios de la ficha (email, nacimiento, direccion, documento). */
+  saveCustomerData(args: {
+    email?: string;
+    fechaNacimiento?: string;
+    direccion?: string;
+    docTipo?: string;
+    docNumero?: string;
+  }): Promise<{ guardados: string[]; ignorados: string[] }>;
 }
 
 export interface JsonSchema {
@@ -149,6 +157,32 @@ export function buildBotTools(permissions: BotPermissions, handlers: BotToolHand
         additionalProperties: false,
       },
       run: async (args) => JSON.stringify(await handlers.saveCustomerName(args.full_name ?? '')),
+    });
+    tools.push({
+      name: 'save_customer_data',
+      description:
+        'Completa la ficha del cliente de esta conversacion con datos que el compartio: email, fecha de nacimiento, direccion o documento. Solo completa campos vacios (jamas pisa datos ya cargados). Usala apenas el cliente mencione uno de estos datos.',
+      parameters: {
+        type: 'object',
+        properties: {
+          email: { type: 'string', description: 'email del cliente' },
+          fecha_nacimiento: { type: 'string', description: 'YYYY-MM-DD' },
+          direccion: { type: 'string' },
+          doc_tipo: { type: 'string', description: 'ci | ruc | pasaporte' },
+          doc_numero: { type: 'string', description: 'numero de documento sin DV' },
+        },
+        additionalProperties: false,
+      },
+      run: async (args) =>
+        JSON.stringify(
+          await handlers.saveCustomerData({
+            email: args.email,
+            fechaNacimiento: args.fecha_nacimiento,
+            direccion: args.direccion,
+            docTipo: args.doc_tipo,
+            docNumero: args.doc_numero,
+          }),
+        ),
     });
   }
   if (permissions.accessHistory) {

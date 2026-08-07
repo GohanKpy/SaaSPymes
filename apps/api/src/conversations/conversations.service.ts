@@ -145,6 +145,13 @@ export class ConversationsService {
       let conversation = await tx.conversation.findFirst({
         where: { phoneE164: msg.phoneE164 },
       });
+      if (conversation?.status === 'inactive') {
+        // El cliente volvio a escribir: la conversacion revive con el bot.
+        conversation = await tx.conversation.update({
+          where: { id: conversation.id },
+          data: { status: 'bot_active' },
+        });
+      }
       if (!conversation) {
         const customer = await tx.customer.findFirst({
           where: { phoneE164: msg.phoneE164, deletedAt: null },

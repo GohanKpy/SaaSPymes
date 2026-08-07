@@ -30,9 +30,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Sin version explicita: la accion lee packageManager del package.json
+      # (pasar ambas y que difieran hace fallar el setup al instante).
       - uses: pnpm/action-setup@v4
-        with:
-          version: 10
 
       - uses: actions/setup-node@v4
         with:

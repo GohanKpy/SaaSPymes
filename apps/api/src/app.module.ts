@@ -10,6 +10,7 @@ import { BotService } from './conversations/bot.service';
 import { ConversationsController } from './conversations/conversations.controller';
 import { ConversationsService } from './conversations/conversations.service';
 import { WaSenderService } from './conversations/wa-sender.service';
+import { InactivityService } from './conversations/inactivity.service';
 import { TenantEventsService } from './conversations/events.service';
 import { WebhooksController } from './conversations/webhooks.controller';
 import { CustomersController } from './crm/customers.controller';
@@ -51,6 +52,7 @@ import { UsersController } from './tenant/users.controller';
     ConversationsService,
     WaSenderService,
     TenantEventsService,
+    InactivityService,
     BotService,
     InvoicesService,
     KudeService,

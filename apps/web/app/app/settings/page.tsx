@@ -21,6 +21,7 @@ interface BotSettings {
   allowBooking: boolean;
   autoConfirmBookings: boolean;
   instructionsOverride: boolean;
+  summariesEnabled: boolean;
   engine_available: boolean;
   usage: {
     period: string;
@@ -39,6 +40,10 @@ const PERMISOS: { key: keyof BotSettings; label: string }[] = [
   { key: 'autoConfirmBookings', label: 'Turnos del bot se confirman solos (sin confirmacion manual)' },
   { key: 'accessHistory', label: 'Puede ver historial del cliente de la conversacion' },
   { key: 'accessCustomerData', label: 'Puede ver datos del cliente y agendarlo si se presenta en el chat' },
+  {
+    key: 'summariesEnabled',
+    label: 'Resumen automatico al quedar inactiva una conversacion (2 h sin mensajes; consume tokens de IA)',
+  },
 ];
 
 interface TenantMe {

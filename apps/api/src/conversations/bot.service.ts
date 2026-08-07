@@ -3,6 +3,7 @@ import { DEFAULT_BASE_PROMPT, runBotTurn, type BotToolHandlers } from '@pymes/bo
 import type { Env } from '@pymes/shared';
 
 import { AppPrisma } from '../prisma/app-prisma.service';
+import { dvRuc } from '../common/ruc';
 import { ENV } from '../env.module';
 import { BotEngineService } from '../platform/bot-engine.service';
 import { AppointmentsService } from '../scheduling/appointments.service';
@@ -85,10 +86,42 @@ export class BotService {
           orderBy: { id: 'desc' },
           take: 20,
         });
-        return { conversation, settings, tenant, branch, history: history.reverse() };
+        // Estado del cliente para el prompt (solo con el permiso de datos):
+        // sin esto el bot no puede saber si debe pedir nombre o saludar.
+        const customer = settings.accessCustomerData
+          ? conversation.customerId
+            ? await tx.customer.findFirst({ where: { id: conversation.customerId } })
+            : await tx.customer.findFirst({
+                where: { phoneE164: conversation.phoneE164, deletedAt: null },
+              })
+          : null;
+        return { conversation, settings, tenant, branch, customer, history: history.reverse() };
       });
       if (!context) return;
-      const { conversation, settings, tenant, branch, history } = context;
+      const { conversation, settings, tenant, branch, customer, history } = context;
+
+      let customerContext: string | null = null;
+      if (settings.accessCustomerData) {
+        if (!customer) {
+          customerContext =
+            'El cliente AUN NO esta registrado en la agenda. En tu primera respuesta pedile con amabilidad su nombre y apellido (sin dejar de atender su consulta) y, cuando lo confirme, registralo con save_customer_name.';
+        } else {
+          const faltantes = [
+            !customer.email && 'email',
+            !customer.birthDate && 'fecha de nacimiento',
+            !customer.docNumber && 'documento (CI o RUC)',
+            !customer.address && 'direccion',
+          ].filter(Boolean);
+          const nombre = `${customer.firstName} ${customer.lastName ?? ''}`.trim();
+          customerContext =
+            customer.firstName === 'Cliente'
+              ? 'El cliente esta agendado sin nombre real: pedile su nombre y apellido con naturalidad y registralo con save_customer_name.'
+              : `Cliente registrado: ${nombre} (saludalo por su nombre).` +
+                (faltantes.length > 0
+                  ? ` Datos que FALTAN en su ficha: ${faltantes.join(', ')}. Pedi como maximo UNO por conversacion, en un momento natural, y guardalo con save_customer_data.`
+                  : ' Su ficha esta completa: no pidas mas datos.');
+        }
+      }
 
       const timezone = tenant?.timezone ?? 'America/Asuncion';
 
@@ -139,6 +172,7 @@ export class BotService {
         basePrompt,
         instructions,
         instructionsPriority: settings.instructionsOverride,
+        customerContext,
         permissions: settings,
         handlers,
         history: history.map((m) => ({
@@ -229,6 +263,7 @@ export class BotService {
       bookAppointment: wrap('book_appointment', handlers.bookAppointment),
       getCustomerHistory: wrap('get_customer_history', handlers.getCustomerHistory),
       saveCustomerName: wrap('save_customer_name', handlers.saveCustomerName),
+      saveCustomerData: wrap('save_customer_data', handlers.saveCustomerData),
     };
   }
 
@@ -475,6 +510,81 @@ export class BotService {
           });
           this.events.emit(tenantId, 'conversation.updated', { id: conversationId });
           return { saved: true, detail: `agendado como ${cleaned}` };
+        });
+      },
+
+      saveCustomerData: async (args) => {
+        return this.appDb.tx(ctx, async (tx) => {
+          const conversation = await tx.conversation.findFirst({ where: { id: conversationId } });
+          if (!conversation) throw new Error('conversacion inexistente');
+          const customer = conversation.customerId
+            ? await tx.customer.findFirst({ where: { id: conversation.customerId } })
+            : await tx.customer.findFirst({
+                where: { phoneE164: conversation.phoneE164, deletedAt: null },
+              });
+          if (!customer) {
+            throw new Error(
+              'el cliente aun no esta registrado: registralo primero con save_customer_name',
+            );
+          }
+
+          const guardados: string[] = [];
+          const ignorados: string[] = [];
+          const data: Record<string, unknown> = {};
+
+          if (args.email !== undefined && args.email.trim()) {
+            const email = args.email.trim().toLowerCase();
+            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+              throw new Error(`email '${args.email}' invalido: confirmalo con el cliente`);
+            }
+            if (customer.email) ignorados.push('email (ya cargado)');
+            else {
+              data['email'] = email;
+              guardados.push('email');
+            }
+          }
+          if (args.fechaNacimiento !== undefined && args.fechaNacimiento.trim()) {
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(args.fechaNacimiento.trim())) {
+              throw new Error('fecha_nacimiento invalida: usa formato YYYY-MM-DD');
+            }
+            if (customer.birthDate) ignorados.push('fecha de nacimiento (ya cargada)');
+            else {
+              data['birthDate'] = new Date(`${args.fechaNacimiento.trim()}T00:00:00Z`);
+              guardados.push('fecha de nacimiento');
+            }
+          }
+          if (args.direccion !== undefined && args.direccion.trim()) {
+            if (customer.address) ignorados.push('direccion (ya cargada)');
+            else {
+              data['address'] = args.direccion.trim().slice(0, 500);
+              guardados.push('direccion');
+            }
+          }
+          if (args.docNumero !== undefined && args.docNumero.trim()) {
+            const tipo = (args.docTipo ?? 'ci').trim().toLowerCase();
+            if (!['ci', 'ruc', 'pasaporte'].includes(tipo)) {
+              throw new Error("doc_tipo invalido: usa 'ci', 'ruc' o 'pasaporte'");
+            }
+            if (customer.docNumber) ignorados.push('documento (ya cargado)');
+            else {
+              const numero = args.docNumero.replace(/[.\s-]/g, '');
+              data['docType'] = tipo;
+              data['docNumber'] = numero;
+              if (tipo === 'ruc') data['rucDv'] = dvRuc(numero);
+              guardados.push('documento');
+            }
+          }
+
+          if (Object.keys(data).length > 0) {
+            try {
+              await tx.customer.update({ where: { id: customer.id }, data });
+            } catch {
+              throw new Error(
+                'no se pudo guardar (posible dato duplicado con otro cliente): verifica con el cliente o deriva a un humano',
+              );
+            }
+          }
+          return { guardados, ignorados };
         });
       },
 

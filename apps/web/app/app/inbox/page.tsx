@@ -30,6 +30,14 @@ interface Message {
   createdAt?: string;
 }
 
+const STATUS_LABEL: Record<string, string> = {
+  bot_active: 'bot activo',
+  paused: 'pausada',
+  agent: 'con agente',
+  inactive: 'inactiva',
+  closed: 'cerrada',
+};
+
 const norm = (m: Message): Message => ({
   ...m,
   conversation_id: m.conversation_id ?? m.conversationId,
@@ -149,8 +157,7 @@ export default function InboxPage() {
                   {c.customer ? `${c.customer.firstName} ${c.customer.lastName ?? ''}` : c.phoneE164}
                 </p>
                 <p className="text-xs text-slate-500">
-                  {c.phoneE164} · {c.status === 'bot_active' ? 'bot activo' : c.status} ·{' '}
-                  {dt(c.lastMessageAt)}
+                  {c.phoneE164} · {STATUS_LABEL[c.status] ?? c.status} · {dt(c.lastMessageAt)}
                 </p>
               </button>
             ))}

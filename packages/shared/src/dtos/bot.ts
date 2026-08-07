@@ -7,6 +7,8 @@ export const botSettingsPatch = z
     instructions_text: z.string().max(20000).nullable(),
     /** Consentimiento: sus instrucciones priman sobre la guia base (ADR 0008). */
     instructions_override: z.boolean(),
+    /** Opt-in: resumen automatico al pasar a inactiva (consume tokens). */
+    summaries_enabled: z.boolean(),
     access_catalog: z.boolean(),
     access_history: z.boolean(),
     access_customer_data: z.boolean(),

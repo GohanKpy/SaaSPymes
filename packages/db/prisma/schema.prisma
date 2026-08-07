@@ -309,6 +309,9 @@ model Customer {
   notes          String?
   notifyWhatsapp Boolean   @default(true) @map("notify_whatsapp")
   notifyEmail    Boolean   @default(false) @map("notify_email")
+  /// Resumen de la ultima conversacion inactiva (seguimiento comercial).
+  lastConversationSummary String?   @map("last_conversation_summary")
+  lastSummaryAt           DateTime? @map("last_summary_at") @db.Timestamptz(6)
   deletedAt      DateTime? @map("deleted_at") @db.Timestamptz(6)
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
@@ -533,6 +536,8 @@ model BotSettings {
   autoConfirmBookings Boolean  @default(false) @map("auto_confirm_bookings")
   /// Consentimiento: sus instrucciones priman sobre la guia base (ADR 0008).
   instructionsOverride Boolean @default(false) @map("instructions_override")
+  /// Opt-in: resumen automatico al pasar a inactiva (consume tokens).
+  summariesEnabled    Boolean  @default(false) @map("summaries_enabled")
   monthlyTokenBudget  Int      @default(500000) @map("monthly_token_budget")
   updatedBy           String?  @map("updated_by") @db.Uuid
   updatedAt           DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
