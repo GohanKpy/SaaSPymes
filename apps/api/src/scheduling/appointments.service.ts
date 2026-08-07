@@ -4,13 +4,25 @@ import type { AppointmentCreate, AppointmentListQuery, AvailabilityQuery } from 
 
 import { AppPrisma } from '../prisma/app-prisma.service';
 
-// Horario laboral por defecto del laboratorio; la configuracion por sucursal
-// llega con "recursos agendables" (extension prevista fase 2, doc 03 §3.3).
-const OPEN_HOUR = 8;
-const CLOSE_HOUR = 18;
 const DEFAULT_DURATION_MIN = 30;
 // Capacidad por franja v1 = 1 (doc 03: la capacidad se valida en la app).
 const SLOT_CAPACITY = 1;
+
+export interface BranchSchedule {
+  week?: Record<string, { from: string; to: string }[]>;
+  closed_dates?: string[];
+}
+
+// Sin configuracion rige el horario por defecto del laboratorio (08-18).
+const DEFAULT_RANGES = [{ from: '08:00', to: '18:00' }];
+
+/** Franjas de atencion vigentes para una fecha (dia cerrado = []). */
+export function rangesForDate(schedule: BranchSchedule, date: string): { from: string; to: string }[] {
+  if (schedule.closed_dates?.includes(date)) return [];
+  if (!schedule.week) return DEFAULT_RANGES;
+  const dow = new Date(`${date}T12:00:00Z`).getUTCDay();
+  return schedule.week[String(dow)] ?? [];
+}
 
 /** Instante UTC de una hora local del tenant (dos pasadas con Intl). */
 function localToUtc(date: string, hour: number, minute: number, timeZone: string): Date {
@@ -77,8 +89,13 @@ export class AppointmentsService {
       const timezone = tenant?.timezone ?? 'America/Asuncion';
       const duration = service.durationMin ?? DEFAULT_DURATION_MIN;
 
-      const dayStart = localToUtc(query.date, OPEN_HOUR, 0, timezone);
-      const dayEnd = localToUtc(query.date, CLOSE_HOUR, 0, timezone);
+      // Franjas configuradas por la sucursal (almuerzo = hueco entre franjas;
+      // dia cerrado = sin franjas). Sin configuracion: 08-18.
+      const ranges = rangesForDate((branch.schedule ?? {}) as BranchSchedule, query.date);
+      if (ranges.length === 0) return [];
+
+      const dayStart = localToUtc(query.date, 0, 0, timezone);
+      const dayEnd = localToUtc(query.date, 23, 59, timezone);
       const busy = await tx.appointment.findMany({
         where: {
           branchId: query.branch_id,
@@ -93,13 +110,19 @@ export class AppointmentsService {
       const slots: string[] = [];
       const stepMs = duration * 60_000;
       const now = Date.now();
-      for (let start = dayStart.getTime(); start + stepMs <= dayEnd.getTime(); start += stepMs) {
-        const end = start + stepMs;
-        if (start < now) continue;
-        const overlapping = busy.filter(
-          (b) => b.startsAt.getTime() < end && b.endsAt.getTime() > start,
-        ).length;
-        if (overlapping < SLOT_CAPACITY) slots.push(new Date(start).toISOString());
+      for (const range of ranges) {
+        const [fromH, fromM] = range.from.split(':').map(Number);
+        const [toH, toM] = range.to.split(':').map(Number);
+        const rangeStart = localToUtc(query.date, fromH ?? 0, fromM ?? 0, timezone).getTime();
+        const rangeEnd = localToUtc(query.date, toH ?? 0, toM ?? 0, timezone).getTime();
+        for (let start = rangeStart; start + stepMs <= rangeEnd; start += stepMs) {
+          const end = start + stepMs;
+          if (start < now) continue;
+          const overlapping = busy.filter(
+            (b) => b.startsAt.getTime() < end && b.endsAt.getTime() > start,
+          ).length;
+          if (overlapping < SLOT_CAPACITY) slots.push(new Date(start).toISOString());
+        }
       }
       return slots;
     });

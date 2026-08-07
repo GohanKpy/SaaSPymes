@@ -185,7 +185,7 @@ export class ConversationsService {
       this.events.emit(tenantId, 'message.new', serializeMessage(stored));
       // El bot responde fuera del request del webhook (200 inmediato, doc 01);
       // con status paused/agent el propio bot decide no intervenir.
-      void this.bot.respond(tenantId, stored.conversationId);
+      this.bot.scheduleRespond(tenantId, stored.conversationId);
     }
   }
 }

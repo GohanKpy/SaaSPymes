@@ -42,6 +42,33 @@ export type BranchCreate = z.infer<typeof branchCreate>;
 export const branchUpdate = branchCreate.partial().strict();
 export type BranchUpdate = z.infer<typeof branchUpdate>;
 
+const horaHHMM = z.string().regex(/^\d{2}:\d{2}$/, 'hora HH:MM');
+const franja = z
+  .object({ from: horaHHMM, to: horaHHMM })
+  .refine((r) => r.from < r.to, 'la franja debe terminar despues de empezar');
+
+/**
+ * Horario de atencion de la sucursal: por dia de semana (0=domingo..6=sabado)
+ * hasta 3 franjas (el hueco entre franjas = almuerzo); dia ausente o con
+ * lista vacia = cerrado. closed_dates = dias off puntuales.
+ */
+export const branchSchedulePut = z
+  .object({
+    // Claves 0=domingo..6=sabado; los dias ausentes quedan cerrados.
+    week: z.record(z.string().regex(/^[0-6]$/), z.array(franja).max(3)),
+    closed_dates: z.array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).max(400).default([]),
+    /** Que hacer si hay turnos afectados: abort (default) devuelve 409 con la lista. */
+    on_conflict: z.enum(['abort', 'keep', 'cancel_notify']).default('abort'),
+    /** Mensaje breve para los clientes cancelados (obligatorio con cancel_notify). */
+    message: z.string().min(3).max(500).optional(),
+  })
+  .strict()
+  .refine((s) => s.on_conflict !== 'cancel_notify' || Boolean(s.message), {
+    message: 'message es obligatorio con cancel_notify',
+    path: ['message'],
+  });
+export type BranchSchedulePut = z.infer<typeof branchSchedulePut>;
+
 export const userCreate = z
   .object({
     email: z.email(),

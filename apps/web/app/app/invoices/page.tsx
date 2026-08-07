@@ -14,7 +14,11 @@ interface Invoice {
   total: string;
   createdAt: string;
   customer: { firstName: string; lastName: string | null };
+  payments: { amount: string }[];
 }
+
+const pagado = (i: Invoice) => i.payments.reduce((s, p) => s + Number(p.amount), 0);
+const saldo = (i: Invoice) => Number(i.total) - pagado(i);
 interface Option {
   id: string;
   name?: string;
@@ -95,13 +99,30 @@ export default function InvoicesPage() {
     }
   }
 
-  async function pay(inv: Invoice) {
-    const amount = prompt('Monto del pago (Gs):', inv.total);
-    if (!amount) return;
+  // Popup de pago: forma de pago + monto recibido con calculo de vuelto.
+  const [paying, setPaying] = useState<Invoice | null>(null);
+  const [payForm, setPayForm] = useState({ method: 'efectivo', recibido: '' });
+
+  function openPay(inv: Invoice) {
+    setPaying(inv);
+    setPayForm({ method: 'efectivo', recibido: String(saldo(inv)) });
+  }
+
+  async function confirmPay() {
+    if (!paying) return;
+    const debido = saldo(paying);
+    const recibido = Number(payForm.recibido || 0);
+    // Se registra lo adeudado (o menos si es un pago parcial); el excedente
+    // en efectivo es vuelto, no ingresa como pago.
+    const amount = Math.min(recibido, debido);
+    if (amount <= 0) return;
     try {
-      await api(`/invoices/${inv.id}/payments`, { method: 'POST', json: { method: 'efectivo', amount } });
+      await api(`/invoices/${paying.id}/payments`, {
+        method: 'POST',
+        json: { method: payForm.method, amount: String(amount) },
+      });
+      setPaying(null);
       load();
-      alert('Pago registrado');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error');
     }
@@ -116,8 +137,61 @@ export default function InvoicesPage() {
           ? 'bg-red-100 text-red-700'
           : 'bg-amber-100 text-amber-700';
 
+  const vuelto = paying ? Math.max(0, Number(payForm.recibido || 0) - saldo(paying)) : 0;
+  const parcial = paying ? Math.max(0, saldo(paying) - Number(payForm.recibido || 0)) : 0;
+
   return (
     <div className="space-y-5">
+      {paying && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-sm space-y-3 rounded-lg bg-white p-5 shadow-xl">
+            <h3 className="font-semibold">Registrar pago</h3>
+            <p className="text-sm text-slate-600">
+              Factura {paying.establishment}-{paying.expeditionPoint}-{paying.docNumber} ·{' '}
+              {paying.customer.firstName} {paying.customer.lastName}
+              <br />
+              Saldo a cobrar: <b>{money(saldo(paying))}</b>
+            </p>
+            <Field label="Forma de pago">
+              <select className={inputClass} value={payForm.method} onChange={(e) => setPayForm({ ...payForm, method: e.target.value })}>
+                <option value="efectivo">Efectivo</option>
+                <option value="transferencia">Transferencia</option>
+                <option value="tarjeta">Tarjeta</option>
+                <option value="qr">QR</option>
+                <option value="otro">Otro</option>
+              </select>
+            </Field>
+            <Field label="Monto recibido (Gs)">
+              <input
+                className={inputClass}
+                type="number"
+                min={0}
+                step={1000}
+                value={payForm.recibido}
+                onChange={(e) => setPayForm({ ...payForm, recibido: e.target.value })}
+              />
+            </Field>
+            {vuelto > 0 && (
+              <p className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                Vuelto a entregar: <b>{money(vuelto)}</b>
+              </p>
+            )}
+            {parcial > 0 && (
+              <p className="rounded bg-sky-50 px-3 py-2 text-sm text-sky-800">
+                Pago parcial: quedara un saldo de <b>{money(parcial)}</b>
+              </p>
+            )}
+            <div className="flex justify-end gap-2">
+              <button className={buttonGhost} onClick={() => setPaying(null)}>
+                Cancelar
+              </button>
+              <button className={buttonClass} disabled={Number(payForm.recibido || 0) <= 0} onClick={() => void confirmPay()}>
+                Confirmar pago
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <h1 className="text-xl font-semibold">Facturas</h1>
       <p className="text-xs text-slate-500">
         Emision con proveedor SIFEN de laboratorio (fake): aprueba al instante con CDC sintetico.
@@ -183,17 +257,17 @@ export default function InvoicesPage() {
                       Emitir
                     </button>
                   )}
-                  {i.status === 'approved' && (
-                    <>
-                      <button className={buttonGhost} onClick={() => void pay(i)}>
-                        Registrar pago
-                      </button>
-                      <button className={buttonGhost} onClick={() => void cancel(i.id)}>
-                        Anular
-                      </button>
-                    </>
+                  {i.status === 'approved' && saldo(i) > 0 && (
+                    <button className={buttonGhost} onClick={() => openPay(i)}>
+                      Registrar pago
+                    </button>
                   )}
-                  {['approved', 'cancelled', 'credited'].includes(i.status) && (
+                  {i.status === 'approved' && (
+                    <button className={buttonGhost} onClick={() => void cancel(i.id)}>
+                      Anular
+                    </button>
+                  )}
+                  {(i.status === 'approved' ? saldo(i) <= 0 : ['cancelled', 'credited'].includes(i.status)) && (
                     <button className={buttonGhost} onClick={() => void openKude(i.id)}>
                       KuDE (PDF)
                     </button>

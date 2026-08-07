@@ -9,19 +9,52 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Req,
 } from '@nestjs/common';
-import { branchCreate, branchUpdate, uuid, type BranchCreate, type BranchUpdate } from '@pymes/shared';
+import {
+  branchCreate,
+  branchSchedulePut,
+  branchUpdate,
+  uuid,
+  type BranchCreate,
+  type BranchSchedulePut,
+  type BranchUpdate,
+} from '@pymes/shared';
 import type { FastifyRequest } from 'fastify';
 
 import { Roles, type AuthRequest } from '../auth/decorators';
 import { tenantCtx } from '../common/tenant-ctx';
 import { ZodPipe } from '../common/zod.pipe';
 import { AppPrisma } from '../prisma/app-prisma.service';
+import { BranchScheduleService } from '../scheduling/branch-schedule.service';
 
 @Controller('branches')
 export class BranchesController {
-  constructor(private readonly appDb: AppPrisma) {}
+  constructor(
+    private readonly appDb: AppPrisma,
+    private readonly schedule: BranchScheduleService,
+  ) {}
+
+  /** Horario de atencion vigente de la sucursal. */
+  @Get(':id/schedule')
+  getSchedule(@Param('id', new ZodPipe(uuid)) id: string, @Req() req: FastifyRequest & AuthRequest) {
+    return this.schedule.get(tenantCtx(req), id);
+  }
+
+  /**
+   * Guarda el horario. Si deja turnos afuera: 409 con la lista (abort),
+   * guardar igual (keep) o cancelar y avisar a los clientes (cancel_notify).
+   */
+  @Put(':id/schedule')
+  @Roles('root', 'admin')
+  putSchedule(
+    @Param('id', new ZodPipe(uuid)) id: string,
+    @Body(new ZodPipe(branchSchedulePut)) dto: BranchSchedulePut,
+    @Req() req: FastifyRequest & AuthRequest,
+  ) {
+    return this.schedule.put(tenantCtx(req), id, dto);
+  }
 
   @Get()
   list(@Req() req: FastifyRequest & AuthRequest) {

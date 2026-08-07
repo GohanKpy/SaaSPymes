@@ -25,6 +25,7 @@ import { PlatformModule } from './platform/platform.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { AppointmentsController } from './scheduling/appointments.controller';
 import { AppointmentsService } from './scheduling/appointments.service';
+import { BranchScheduleService } from './scheduling/branch-schedule.service';
 import { BranchesController } from './tenant/branches.controller';
 import { TenantController } from './tenant/tenant.controller';
 import { UsersController } from './tenant/users.controller';
@@ -49,6 +50,7 @@ import { UsersController } from './tenant/users.controller';
     CryptoService,
     CustomersService,
     AppointmentsService,
+    BranchScheduleService,
     ConversationsService,
     WaSenderService,
     TenantEventsService,

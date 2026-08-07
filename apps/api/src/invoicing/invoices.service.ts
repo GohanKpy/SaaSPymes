@@ -47,7 +47,12 @@ export class InvoicesService {
           ...(query.status ? { status: query.status } : {}),
           ...(query.customer_id ? { customerId: query.customer_id } : {}),
         },
-        include: { customer: { select: { firstName: true, lastName: true } } },
+        include: {
+          customer: { select: { firstName: true, lastName: true } },
+          // El panel decide con esto si la factura ya esta paga (popup de
+          // pago con vuelto y KuDE recien tras registrar el pago).
+          payments: { select: { amount: true } },
+        },
         orderBy: { createdAt: 'desc' },
         take: query.limit,
       }),

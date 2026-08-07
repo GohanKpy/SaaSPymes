@@ -41,9 +41,32 @@ function renderInstructions(
 const BUDGET_NOTICE =
   'Gracias por escribirnos. En este momento una persona del negocio va a continuar la conversacion por este mismo chat.';
 
+// Debounce humano (pedido 2026-08-07): esperar tras el ULTIMO mensaje del
+// cliente antes de responder, para contestar todo junto si escribe en rafaga.
+const REPLY_DEBOUNCE_MS = 15_000;
+
 @Injectable()
 export class BotService {
   private readonly logger = new Logger('Bot');
+  private readonly pending = new Map<string, NodeJS.Timeout>();
+
+  /**
+   * Programa la respuesta con debounce: cada mensaje nuevo del cliente
+   * reinicia la ventana de 15 s; al dispararse, respond() lee el historial
+   * completo y contesta todo lo acumulado en un solo mensaje.
+   */
+  scheduleRespond(tenantId: string, conversationId: string): void {
+    const key = `${tenantId}:${conversationId}`;
+    const existing = this.pending.get(key);
+    if (existing) clearTimeout(existing);
+    this.pending.set(
+      key,
+      setTimeout(() => {
+        this.pending.delete(key);
+        void this.respond(tenantId, conversationId);
+      }, REPLY_DEBOUNCE_MS),
+    );
+  }
 
   constructor(
     @Inject(ENV) private readonly env: Env,
@@ -99,6 +122,11 @@ export class BotService {
       });
       if (!context) return;
       const { conversation, settings, tenant, branch, customer, history } = context;
+
+      // Ya respondimos despues del ultimo mensaje del cliente (p. ej. un
+      // timer viejo): no hay nada pendiente que contestar.
+      const last = history[history.length - 1];
+      if (!last || last.direction !== 'in') return;
 
       let customerContext: string | null = null;
       if (settings.accessCustomerData) {

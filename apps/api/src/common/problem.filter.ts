@@ -14,6 +14,8 @@ interface Problem {
   status: number;
   detail?: string;
   errors?: Record<string, string[]>;
+  /** Datos estructurados del conflicto (ej. turnos afectados por un horario). */
+  conflicts?: unknown[];
   trace_id: string;
 }
 
@@ -44,6 +46,7 @@ export class ProblemFilter implements ExceptionFilter {
         title: typeof body.title === 'string' ? body.title : exception.message,
         status,
         detail: typeof body.detail === 'string' ? body.detail : undefined,
+        ...(Array.isArray(body.conflicts) ? { conflicts: body.conflicts } : {}),
         trace_id: traceId,
       };
     } else if (exception instanceof Prisma.PrismaClientKnownRequestError) {

@@ -220,6 +220,8 @@ model Branch {
   name      String
   address   String?
   phone     String?
+  /// Horario de atencion: { week: {"0".."6": [{from,to}...]}, closed_dates: [] }.
+  schedule  Json      @default("{}")
   isMain    Boolean   @default(false) @map("is_main")
   deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)

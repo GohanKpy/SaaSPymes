@@ -61,10 +61,13 @@ export default function SettingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
 
-  // Datos de la empresa + marca: todo lo que se imprime en el KuDE se edita aca.
+  // Datos de la empresa + marca: todo lo que se imprime en el KuDE y lo que
+  // el bot puede responder (direccion, telefono) se edita aca.
   const [branding, setBranding] = useState<Record<string, unknown>>({});
   const [marca, setMarca] = useState({ logo: '', actividad: '', email_facturacion: '' });
   const [empresa, setEmpresa] = useState({ legal_name: '', trade_name: '', ruc: '' });
+  const [branchId, setBranchId] = useState<string | null>(null);
+  const [sucursal, setSucursal] = useState({ address: '', phone: '' });
 
   const load = useCallback(() => {
     void api<Integration[]>('/integrations').then(setIntegrations).catch((e) => setError(String(e.message)));
@@ -79,6 +82,15 @@ export default function SettingsPage() {
           email_facturacion:
             typeof t.branding?.email_facturacion === 'string' ? t.branding.email_facturacion : '',
         });
+      })
+      .catch(() => undefined);
+    void api<{ id: string; isMain: boolean; address: string | null; phone: string | null }[]>('/branches')
+      .then((rows) => {
+        const main = rows.find((b) => b.isMain) ?? rows[0];
+        if (main) {
+          setBranchId(main.id);
+          setSucursal({ address: main.address ?? '', phone: main.phone ?? '' });
+        }
       })
       .catch(() => undefined);
   }, []);
@@ -117,6 +129,12 @@ export default function SettingsPage() {
           },
         },
       });
+      if (branchId) {
+        await api(`/branches/${branchId}`, {
+          method: 'PATCH',
+          json: { address: sucursal.address || undefined, phone: sucursal.phone || undefined },
+        });
+      }
       setSaved('Datos de la empresa guardados: se reflejan en el KuDE de las facturas');
       load();
     } catch (e) {
@@ -210,9 +228,25 @@ export default function SettingsPage() {
           <Field label="Actividad economica">
             <input
               className={inputClass}
-              placeholder="Ej: Peluqueria y estetica"
+              placeholder="Ej: Estudio creativo"
               value={marca.actividad}
               onChange={(e) => setMarca({ ...marca, actividad: e.target.value })}
+            />
+          </Field>
+          <Field label="Direccion (la responde el bot y sale en el KuDE)">
+            <input
+              className={inputClass}
+              placeholder="Avda. ... , Asuncion"
+              value={sucursal.address}
+              onChange={(e) => setSucursal({ ...sucursal, address: e.target.value })}
+            />
+          </Field>
+          <Field label="Telefono del negocio">
+            <input
+              className={inputClass}
+              placeholder="(0981) 123-456"
+              value={sucursal.phone}
+              onChange={(e) => setSucursal({ ...sucursal, phone: e.target.value })}
             />
           </Field>
           <div className="space-y-3">

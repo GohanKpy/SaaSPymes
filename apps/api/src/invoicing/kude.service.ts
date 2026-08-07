@@ -51,6 +51,16 @@ export class KudeService {
         title: 'El KuDE existe solo para facturas emitidas (aprobadas por SIFEN)',
       });
     }
+    // Regla del negocio (2026-08-07): el KuDE de una factura vigente se
+    // entrega recien con el pago registrado (las anuladas quedan exentas).
+    if (invoice.status === 'approved') {
+      const pagado = invoice.payments.reduce((sum, p) => sum + p.amount, 0n);
+      if (pagado < invoice.total) {
+        throw new UnprocessableEntityException({
+          title: 'Registra el pago antes de generar el KuDE',
+        });
+      }
+    }
 
     const tz = tenant?.timezone ?? 'America/Asuncion';
     const branding = (tenant?.branding ?? {}) as Branding;
