@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { runBotTurn, type BotToolHandlers } from '@pymes/botengine';
+import { DEFAULT_BASE_PROMPT, runBotTurn, type BotToolHandlers } from '@pymes/botengine';
 import type { Env } from '@pymes/shared';
 
 import { AppPrisma } from '../prisma/app-prisma.service';
@@ -17,6 +17,25 @@ import { WaSenderService } from './wa-sender.service';
  * Sin llave configurada (panel, ADR 0003; env como fallback) el bot queda
  * apagado y el chat sigue funcionando en modo humano.
  */
+/**
+ * Rellena variables {{conocidas}} de las instrucciones con datos reales del
+ * negocio y elimina las desconocidas: una plantilla pegada sin rellenar no
+ * debe llegar al modelo con llaves crudas.
+ */
+function renderInstructions(
+  text: string | null,
+  vars: Record<string, string | null | undefined>,
+): string | null {
+  if (!text) return null;
+  let out = text;
+  for (const [key, value] of Object.entries(vars)) {
+    out = out.replaceAll(`{{${key}}}`, value ?? '');
+  }
+  out = out.replace(/\{\{[^{}]{0,60}\}\}/g, '');
+  const trimmed = out.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 /** Aviso unico al agotar el presupuesto mensual de IA (doc 05 §6.4). */
 const BUDGET_NOTICE =
   'Gracias por escribirnos. En este momento una persona del negocio va a continuar la conversacion por este mismo chat.';
@@ -55,17 +74,21 @@ export class BotService {
         }
         const tenant = await tx.tenant.findUnique({
           where: { id: tenantId },
-          select: { legalName: true, tradeName: true, timezone: true },
+          select: { legalName: true, tradeName: true, timezone: true, branding: true },
+        });
+        const branch = await tx.branch.findFirst({
+          where: { deletedAt: null },
+          orderBy: { isMain: 'desc' },
         });
         const history = await tx.message.findMany({
           where: { conversationId },
           orderBy: { id: 'desc' },
           take: 20,
         });
-        return { conversation, settings, tenant, history: history.reverse() };
+        return { conversation, settings, tenant, branch, history: history.reverse() };
       });
       if (!context) return;
-      const { conversation, settings, tenant, history } = context;
+      const { conversation, settings, tenant, branch, history } = context;
 
       const timezone = tenant?.timezone ?? 'America/Asuncion';
 
@@ -90,13 +113,32 @@ export class BotService {
         conversation.id,
         this.buildHandlers(tenantId, conversation.id, settings.autoConfirmBookings, timezone),
       );
+      // La guia base (del panel admin o el default del sistema, ADR 0008) y
+      // las indicaciones del tenant admiten variables {{...}} conocidas;
+      // las desconocidas se eliminan para que el modelo no lea llaves crudas
+      // (una plantilla pegada tal cual confundia al bot).
+      const branding = (tenant?.branding ?? {}) as Record<string, unknown>;
+      const vars = {
+        nombre_negocio: tenant?.tradeName ?? tenant?.legalName,
+        razon_social: tenant?.legalName,
+        direccion: branch?.address,
+        telefono: branch?.phone,
+        actividad: typeof branding.actividad === 'string' ? branding.actividad : undefined,
+        rubro: typeof branding.actividad === 'string' ? branding.actividad : undefined,
+        email: typeof branding.email_facturacion === 'string' ? branding.email_facturacion : undefined,
+      };
+      const basePrompt = renderInstructions(engineConfig.basePrompt ?? DEFAULT_BASE_PROMPT, vars);
+      const instructions = renderInstructions(settings.instructionsText, vars);
+
       const result = await runBotTurn({
         provider: engineConfig.provider,
         apiKey,
         model: engineConfig.model,
         businessName: tenant?.tradeName ?? tenant?.legalName ?? 'el negocio',
         timezone,
-        instructions: settings.instructionsText,
+        basePrompt,
+        instructions,
+        instructionsPriority: settings.instructionsOverride,
         permissions: settings,
         handlers,
         history: history.map((m) => ({
@@ -206,13 +248,31 @@ export class BotService {
         hour12: false,
       });
     return {
+      // TODO el catalogo activo, no solo lo agendable: el bot tambien informa
+      // precios de servicios que se contratan sin turno (flyer, logo, etc.).
       listServices: () =>
         this.appDb.tx(ctx, async (tx) => {
           const services = await tx.service.findMany({
-            where: { deletedAt: null, isActive: true, bookableByBot: true },
-            select: { id: true, name: true, price: true, currency: true, durationMin: true },
+            where: { deletedAt: null, isActive: true },
+            select: {
+              id: true,
+              name: true,
+              description: true,
+              price: true,
+              currency: true,
+              durationMin: true,
+              bookableByBot: true,
+            },
           });
-          return services.map((s) => ({ ...s, price: s.price.toString() }));
+          return services.map((s) => ({
+            id: s.id,
+            name: s.name,
+            descripcion: s.description,
+            price: s.price.toString(),
+            currency: s.currency,
+            durationMin: s.durationMin,
+            agendable: s.bookableByBot,
+          }));
         }),
 
       getAvailableSlots: async (serviceId, date) => {
@@ -224,6 +284,11 @@ export class BotService {
         if (!service) {
           throw new Error(
             `service_id '${serviceId}' inexistente: obtene el id real con list_services`,
+          );
+        }
+        if (!service.bookableByBot) {
+          throw new Error(
+            `'${service.name}' no se agenda por chat (agendable=false): informa precio y detalles, y ofrece agendar una reunion (ej. diagnostico inicial) o derivar a un humano`,
           );
         }
         if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
@@ -250,6 +315,11 @@ export class BotService {
         if (!service) {
           throw new Error(
             `service_id '${serviceId}' inexistente: obtene el id real con list_services en este mismo turno`,
+          );
+        }
+        if (!service.bookableByBot) {
+          throw new Error(
+            `'${service.name}' no se agenda por chat (agendable=false): ofrece una reunion agendable o deriva a un humano`,
           );
         }
         if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {

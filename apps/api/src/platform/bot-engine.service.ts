@@ -15,12 +15,15 @@ interface BotEngineSecret {
 interface BotEnginePublic {
   provider?: 'openai' | 'anthropic';
   model?: string | null;
+  base_prompt?: string | null;
 }
 
 export interface BotEngineConfig {
   provider: 'openai' | 'anthropic';
   model: string | undefined;
   apiKey: string | undefined;
+  /** Guia estandar editada por el dueño; null = default del sistema (ADR 0008). */
+  basePrompt: string | null;
   source: 'panel' | 'env';
 }
 
@@ -59,6 +62,7 @@ export class BotEngineService {
       provider,
       model: publicConfig.model ?? this.env.BOT_MODEL,
       apiKey: dbKey ?? envKey,
+      basePrompt: publicConfig.base_prompt ?? null,
       source: row ? 'panel' : 'env',
     };
     this.cache = { at: Date.now(), config };
@@ -76,6 +80,7 @@ export class BotEngineService {
     return {
       provider: publicConfig.provider ?? this.env.BOT_PROVIDER,
       model: publicConfig.model ?? this.env.BOT_MODEL ?? null,
+      base_prompt: publicConfig.base_prompt ?? null,
       keys: {
         openai: Boolean(secret.openai_api_key ?? this.env.OPENAI_API_KEY),
         anthropic: Boolean(secret.anthropic_api_key ?? this.env.ANTHROPIC_API_KEY),
@@ -96,7 +101,13 @@ export class BotEngineService {
       openai_api_key: dto.openai_api_key ?? existing.openai_api_key,
       anthropic_api_key: dto.anthropic_api_key ?? existing.anthropic_api_key,
     };
-    const publicConfig = { provider: dto.provider, model: dto.model ?? null };
+    const prevPublic = (row?.publicConfig ?? {}) as BotEnginePublic;
+    const publicConfig = {
+      provider: dto.provider,
+      model: dto.model ?? null,
+      // undefined = mantener el guardado; null explicito = volver al default
+      base_prompt: dto.base_prompt === undefined ? (prevPublic.base_prompt ?? null) : dto.base_prompt,
+    };
 
     await this.platformDb.client.platformSetting.upsert({
       where: { key: SETTING_KEY },

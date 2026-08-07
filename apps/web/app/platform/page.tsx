@@ -31,6 +31,7 @@ interface Feature {
 interface BotEngine {
   provider: 'openai' | 'anthropic';
   model: string | null;
+  base_prompt: string | null;
   keys: { openai: boolean; anthropic: boolean };
   source: 'panel' | 'env';
 }
@@ -65,6 +66,7 @@ export default function PlatformPage() {
   const [engine, setEngine] = useState<BotEngine | null>(null);
   const [engineForm, setEngineForm] = useState({ provider: 'openai', model: '', openai_api_key: '', anthropic_api_key: '' });
   const [engineMsg, setEngineMsg] = useState<string | null>(null);
+  const [basePrompt, setBasePrompt] = useState('');
 
   // Modulo de seguridad: valores del bloqueo de login (viven en el panel).
   const [security, setSecurity] = useState({ login_max_attempts: 10, login_window_min: 10, login_block_min: 10 });
@@ -78,6 +80,7 @@ export default function PlatformPage() {
       .then((e) => {
         setEngine(e);
         setEngineForm((f) => ({ ...f, provider: e.provider, model: e.model ?? '' }));
+        setBasePrompt(e.base_prompt ?? '');
       })
       .catch(() => undefined);
     void api<{ login_max_attempts: number; login_window_min: number; login_block_min: number }>(
@@ -235,6 +238,7 @@ export default function PlatformPage() {
               json: {
                 provider: engineForm.provider,
                 model: engineForm.model || null,
+                base_prompt: basePrompt.trim() || null,
                 ...(engineForm.openai_api_key ? { openai_api_key: engineForm.openai_api_key } : {}),
                 ...(engineForm.anthropic_api_key ? { anthropic_api_key: engineForm.anthropic_api_key } : {}),
               },
@@ -277,6 +281,20 @@ export default function PlatformPage() {
             />
           </Field>
           <button className={`${buttonClass} h-fit`}>Guardar motor</button>
+          <div className="col-span-1 sm:col-span-2 lg:col-span-5">
+            <Field label="Guia de atencion estandar (prompt base para TODOS los tenants; vacio = default del sistema)">
+              <textarea
+                className={`${inputClass} h-40 font-mono text-xs`}
+                placeholder="Vacio: rige la guia por defecto del sistema (personalidad, identificacion del cliente, estilo WhatsApp, datos del negocio). Variables: {{nombre_negocio}}, {{razon_social}}, {{rubro}}, {{direccion}}, {{telefono}}, {{email}}. Las reglas de seguridad no viven aca y no son editables."
+                value={basePrompt}
+                onChange={(e) => setBasePrompt(e.target.value)}
+              />
+            </Field>
+            <p className="mt-1 text-xs text-slate-400">
+              Cada tenant puede complementarla con sus instrucciones; con su consentimiento explicito
+              pueden priorizarse sobre esta guia, nunca sobre las reglas de seguridad (ADR 0008).
+            </p>
+          </div>
         </form>
         {engineMsg && <p className="mt-2 text-xs text-slate-600">{engineMsg}</p>}
       </section>

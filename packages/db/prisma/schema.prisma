@@ -531,6 +531,8 @@ model BotSettings {
   accessCalendar      Boolean  @default(false) @map("access_calendar")
   allowBooking        Boolean  @default(false) @map("allow_booking")
   autoConfirmBookings Boolean  @default(false) @map("auto_confirm_bookings")
+  /// Consentimiento: sus instrucciones priman sobre la guia base (ADR 0008).
+  instructionsOverride Boolean @default(false) @map("instructions_override")
   monthlyTokenBudget  Int      @default(500000) @map("monthly_token_budget")
   updatedBy           String?  @map("updated_by") @db.Uuid
   updatedAt           DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)

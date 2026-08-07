@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 
 import { api } from '../../../../lib/api';
+import { formatRucConDv } from '../../../../lib/ruc';
 import { ErrorNote, Field, buttonClass, buttonGhost, inputClass, useSession } from '../../../../lib/ui';
 
 interface TenantUser {
@@ -209,8 +210,14 @@ export default function TenantDetailPage() {
           <Field label="Nombre de fantasia">
             <input className={inputClass} value={form.trade_name} onChange={(e) => setForm({ ...form, trade_name: e.target.value })} />
           </Field>
-          <Field label="RUC">
-            <input className={inputClass} placeholder="80012345-6" value={form.ruc} onChange={(e) => setForm({ ...form, ruc: e.target.value })} />
+          <Field label="RUC (el DV se completa solo)">
+            <input
+              className={inputClass}
+              placeholder="80012345"
+              value={form.ruc}
+              onChange={(e) => setForm({ ...form, ruc: e.target.value })}
+              onBlur={(e) => setForm({ ...form, ruc: formatRucConDv(e.target.value) })}
+            />
           </Field>
           <Field label="Contacto">
             <input className={inputClass} placeholder="nombre de tu cliente" value={form.contact_name} onChange={(e) => setForm({ ...form, contact_name: e.target.value })} />

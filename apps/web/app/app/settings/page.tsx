@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { api } from '../../../lib/api';
+import { formatRucConDv } from '../../../lib/ruc';
 import { ErrorNote, Field, buttonClass, inputClass } from '../../../lib/ui';
 
 interface Integration {
@@ -19,6 +20,7 @@ interface BotSettings {
   accessCalendar: boolean;
   allowBooking: boolean;
   autoConfirmBookings: boolean;
+  instructionsOverride: boolean;
   engine_available: boolean;
   usage: {
     period: string;
@@ -172,8 +174,14 @@ export default function SettingsPage() {
           <Field label="Nombre de fantasia">
             <input className={inputClass} value={empresa.trade_name} onChange={(e) => setEmpresa({ ...empresa, trade_name: e.target.value })} />
           </Field>
-          <Field label="RUC (con digito verificador)">
-            <input className={inputClass} placeholder="80012345-6" value={empresa.ruc} onChange={(e) => setEmpresa({ ...empresa, ruc: e.target.value })} />
+          <Field label="RUC (el DV se completa solo)">
+            <input
+              className={inputClass}
+              placeholder="80012345"
+              value={empresa.ruc}
+              onChange={(e) => setEmpresa({ ...empresa, ruc: e.target.value })}
+              onBlur={(e) => setEmpresa({ ...empresa, ruc: formatRucConDv(e.target.value) })}
+            />
           </Field>
           <div className="space-y-2">
             <Field label="Logo (PNG o JPEG, max 350 KB)">
@@ -257,9 +265,31 @@ export default function SettingsPage() {
                 className={`${inputClass} h-24`}
                 defaultValue={bot.instructionsText ?? ''}
                 onBlur={(e) => void patchBot({ instructions_text: e.target.value || null })}
-                placeholder="Conta que hace tu negocio y como atender. Ej: Somos un consultorio odontologico; atendemos lunes a viernes de 8 a 17; trata a los pacientes de usted; ante dolor agudo ofrece el primer turno libre del dia."
+                placeholder="Conta que hace tu negocio y como atender. Ej: Somos un estudio creativo; tono cercano y profesional; trata a los clientes de vos; ante consultas de precios ofrece agendar la reunion de diagnostico gratuita."
               />
             </Field>
+            <p className="mt-1 text-xs text-slate-400">
+              Texto plano. No hace falta escribir el catalogo ni los precios: el bot los consulta en
+              vivo del sistema. Variables disponibles: {'{{nombre_negocio}}'}, {'{{razon_social}}'},{' '}
+              {'{{direccion}}'}, {'{{telefono}}'}, {'{{actividad}}'}, {'{{email}}'} — cualquier otra{' '}
+              {'{{variable}}'} se elimina.
+            </p>
+            <label className="mt-2 flex items-start gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={bot.instructionsOverride}
+                onChange={(e) => void patchBot({ instructions_override: e.target.checked })}
+              />
+              <span>
+                <b>Priorizar mis instrucciones</b> sobre la guia estandar del sistema cuando se
+                contradigan.{' '}
+                <span className="text-xs text-slate-500">
+                  (Consentimiento: entiendo que el comportamiento del bot puede diferir del estandar
+                  recomendado. Las reglas de seguridad del sistema rigen siempre y no son anulables.)
+                </span>
+              </span>
+            </label>
           </div>
           <p className="mt-3 text-xs text-slate-500">
             Consumo IA de {bot.usage.period}: {(bot.usage.input_tokens + bot.usage.output_tokens).toLocaleString('es-PY')}{' '}

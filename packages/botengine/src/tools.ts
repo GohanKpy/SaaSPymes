@@ -20,7 +20,16 @@ export interface BotPermissions {
  */
 export interface BotToolHandlers {
   listServices(): Promise<
-    { id: string; name: string; price: string; currency: string; durationMin: number | null }[]
+    {
+      id: string;
+      name: string;
+      descripcion: string | null;
+      price: string;
+      currency: string;
+      durationMin: number | null;
+      /** true = se puede agendar por chat; false = solo informativo. */
+      agendable: boolean;
+    }[]
   >;
   /** Horarios libres del dia, como "HH:MM" en hora local del negocio. */
   getAvailableSlots(serviceId: string, date: string): Promise<string[]>;
@@ -63,7 +72,7 @@ export function buildBotTools(permissions: BotPermissions, handlers: BotToolHand
     tools.push({
       name: 'list_services',
       description:
-        'Lista los servicios que ofrece el negocio con precio (en guaranies, IVA incluido) y duracion en minutos. Usala antes de hablar de precios o servicios.',
+        'Lista TODOS los servicios del negocio con precio (guaranies, IVA incluido), descripcion y el campo agendable: true = se puede reservar por chat; false = solo se informa y se ofrece derivar o agendar una reunion. Usala SIEMPRE antes de hablar de precios o de que ofrece el negocio.',
       parameters: { type: 'object', properties: {}, additionalProperties: false },
       run: async () => JSON.stringify(await handlers.listServices()),
     });

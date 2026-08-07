@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { api } from '../../../lib/api';
+import { dvRuc } from '../../../lib/ruc';
 import { ErrorNote, Field, buttonClass, buttonGhost, inputClass } from '../../../lib/ui';
 
 interface Customer {
@@ -153,7 +154,18 @@ export default function CustomersPage() {
           <input className={inputClass} type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
         </Field>
         <Field label="Tipo de documento">
-          <select className={inputClass} value={form.doc_type} onChange={(e) => setForm({ ...form, doc_type: e.target.value })}>
+          <select
+            className={inputClass}
+            value={form.doc_type}
+            onChange={(e) => {
+              const doc_type = e.target.value;
+              setForm({
+                ...form,
+                doc_type,
+                ruc_dv: doc_type === 'ruc' ? (dvRuc(form.doc_number) ?? '') : '',
+              });
+            }}
+          >
             <option value="">—</option>
             <option value="ci">Cedula (CI)</option>
             <option value="ruc">RUC</option>
@@ -161,11 +173,20 @@ export default function CustomersPage() {
           </select>
         </Field>
         <Field label="Numero de documento">
-          <input className={inputClass} value={form.doc_number} onChange={(e) => setForm({ ...form, doc_number: e.target.value })} />
+          <input
+            className={inputClass}
+            value={form.doc_number}
+            onChange={(e) => {
+              const doc_number = e.target.value;
+              // DV automatico (modulo 11 SET): se recalcula con cada tecla.
+              const ruc_dv = form.doc_type === 'ruc' ? (dvRuc(doc_number) ?? '') : form.ruc_dv;
+              setForm({ ...form, doc_number, ruc_dv });
+            }}
+          />
         </Field>
         {form.doc_type === 'ruc' && (
-          <Field label="Digito verificador">
-            <input className={inputClass} maxLength={2} value={form.ruc_dv} onChange={(e) => setForm({ ...form, ruc_dv: e.target.value })} />
+          <Field label="DV (automatico)">
+            <input className={`${inputClass} bg-slate-50`} readOnly value={form.ruc_dv} title="Se calcula solo con el algoritmo oficial de la SET" />
           </Field>
         )}
         <Field label="Fecha de nacimiento">
