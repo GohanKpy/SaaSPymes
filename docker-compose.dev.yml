@@ -66,6 +66,15 @@ services:
       PORT: '4308'
     ports: ['4308:4308']
 
+  tunnel: # Cloudflare Tunnel (testeo remoto y webhook de Meta): solo trafico
+    # SALIENTE, sin puertos publicados; TUNNEL_TOKEN vive en .env.local y las
+    # rutas hostname->servicio se administran en Cloudflare (tunel pymes-lab).
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate run
+    env_file: .env.local
+    depends_on: [web, webadmin, api]
+    restart: unless-stopped
+
 volumes:
   dbdata:
   miniodata:

@@ -19,9 +19,16 @@ async function bootstrap(): Promise<void> {
   // Valida el entorno ANTES de levantar nada: sin config completa no hay arranque.
   const env = loadEnv();
 
-  const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter(), {
-    rawBody: true, // firma X-Hub-Signature-256 de webhooks (doc 04 §3.10)
-  });
+  // trustProxy: detras del tunel Cloudflare los requests llegan desde el
+  // contenedor cloudflared; sin esto el bloqueo de login y la auditoria
+  // registrarian esa IP interna para TODO el mundo (un lockout global).
+  const app = await NestFactory.create<NestFastifyApplication>(
+    AppModule,
+    new FastifyAdapter({ trustProxy: true }),
+    {
+      rawBody: true, // firma X-Hub-Signature-256 de webhooks (doc 04 §3.10)
+    },
+  );
 
   await app.register(fastifyCookie);
   // CORS con credenciales: WEB_ORIGIN admite lista separada por comas; en

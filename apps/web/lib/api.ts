@@ -3,15 +3,19 @@
 // Cliente del API: access token en memoria (jamas en storage) y refresh
 // automatico via cookie httpOnly (doc 05 §3). Al recargar la pagina se
 // intenta un refresh silencioso.
-// La URL del API se deriva del host desde el que se abrio el panel (mismo
-// servidor, puerto del API), asi funciona desde localhost y desde la LAN
-// (ej. http://192.168.x.x:4300) sin reconstruir. NEXT_PUBLIC_API_URL la
-// fija explicitamente en ambientes con dominio propio.
+// La URL del API se deriva del host desde el que se abrio el panel, asi
+// funciona sin reconstruir desde localhost, la LAN y el tunel:
+// - http (localhost / 192.168.x.x): mismo host, puerto del API.
+// - https (dominio con tunel/proxy): subdominio hermano api.<dominio>, por
+//   convencion de DNS (client.X y admin.X comparten el api.X de su dominio).
+// NEXT_PUBLIC_API_URL la fija explicitamente si un ambiente rompe la regla.
 const API_PORT = process.env.NEXT_PUBLIC_API_PORT ?? '4301';
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL ??
   (typeof window !== 'undefined'
-    ? `${window.location.protocol}//${window.location.hostname}:${API_PORT}`
+    ? window.location.protocol === 'https:'
+      ? `https://api.${window.location.hostname.split('.').slice(1).join('.')}`
+      : `${window.location.protocol}//${window.location.hostname}:${API_PORT}`
     : 'http://localhost:4301');
 
 export interface SessionUser {
