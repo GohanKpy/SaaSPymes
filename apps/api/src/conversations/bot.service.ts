@@ -58,6 +58,10 @@ const REPLY_DEBOUNCE_MS = 15_000;
 export class BotService {
   private readonly logger = new Logger('Bot');
   private readonly pending = new Map<string, NodeJS.Timeout>();
+  // Tope HORARIO de IA por tenant (auditoria 2026-08-07): freno a bucles o
+  // abuso que quemarian el presupuesto mensual en minutos. En memoria, igual
+  // que el bloqueo de login: suficiente para la instancia unica de fase 1.
+  private readonly hourly = new Map<string, { hourStart: number; tokens: number }>();
 
   /**
    * Programa la respuesta con debounce: cada mensaje nuevo del cliente
@@ -179,6 +183,18 @@ export class BotService {
         }
         return;
       }
+      // Tope horario: un dia entero de presupuesto proporcional gastado en una
+      // hora es un bucle o un abuso, no trafico real. Mismo tratamiento que un
+      // fallo del proveedor: aviso unico + marca para la bandeja.
+      if (this.hourlyCapReached(tenantId, settings.monthlyTokenBudget)) {
+        this.logger.warn(`tope horario de IA alcanzado tenant=${tenantId}`);
+        const lastBot = [...history].reverse().find((m) => m.senderType === 'bot');
+        if (lastBot?.body !== FALLBACK_NOTICE) {
+          await this.storeBotReply(tenantId, conversationId, FALLBACK_NOTICE);
+        }
+        await this.setNeedsHuman(tenantId, conversationId, true);
+        return;
+      }
       const handlers = this.withToolLogging(
         tenantId,
         conversation.id,
@@ -237,6 +253,8 @@ export class BotService {
         return;
       }
 
+      this.addHourlyUsage(tenantId, result.inputTokens + result.outputTokens);
+
       // El consumo se registra aunque el modelo no haya producido texto:
       // los tokens ya se gastaron (ADR 0006).
       await this.appDb.tx(ctx, (tx) =>
@@ -294,6 +312,23 @@ export class BotService {
     });
     this.events.emit(tenantId, 'message.new', serializeMessage(stored));
     this.waSender.dispatch(tenantId, conversationId, stored.id);
+  }
+
+  /** Tope por hora = un dia de presupuesto proporcional (min. 2000 tokens):
+   *  generoso para trafico real, corta bucles en la primera hora. */
+  private hourlyCapReached(tenantId: string, monthlyBudget: number): boolean {
+    const cap = Math.max(2_000, Math.floor(monthlyBudget / 30));
+    const entry = this.hourly.get(tenantId);
+    if (!entry || Date.now() - entry.hourStart >= 3_600_000) return false;
+    return entry.tokens >= cap;
+  }
+
+  private addHourlyUsage(tenantId: string, tokens: number): void {
+    const now = Date.now();
+    let entry = this.hourly.get(tenantId);
+    if (!entry || now - entry.hourStart >= 3_600_000) entry = { hourStart: now, tokens: 0 };
+    entry.tokens += tokens;
+    this.hourly.set(tenantId, entry);
   }
 
   /** Marca/desmarca la conversacion como "necesita humano" y avisa a la

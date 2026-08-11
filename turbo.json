@@ -10,7 +10,26 @@
     },
     "test": {
       "dependsOn": ["^build"],
-      "env": ["MIGRATOR_DATABASE_URL", "DATABASE_URL", "PLATFORM_DATABASE_URL"]
+      "env": [
+        "MIGRATOR_DATABASE_URL",
+        "DATABASE_URL",
+        "PLATFORM_DATABASE_URL",
+        "JWT_PRIVATE_KEY_BASE64",
+        "JWT_PUBLIC_KEY_BASE64",
+        "META_APP_SECRET",
+        "META_VERIFY_TOKEN",
+        "WEB_ORIGIN",
+        "S3_ENDPOINT",
+        "S3_FORCE_PATH_STYLE",
+        "SQS_ENDPOINT",
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
+        "CRYPTO_PROVIDER",
+        "CRYPTO_LOCAL_KEY_BASE64",
+        "SMTP_HOST",
+        "WHATSAPP_API_URL",
+        "INVOICING_PROVIDER"
+      ]
     },
     "dev": {
       "cache": false,

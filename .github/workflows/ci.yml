@@ -26,6 +26,21 @@ jobs:
     env:
       MIGRATOR_DATABASE_URL: postgresql://migrator:devpass@localhost:5432/pymes
       DATABASE_URL: postgresql://app_rw:devpass@localhost:5432/pymes
+      PLATFORM_DATABASE_URL: postgresql://platform_ops:devpass@localhost:5432/pymes
+      # Entorno completo de la API para el e2e de aislamiento (valores de
+      # juguete; las llaves JWT se generan en un step). Nada de esto es secreto.
+      META_APP_SECRET: ci-app-secret
+      META_VERIFY_TOKEN: ci-verify-token
+      WEB_ORIGIN: http://localhost:4300
+      S3_ENDPOINT: http://localhost:9000
+      S3_FORCE_PATH_STYLE: 'true'
+      SQS_ENDPOINT: http://localhost:9324
+      AWS_ACCESS_KEY_ID: ci
+      AWS_SECRET_ACCESS_KEY: ci
+      CRYPTO_PROVIDER: local
+      SMTP_HOST: localhost
+      WHATSAPP_API_URL: http://localhost:9099
+      INVOICING_PROVIDER: fake
 
     steps:
       - uses: actions/checkout@v4
@@ -41,6 +56,14 @@ jobs:
 
       - name: Instalar dependencias
         run: pnpm install --frozen-lockfile
+
+      - name: Generar llaves JWT y de cifrado efimeras del job
+        run: |
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out /tmp/jwt.pem
+          openssl pkey -in /tmp/jwt.pem -pubout -out /tmp/jwt.pub.pem
+          echo "JWT_PRIVATE_KEY_BASE64=$(base64 -w0 /tmp/jwt.pem)" >> "$GITHUB_ENV"
+          echo "JWT_PUBLIC_KEY_BASE64=$(base64 -w0 /tmp/jwt.pub.pem)" >> "$GITHUB_ENV"
+          echo "CRYPTO_LOCAL_KEY_BASE64=$(openssl rand -base64 32)" >> "$GITHUB_ENV"
 
       - name: Preparar instancia (roles, esquemas, funciones RLS)
         run: PGPASSWORD=devpass psql -h localhost -U postgres -d pymes -f infra/local/init/01-schema.sql

@@ -23,45 +23,54 @@ export type LinkCustomerRequest = z.infer<typeof linkCustomerRequest>;
  * El chat web de prueba emite exactamente esta forma firmada con el mismo
  * app secret: el pipeline que se testea es el real (doc 04 §3.10).
  */
+// Topes en cada campo y lista (auditoria 2026-08-07): el endpoint es publico
+// (firmado pero sin JWT) y sin .max() un payload gigante valido gastaba
+// memoria y tokens de IA. WhatsApp corta los textos en 4096 caracteres.
 export const waWebhookPayload = z.object({
   object: z.literal('whatsapp_business_account'),
-  entry: z.array(
-    z.object({
-      id: z.string(),
-      changes: z.array(
-        z.object({
-          field: z.literal('messages'),
-          value: z.object({
-            messaging_product: z.literal('whatsapp'),
-            metadata: z.object({
-              display_phone_number: z.string(),
-              phone_number_id: z.string(),
+  entry: z
+    .array(
+      z.object({
+        id: z.string().max(100),
+        changes: z
+          .array(
+            z.object({
+              field: z.literal('messages'),
+              value: z.object({
+                messaging_product: z.literal('whatsapp'),
+                metadata: z.object({
+                  display_phone_number: z.string().max(30),
+                  phone_number_id: z.string().max(50),
+                }),
+                contacts: z
+                  .array(
+                    z.object({
+                      profile: z.object({ name: z.string().max(200) }).partial(),
+                      wa_id: z.string().max(30),
+                    }),
+                  )
+                  .max(20)
+                  .optional(),
+                messages: z
+                  .array(
+                    z.object({
+                      from: z.string().max(30), // telefono del cliente sin '+'
+                      id: z.string().max(100), // wa_message_id, dedupe
+                      timestamp: z.string().max(20),
+                      type: z.string().max(30),
+                      text: z.object({ body: z.string().max(4096) }).optional(),
+                    }),
+                  )
+                  .max(50)
+                  .optional(),
+                statuses: z.array(z.unknown()).max(100).optional(),
+              }),
             }),
-            contacts: z
-              .array(
-                z.object({
-                  profile: z.object({ name: z.string() }).partial(),
-                  wa_id: z.string(),
-                }),
-              )
-              .optional(),
-            messages: z
-              .array(
-                z.object({
-                  from: z.string(), // telefono del cliente sin '+'
-                  id: z.string(), // wa_message_id, dedupe
-                  timestamp: z.string(),
-                  type: z.string(),
-                  text: z.object({ body: z.string() }).optional(),
-                }),
-              )
-              .optional(),
-            statuses: z.array(z.unknown()).optional(),
-          }),
-        }),
-      ),
-    }),
-  ),
+          )
+          .max(20),
+      }),
+    )
+    .max(20),
 });
 export type WaWebhookPayload = z.infer<typeof waWebhookPayload>;
 

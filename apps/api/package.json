@@ -6,7 +6,8 @@
     "build": "nest build",
     "dev": "nest start --watch",
     "start": "node dist/main.js",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.0",
@@ -29,9 +30,12 @@
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.0",
+    "@swc/core": "^1.15.47",
     "@types/node": "^22.9.0",
     "@types/pdfkit": "^0.17.6",
     "@types/qrcode": "^1.5.6",
-    "typescript": "^5.6.3"
+    "typescript": "^5.6.3",
+    "unplugin-swc": "^1.5.10",
+    "vitest": "^3.2.7"
   }
 }

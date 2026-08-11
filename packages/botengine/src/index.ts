@@ -89,7 +89,8 @@ export const DEFAULT_BASE_PROMPT = `## Personalidad y tono
 - Telefono: {{telefono}}
 - Servicios y precios: consultalos SIEMPRE con la herramienta list_services; jamas los cites de memoria.`;
 
-function buildSystem(input: BotTurnInput): string {
+/** Exportada para los tests: el prompt de sistema es contrato de seguridad. */
+export function buildSystem(input: BotTurnInput): string {
   const today = new Date().toLocaleDateString('en-CA', { timeZone: input.timezone });
   const manana = new Date(Date.now() + 86_400_000);
   const largo: Intl.DateTimeFormatOptions = {

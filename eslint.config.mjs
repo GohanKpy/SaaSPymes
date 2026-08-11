@@ -12,6 +12,9 @@ export default tseslint.config(
       '**/.turbo/**',
       '**/next-env.d.ts',
       'coverage/**',
+      // Scripts de skills de QA (Claude): corren con Node 22 a mano, no son
+      // codigo del producto.
+      '.claude/**',
     ],
   },
   js.configs.recommended,
