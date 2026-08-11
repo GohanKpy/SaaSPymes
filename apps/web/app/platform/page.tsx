@@ -33,6 +33,10 @@ interface BotEngine {
   provider: 'openai' | 'anthropic';
   model: string | null;
   base_prompt: string | null;
+  reply_debounce_seconds: number;
+  hourly_budget_divisor: number;
+  fallback_notice: string | null;
+  budget_notice: string | null;
   keys: { openai: boolean; anthropic: boolean };
   source: 'panel' | 'env';
 }
@@ -68,6 +72,8 @@ export default function PlatformPage() {
   const [engineForm, setEngineForm] = useState({ provider: 'openai', model: '', openai_api_key: '', anthropic_api_key: '' });
   const [engineMsg, setEngineMsg] = useState<string | null>(null);
   const [basePrompt, setBasePrompt] = useState('');
+  // Parametros operativos del bot (nada hardcodeado: el panel manda).
+  const [engineOps, setEngineOps] = useState({ debounce: 15, divisor: 30, fallback: '', budget: '' });
 
   // Modulo de seguridad: valores del bloqueo de login (viven en el panel).
   const [security, setSecurity] = useState({ login_max_attempts: 10, login_window_min: 10, login_block_min: 10 });
@@ -82,6 +88,12 @@ export default function PlatformPage() {
         setEngine(e);
         setEngineForm((f) => ({ ...f, provider: e.provider, model: e.model ?? '' }));
         setBasePrompt(e.base_prompt ?? '');
+        setEngineOps({
+          debounce: e.reply_debounce_seconds,
+          divisor: e.hourly_budget_divisor,
+          fallback: e.fallback_notice ?? '',
+          budget: e.budget_notice ?? '',
+        });
       })
       .catch(() => undefined);
     void api<{ login_max_attempts: number; login_window_min: number; login_block_min: number }>(
@@ -250,6 +262,10 @@ export default function PlatformPage() {
                 provider: engineForm.provider,
                 model: engineForm.model || null,
                 base_prompt: basePrompt.trim() || null,
+                reply_debounce_seconds: engineOps.debounce,
+                hourly_budget_divisor: engineOps.divisor,
+                fallback_notice: engineOps.fallback.trim() || null,
+                budget_notice: engineOps.budget.trim() || null,
                 ...(engineForm.openai_api_key ? { openai_api_key: engineForm.openai_api_key } : {}),
                 ...(engineForm.anthropic_api_key ? { anthropic_api_key: engineForm.anthropic_api_key } : {}),
               },
@@ -292,6 +308,44 @@ export default function PlatformPage() {
             />
           </Field>
           <button className={`${buttonClass} h-fit`}>Guardar motor</button>
+          <Field label="Espera antes de responder (segundos)">
+            <input
+              className={inputClass}
+              type="number"
+              min={0}
+              max={120}
+              value={engineOps.debounce}
+              onChange={(e) => setEngineOps({ ...engineOps, debounce: Number(e.target.value) })}
+            />
+          </Field>
+          <Field label="Tope horario de IA (presupuesto mensual ÷ este valor)">
+            <input
+              className={inputClass}
+              type="number"
+              min={1}
+              max={720}
+              value={engineOps.divisor}
+              onChange={(e) => setEngineOps({ ...engineOps, divisor: Number(e.target.value) })}
+            />
+          </Field>
+          <div className="col-span-1 sm:col-span-2 lg:col-span-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label="Aviso si la IA falla (vacio = texto por defecto)">
+              <textarea
+                className={`${inputClass} h-16 text-xs`}
+                placeholder="Gracias por tu mensaje! En breve una persona del equipo te responde por este mismo chat."
+                value={engineOps.fallback}
+                onChange={(e) => setEngineOps({ ...engineOps, fallback: e.target.value })}
+              />
+            </Field>
+            <Field label="Aviso al agotarse el presupuesto (vacio = default)">
+              <textarea
+                className={`${inputClass} h-16 text-xs`}
+                placeholder="Gracias por escribirnos. En este momento una persona del negocio va a continuar la conversacion por este mismo chat."
+                value={engineOps.budget}
+                onChange={(e) => setEngineOps({ ...engineOps, budget: e.target.value })}
+              />
+            </Field>
+          </div>
           <div className="col-span-1 sm:col-span-2 lg:col-span-5">
             <Field label="Guia de atencion estandar (prompt base para TODOS los tenants; vacio = default del sistema)">
               <textarea

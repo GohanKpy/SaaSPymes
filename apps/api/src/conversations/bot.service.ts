@@ -6,7 +6,7 @@ import { AppPrisma } from '../prisma/app-prisma.service';
 import { dvRuc } from '../common/ruc';
 import { ENV } from '../env.module';
 import { BotEngineService } from '../platform/bot-engine.service';
-import { AppointmentsService } from '../scheduling/appointments.service';
+import { AppointmentsService, type BranchSchedule } from '../scheduling/appointments.service';
 import { serializeMessage } from './conversations.service';
 import { TenantEventsService } from './events.service';
 import { WaSenderService } from './wa-sender.service';
@@ -37,22 +37,18 @@ function renderInstructions(
   return trimmed.length > 0 ? trimmed : null;
 }
 
-/** Aviso unico al agotar el presupuesto mensual de IA (doc 05 §6.4). */
-const BUDGET_NOTICE =
-  'Gracias por escribirnos. En este momento una persona del negocio va a continuar la conversacion por este mismo chat.';
+// Los avisos al cliente (presupuesto agotado, fallo del proveedor), el
+// debounce y el tope horario se configuran desde el panel admin (regla: nada
+// funcional hardcodeado); los defaults viven en bot-engine.service.
 
-/**
- * Aviso unico si el proveedor de IA falla (auditoria 2026-08-07): el cliente
- * no puede quedar sin respuesta ni enterarse del problema tecnico. La
- * conversacion queda marcada "necesita humano" en la bandeja; el proximo
- * mensaje del cliente vuelve a intentar con el bot.
- */
-const FALLBACK_NOTICE =
-  'Gracias por tu mensaje! En breve una persona del equipo te responde por este mismo chat.';
-
-// Debounce humano (pedido 2026-08-07): esperar tras el ULTIMO mensaje del
-// cliente antes de responder, para contestar todo junto si escribe en rafaga.
-const REPLY_DEBOUNCE_MS = 15_000;
+/** Para matchear slugs/nombres que el modelo manda en vez del UUID. */
+const normalizar = (s: string): string =>
+  s
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
 
 @Injectable()
 export class BotService {
@@ -64,21 +60,23 @@ export class BotService {
   private readonly hourly = new Map<string, { hourStart: number; tokens: number }>();
 
   /**
-   * Programa la respuesta con debounce: cada mensaje nuevo del cliente
-   * reinicia la ventana de 15 s; al dispararse, respond() lee el historial
-   * completo y contesta todo lo acumulado en un solo mensaje.
+   * Programa la respuesta con debounce (configurable en el panel admin):
+   * cada mensaje nuevo del cliente reinicia la ventana; al dispararse,
+   * respond() lee el historial completo y contesta todo junto.
    */
   scheduleRespond(tenantId: string, conversationId: string): void {
-    const key = `${tenantId}:${conversationId}`;
-    const existing = this.pending.get(key);
-    if (existing) clearTimeout(existing);
-    this.pending.set(
-      key,
-      setTimeout(() => {
-        this.pending.delete(key);
-        void this.respond(tenantId, conversationId);
-      }, REPLY_DEBOUNCE_MS),
-    );
+    void this.engine.getConfig().then((config) => {
+      const key = `${tenantId}:${conversationId}`;
+      const existing = this.pending.get(key);
+      if (existing) clearTimeout(existing);
+      this.pending.set(
+        key,
+        setTimeout(() => {
+          this.pending.delete(key);
+          void this.respond(tenantId, conversationId);
+        }, config.replyDebounceMs),
+      );
+    });
   }
 
   constructor(
@@ -178,19 +176,21 @@ export class BotService {
           `presupuesto IA agotado tenant=${tenantId} periodo=${period} gastado=${spent} presupuesto=${settings.monthlyTokenBudget}`,
         );
         const lastBot = [...history].reverse().find((m) => m.senderType === 'bot');
-        if (lastBot?.body !== BUDGET_NOTICE) {
-          await this.storeBotReply(tenantId, conversationId, BUDGET_NOTICE);
+        if (lastBot?.body !== engineConfig.budgetNotice) {
+          await this.storeBotReply(tenantId, conversationId, engineConfig.budgetNotice);
         }
         return;
       }
       // Tope horario: un dia entero de presupuesto proporcional gastado en una
       // hora es un bucle o un abuso, no trafico real. Mismo tratamiento que un
       // fallo del proveedor: aviso unico + marca para la bandeja.
-      if (this.hourlyCapReached(tenantId, settings.monthlyTokenBudget)) {
+      if (
+        this.hourlyCapReached(tenantId, settings.monthlyTokenBudget, engineConfig.hourlyBudgetDivisor)
+      ) {
         this.logger.warn(`tope horario de IA alcanzado tenant=${tenantId}`);
         const lastBot = [...history].reverse().find((m) => m.senderType === 'bot');
-        if (lastBot?.body !== FALLBACK_NOTICE) {
-          await this.storeBotReply(tenantId, conversationId, FALLBACK_NOTICE);
+        if (lastBot?.body !== engineConfig.fallbackNotice) {
+          await this.storeBotReply(tenantId, conversationId, engineConfig.fallbackNotice);
         }
         await this.setNeedsHuman(tenantId, conversationId, true);
         return;
@@ -225,6 +225,7 @@ export class BotService {
           model: engineConfig.model,
           businessName: tenant?.tradeName ?? tenant?.legalName ?? 'el negocio',
           timezone,
+          businessHours: this.describeSchedule(branch?.schedule, timezone),
           basePrompt,
           instructions,
           instructionsPriority: settings.instructionsOverride,
@@ -246,8 +247,8 @@ export class BotService {
           error instanceof Error ? error.stack : String(error),
         );
         const lastBot = [...history].reverse().find((m) => m.senderType === 'bot');
-        if (lastBot?.body !== FALLBACK_NOTICE) {
-          await this.storeBotReply(tenantId, conversationId, FALLBACK_NOTICE);
+        if (lastBot?.body !== engineConfig.fallbackNotice) {
+          await this.storeBotReply(tenantId, conversationId, engineConfig.fallbackNotice);
         }
         await this.setNeedsHuman(tenantId, conversationId, true);
         return;
@@ -278,11 +279,10 @@ export class BotService {
 
       if (!result.reply) return;
       await this.storeBotReply(tenantId, conversationId, result.reply);
-      // El bot volvio a responder con exito: la marca "necesita humano" de un
-      // fallo anterior del proveedor ya no aplica.
-      if (conversation.needsHuman) {
-        await this.setNeedsHuman(tenantId, conversationId, false);
-      }
+      // La marca "necesita humano" NO se limpia porque el bot siga
+      // respondiendo: al cliente se le prometio una persona (por fallo del
+      // proveedor o por request_human) y esa promesa se cumple recien cuando
+      // un agente contesta (sendAsAgent la limpia).
     } catch (error) {
       // El bot jamas tumba el pipeline de chat: se loguea y el panel decide.
       this.logger.error(
@@ -314,10 +314,78 @@ export class BotService {
     this.waSender.dispatch(tenantId, conversationId, stored.id);
   }
 
-  /** Tope por hora = un dia de presupuesto proporcional (min. 2000 tokens):
-   *  generoso para trafico real, corta bucles en la primera hora. */
-  private hourlyCapReached(tenantId: string, monthlyBudget: number): boolean {
-    const cap = Math.max(2_000, Math.floor(monthlyBudget / 30));
+  /**
+   * Resumen legible del horario de atencion + proximos dias cerrados: ancla
+   * al bot para no ofrecer dias cerrados ni inventar franjas (bateria de
+   * testeo 2026-08-07, bugs 2 y 6). Los turnos reales siguen saliendo SOLO
+   * de get_available_slots.
+   */
+  private describeSchedule(raw: unknown, timezone: string): string {
+    const schedule = (raw ?? {}) as BranchSchedule;
+    const DIAS = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'];
+    const lines: string[] = [];
+    if (!schedule.week) {
+      lines.push('- todos los dias de 08:00 a 18:00');
+    } else {
+      for (const dow of [1, 2, 3, 4, 5, 6, 0]) {
+        const franjas = schedule.week[String(dow)] ?? [];
+        lines.push(
+          franjas.length === 0
+            ? `- ${DIAS[dow]}: cerrado`
+            : `- ${DIAS[dow]}: ${franjas.map((f) => `${f.from} a ${f.to}`).join(' y ')}`,
+        );
+      }
+    }
+    const hoy = new Date().toLocaleDateString('en-CA', { timeZone: timezone });
+    const limite = new Date(Date.now() + 14 * 86_400_000).toLocaleDateString('en-CA', {
+      timeZone: timezone,
+    });
+    const cerrados = (schedule.closed_dates ?? []).filter((d) => d >= hoy && d <= limite).sort();
+    if (cerrados.length > 0) {
+      const largo: Intl.DateTimeFormatOptions = {
+        timeZone: timezone,
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long',
+      };
+      lines.push(
+        `Fechas puntuales SIN atencion (no ofrecer turnos ni consultar esos dias): ${cerrados
+          .map((d) => `${new Date(`${d}T12:00:00Z`).toLocaleDateString('es-PY', largo)} (${d})`)
+          .join(', ')}.`,
+      );
+    }
+    return lines.join('\n');
+  }
+
+  /**
+   * Busca el servicio por UUID o, si el modelo mando un slug/nombre
+   * ("mantenimiento-pc"), por nombre normalizado con match UNICO: evita
+   * llamadas quemadas por IDs alucinados (bateria 2026-08-07, bug 4) sin
+   * darle al modelo ninguna ambiguedad nueva.
+   */
+  private async resolveService(tenantId: string, rawId: string) {
+    const ctx = { tenantId, actorType: 'bot' as const };
+    const byId = await this.appDb
+      .tx(ctx, (tx) => tx.service.findFirst({ where: { id: rawId, deletedAt: null } }))
+      .catch(() => null);
+    if (byId) return byId;
+    const wanted = normalizar(rawId);
+    if (!wanted) return null;
+    const all = await this.appDb.tx(ctx, (tx) =>
+      tx.service.findMany({ where: { deletedAt: null, isActive: true } }),
+    );
+    const matches = all.filter((s) => normalizar(s.name) === wanted);
+    if (matches.length === 1 && matches[0]) {
+      this.logger.log(`service_id '${rawId}' resuelto por nombre a ${matches[0].id}`);
+      return matches[0];
+    }
+    return null;
+  }
+
+  /** Tope por hora = presupuesto mensual / divisor del panel admin (piso
+   *  tecnico 2000 tokens): generoso para trafico real, corta bucles. */
+  private hourlyCapReached(tenantId: string, monthlyBudget: number, divisor: number): boolean {
+    const cap = Math.max(2_000, Math.floor(monthlyBudget / divisor));
     const entry = this.hourly.get(tenantId);
     if (!entry || Date.now() - entry.hourStart >= 3_600_000) return false;
     return entry.tokens >= cap;
@@ -406,6 +474,7 @@ export class BotService {
       getCustomerHistory: wrap('get_customer_history', handlers.getCustomerHistory),
       saveCustomerName: wrap('save_customer_name', handlers.saveCustomerName),
       saveCustomerData: wrap('save_customer_data', handlers.saveCustomerData),
+      requestHuman: wrap('request_human', handlers.requestHuman),
     };
   }
 
@@ -458,9 +527,7 @@ export class BotService {
       getAvailableSlots: async (serviceId, date) => {
         // Errores accionables: el modelo debe poder corregirse solo
         // (ej. si invento un service_id en lugar de consultar list_services).
-        const service = await this.appDb.tx(ctx, (tx) =>
-          tx.service.findFirst({ where: { id: serviceId, deletedAt: null } }).catch(() => null),
-        );
+        const service = await this.resolveService(tenantId, serviceId);
         if (!service) {
           throw new Error(
             `service_id '${serviceId}' inexistente: obtene el id real con list_services`,
@@ -477,7 +544,7 @@ export class BotService {
         const branch = await this.mainBranch(tenantId);
         const slots = await this.appointments.availability(ctx, {
           branch_id: branch,
-          service_id: serviceId,
+          service_id: service.id,
           date,
         });
         if (slots.length > 0) {
@@ -491,7 +558,7 @@ export class BotService {
           const nextDate = next.toISOString().slice(0, 10);
           const nextSlots = await this.appointments.availability(ctx, {
             branch_id: branch,
-            service_id: serviceId,
+            service_id: service.id,
             date: nextDate,
           });
           if (nextSlots.length > 0) {
@@ -506,15 +573,13 @@ export class BotService {
         return { date, horarios_disponibles: [] };
       },
 
-      bookAppointment: async ({ serviceId, date, horaLocal: horaPedida }) => {
+      bookAppointment: async ({ serviceId, date, horaLocal: horaPedida, nota }) => {
         // Los modelos a veces fabrican valores desde el texto del chat en vez
         // de re-consultar las herramientas: cada validacion devuelve un error
         // accionable para que el modelo se corrija solo. El contrato es SOLO
         // hora local; el instante UTC lo resuelve el servidor buscando el
         // slot real, asi un modelo confundido no puede reservar fuera de hora.
-        const service = await this.appDb.tx(ctx, (tx) =>
-          tx.service.findFirst({ where: { id: serviceId, deletedAt: null } }).catch(() => null),
-        );
+        const service = await this.resolveService(tenantId, serviceId);
         if (!service) {
           throw new Error(
             `service_id '${serviceId}' inexistente: obtene el id real con list_services en este mismo turno`,
@@ -538,7 +603,7 @@ export class BotService {
         const branch = await this.mainBranch(tenantId);
         const open = await this.appointments.availability(ctx, {
           branch_id: branch,
-          service_id: serviceId,
+          service_id: service.id,
           date,
         });
         const slot = open.find((iso) => horaLocal(iso) === hora);
@@ -567,7 +632,15 @@ export class BotService {
           const appointment = await this.appointments.createInTx(
             tx,
             ctx,
-            { branch_id: branch, customer_id: customerId, service_id: serviceId, starts_at: slot },
+            {
+              branch_id: branch,
+              customer_id: customerId,
+              service_id: service.id,
+              starts_at: slot,
+              // Modalidad o pedido especial del cliente: visible en la Agenda
+              // (bateria 2026-08-07, bug 3 "Meet irregistrable").
+              notes: nota?.trim() ? nota.trim().slice(0, 1000) : undefined,
+            },
             'bot',
             autoConfirm,
           );
@@ -728,6 +801,18 @@ export class BotService {
           }
           return { guardados, ignorados };
         });
+      },
+
+      // La derivacion prometida se vuelve accion real: badge en bandeja +
+      // aviso SSE (bateria 2026-08-07, bug 1). El motivo queda auditado en
+      // bot_tool_calls via withToolLogging.
+      requestHuman: async () => {
+        await this.setNeedsHuman(tenantId, conversationId, true);
+        return {
+          marcada: true,
+          detalle:
+            'la conversacion ya figura como "necesita humano" en la bandeja; una persona del equipo la va a ver',
+        };
       },
 
       getCustomerHistory: () =>

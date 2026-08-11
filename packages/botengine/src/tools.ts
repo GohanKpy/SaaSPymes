@@ -46,6 +46,8 @@ export interface BotToolHandlers {
     serviceId: string;
     date: string;
     horaLocal: string;
+    /** Pedido especial o modalidad (ej. "prefiere por Meet"): va a notes. */
+    nota?: string;
   }): Promise<{
     id: string;
     status: string;
@@ -66,6 +68,8 @@ export interface BotToolHandlers {
     docTipo?: string;
     docNumero?: string;
   }): Promise<{ guardados: string[]; ignorados: string[] }>;
+  /** Marca la conversacion como "necesita humano" en la bandeja del negocio. */
+  requestHuman(motivo: string): Promise<{ marcada: boolean; detalle: string }>;
 }
 
 export interface JsonSchema {
@@ -116,7 +120,7 @@ export function buildBotTools(permissions: BotPermissions, handlers: BotToolHand
     tools.push({
       name: 'book_appointment',
       description:
-        'Reserva un turno para el cliente de esta conversacion. Solo despues de que el cliente confirme explicitamente servicio y horario. Antes de reservar consulta get_available_slots en este mismo turno: hora_local debe ser exactamente uno de los horarios que devolvio para esa fecha.',
+        'Reserva un turno para el cliente de esta conversacion. Solo despues de que el cliente confirme explicitamente servicio y horario. Antes de reservar consulta get_available_slots en este mismo turno: hora_local debe ser exactamente uno de los horarios que devolvio para esa fecha. Si el cliente pidio una modalidad especial (ej. virtual/por Meet) o dejo un pedido puntual, registralo en nota Y ademas llama request_human para que el equipo lo coordine.',
       parameters: {
         type: 'object',
         properties: {
@@ -125,6 +129,11 @@ export function buildBotTools(permissions: BotPermissions, handlers: BotToolHand
           hora_local: {
             type: 'string',
             description: 'hora local HH:MM, uno de los horarios de get_available_slots',
+          },
+          nota: {
+            type: 'string',
+            description:
+              'opcional: modalidad o pedido especial del cliente (ej. "prefiere por Meet"); queda visible para el equipo en la reserva',
           },
         },
         required: ['service_id', 'date', 'hora_local'],
@@ -136,6 +145,7 @@ export function buildBotTools(permissions: BotPermissions, handlers: BotToolHand
             serviceId: args.service_id ?? '',
             date: args.date ?? '',
             horaLocal: args.hora_local ?? '',
+            nota: args.nota,
           }),
         ),
     });
@@ -144,7 +154,7 @@ export function buildBotTools(permissions: BotPermissions, handlers: BotToolHand
     tools.push({
       name: 'save_customer_name',
       description:
-        'Registra al cliente de esta conversacion en la agenda del negocio con su nombre. Usala SOLO despues de que el cliente CONFIRME su nombre completo (pregunta "¿Tu nombre completo es ...?" antes). Nunca pises un nombre ya registrado: si la herramienta responde que ya estaba agendado, no insistas.',
+        'Registra al cliente de esta conversacion en la agenda del negocio con su nombre. Si el cliente se presenta espontaneamente con nombre y apellido ("Soy Ana Benitez"), registralo directamente sin pedir confirmacion; confirma antes solo si el nombre es ambiguo o incompleto. Llamala UNA sola vez: si responde que ya estaba agendado, no insistas ni la repitas.',
       parameters: {
         type: 'object',
         properties: {
@@ -194,5 +204,26 @@ export function buildBotTools(permissions: BotPermissions, handlers: BotToolHand
       run: async () => JSON.stringify(await handlers.getCustomerHistory()),
     });
   }
+  // Valvula de escape SIEMPRE disponible (unica tool sin permiso que la
+  // apague, decision de auditoria 2026-08-07): si el bot le dice al cliente
+  // que lo deriva a una persona, la bandeja TIENE que enterarse. Sin esto la
+  // derivacion era una frase vacia y nadie atendia jamas.
+  tools.push({
+    name: 'request_human',
+    description:
+      'Marca esta conversacion como "necesita humano" en la bandeja del negocio para que una persona del equipo la atienda y le avisa en vivo. Usala SIEMPRE que le digas al cliente que le pasas la consulta a un companero, que alguien lo va a contactar o coordinar algo, o cuando pida hablar con una persona. Nunca prometas derivacion sin llamarla.',
+    parameters: {
+      type: 'object',
+      properties: {
+        motivo: {
+          type: 'string',
+          description: 'motivo breve para el equipo (ej. "pide hablar con una persona", "coordinar link de Meet")',
+        },
+      },
+      required: ['motivo'],
+      additionalProperties: false,
+    },
+    run: async (args) => JSON.stringify(await handlers.requestHuman(args.motivo ?? '')),
+  });
   return tools;
 }
