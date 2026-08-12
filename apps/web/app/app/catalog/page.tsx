@@ -12,6 +12,7 @@ interface Category {
 interface Service {
   id: string;
   name: string;
+  description?: string | null;
   price: string;
   taxRate: number;
   durationMin: number | null;
@@ -44,6 +45,51 @@ export default function CatalogPage() {
     }
   }
 
+  // Edicion de un servicio existente (PATCH parcial).
+  const [editing, setEditing] = useState<Service | null>(null);
+  const [edit, setEdit] = useState({
+    name: '',
+    description: '',
+    price: '',
+    duration_min: '',
+    bookable_by_bot: true,
+    is_active: true,
+  });
+
+  function openEdit(s: Service) {
+    setEditing(s);
+    setEdit({
+      name: s.name,
+      description: s.description ?? '',
+      price: s.price,
+      duration_min: s.durationMin ? String(s.durationMin) : '',
+      bookable_by_bot: s.bookableByBot,
+      is_active: s.isActive,
+    });
+  }
+
+  async function saveEdit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editing) return;
+    try {
+      await api(`/catalog/services/${editing.id}`, {
+        method: 'PATCH',
+        json: {
+          name: edit.name,
+          description: edit.description || undefined,
+          price: edit.price,
+          duration_min: Number(edit.duration_min) || undefined,
+          bookable_by_bot: edit.bookable_by_bot,
+          is_active: edit.is_active,
+        },
+      });
+      setEditing(null);
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error');
+    }
+  }
+
   async function createService(e: React.FormEvent) {
     e.preventDefault();
     try {
@@ -65,6 +111,44 @@ export default function CatalogPage() {
 
   return (
     <div className="space-y-5">
+      {editing && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <form
+            className="w-full max-w-md space-y-3 rounded-lg bg-white p-5 shadow-xl"
+            onSubmit={(e) => void saveEdit(e)}
+          >
+            <h3 className="font-semibold">Editar servicio</h3>
+            <Field label="Nombre">
+              <input className={inputClass} value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} required />
+            </Field>
+            <Field label="Descripcion (el bot la usa para explicar el servicio)">
+              <textarea className={`${inputClass} h-20 text-sm`} value={edit.description} onChange={(e) => setEdit({ ...edit, description: e.target.value })} />
+            </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Precio (Gs, IVA incl.)">
+                <input className={inputClass} value={edit.price} onChange={(e) => setEdit({ ...edit, price: e.target.value })} required />
+              </Field>
+              <Field label="Duracion (min; vacio = 30 por defecto)">
+                <input className={inputClass} type="number" min="5" value={edit.duration_min} onChange={(e) => setEdit({ ...edit, duration_min: e.target.value })} />
+              </Field>
+            </div>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={edit.bookable_by_bot} onChange={(e) => setEdit({ ...edit, bookable_by_bot: e.target.checked })} />
+              Agendable directo por el bot (destildado: el bot agenda una reunion inicial para tratarlo)
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={edit.is_active} onChange={(e) => setEdit({ ...edit, is_active: e.target.checked })} />
+              Activo (visible en catalogo y para el bot)
+            </label>
+            <div className="flex justify-end gap-2">
+              <button type="button" className={buttonGhost} onClick={() => setEditing(null)}>
+                Cancelar
+              </button>
+              <button className={buttonClass}>Guardar cambios</button>
+            </div>
+          </form>
+        </div>
+      )}
       <h1 className="text-xl font-semibold">Catalogo</h1>
       <ErrorNote error={error} />
 
@@ -125,12 +209,17 @@ export default function CatalogPage() {
                 <td>{money(s.price)}</td>
                 <td>{s.durationMin ? `${s.durationMin} min` : '—'}</td>
                 <td>{s.bookableByBot ? 'agendable' : 'no'}</td>
-                <td className="p-2 text-right">
+                <td className="space-x-1 p-2 text-right">
+                  <button className={buttonGhost} onClick={() => openEdit(s)}>
+                    Editar
+                  </button>
                   <button
-                    className={buttonGhost}
-                    onClick={() =>
-                      void api(`/catalog/services/${s.id}`, { method: 'DELETE' }).then(load)
-                    }
+                    className="rounded border border-red-200 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50"
+                    onClick={() => {
+                      if (confirm(`¿Eliminar "${s.name}" del catalogo?`)) {
+                        void api(`/catalog/services/${s.id}`, { method: 'DELETE' }).then(load);
+                      }
+                    }}
                   >
                     Eliminar
                   </button>

@@ -10,7 +10,14 @@ const handlers: BotToolHandlers = {
   listServices: () => Promise.resolve([]),
   getAvailableSlots: () => Promise.resolve({ date: '2026-01-01', horarios_disponibles: [] }),
   bookAppointment: () =>
-    Promise.resolve({ id: 'x', status: 'confirmed', date: '2026-01-01', horaLocal: '09:00', serviceName: 's' }),
+    Promise.resolve({
+      id: 'x',
+      status: 'confirmed',
+      date: '2026-01-01',
+      horaLocal: '09:00',
+      serviceName: 's',
+      tipo: 'servicio' as const,
+    }),
   getCustomerHistory: () => Promise.resolve([]),
   saveCustomerName: () => Promise.resolve({ saved: true, detail: 'ok' }),
   saveCustomerData: () => Promise.resolve({ guardados: [], ignorados: [] }),
@@ -95,6 +102,7 @@ describe('buildSystem: reglas de seguridad inviolables', () => {
     ['no enumerar horarios sin consultar', 'JAMAS enumeres horarios concretos'],
     ['duracion solo del catalogo', 'EXACTAMENTE durationMin'],
     ['no ofrecer dias cerrados', 'dias marcados como cerrados'],
+    ['todo servicio se coordina (reunion inicial)', 'REUNION INICIAL'],
   ])('la regla "%s" esta presente', (_nombre, fragmento) => {
     expect(system).toContain(fragmento);
   });

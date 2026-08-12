@@ -536,11 +536,6 @@ export class BotService {
             `service_id '${serviceId}' inexistente: obtene el id real con list_services`,
           );
         }
-        if (!service.bookableByBot) {
-          throw new Error(
-            `'${service.name}' no se agenda por chat (agendable=false): informa precio y detalles, y ofrece agendar una reunion (ej. diagnostico inicial) o derivar a un humano`,
-          );
-        }
         if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
           throw new Error(`date '${date}' invalida: usa formato YYYY-MM-DD`);
         }
@@ -586,11 +581,6 @@ export class BotService {
         if (!service) {
           throw new Error(
             `service_id '${serviceId}' inexistente: obtene el id real con list_services en este mismo turno`,
-          );
-        }
-        if (!service.bookableByBot) {
-          throw new Error(
-            `'${service.name}' no se agenda por chat (agendable=false): ofrece una reunion agendable o deriva a un humano`,
           );
         }
         if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
@@ -640,9 +630,18 @@ export class BotService {
               customer_id: customerId,
               service_id: service.id,
               starts_at: slot,
-              // Modalidad o pedido especial del cliente: visible en la Agenda
-              // (bateria 2026-08-07, bug 3 "Meet irregistrable").
-              notes: nota?.trim() ? nota.trim().slice(0, 1000) : undefined,
+              // Modalidad o pedido especial del cliente, y si el servicio no
+              // se agenda en si (agendable=false), la marca de que esto es una
+              // REUNION INICIAL para tratarlo (regla 2026-08-12): visible en
+              // la Agenda para el equipo.
+              notes:
+                [
+                  service.bookableByBot ? null : `Reunion inicial por: ${service.name}`,
+                  nota?.trim() || null,
+                ]
+                  .filter(Boolean)
+                  .join(' — ')
+                  .slice(0, 1000) || undefined,
             },
             'bot',
             autoConfirm,
@@ -657,6 +656,7 @@ export class BotService {
             date,
             horaLocal: horaLocal(appointment.startsAt.toISOString()),
             serviceName: appointment.service?.name ?? '',
+            tipo: service.bookableByBot ? ('servicio' as const) : ('reunion_inicial' as const),
           };
         });
         // Espejo a Google en segundo plano (ADR 0007): jamas frena la reserva.

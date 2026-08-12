@@ -54,6 +54,8 @@ export interface BotToolHandlers {
     date: string;
     horaLocal: string;
     serviceName: string;
+    /** 'servicio' = turno del servicio en si; 'reunion_inicial' = reunion para tratarlo. */
+    tipo: 'servicio' | 'reunion_inicial';
   }>;
   getCustomerHistory(): Promise<
     { startsAt: string; serviceName: string | null; visitStatus: string }[]
@@ -93,7 +95,7 @@ export function buildBotTools(permissions: BotPermissions, handlers: BotToolHand
     tools.push({
       name: 'list_services',
       description:
-        'Lista TODOS los servicios del negocio con precio (guaranies, IVA incluido), descripcion y el campo agendable: true = se puede reservar por chat; false = solo se informa y se ofrece derivar o agendar una reunion. Usala SIEMPRE antes de hablar de precios o de que ofrece el negocio.',
+        'Lista TODOS los servicios del negocio con precio (guaranies, IVA incluido), descripcion y el campo agendable. TODO servicio se puede coordinar por chat: agendable=true reserva el servicio en si; agendable=false reserva una REUNION INICIAL (30 min por defecto) para tratarlo, con las mismas herramientas de horarios y reserva. Usala SIEMPRE antes de hablar de precios o de que ofrece el negocio.',
       parameters: { type: 'object', properties: {}, additionalProperties: false },
       run: async () => JSON.stringify(await handlers.listServices()),
     });
@@ -102,7 +104,7 @@ export function buildBotTools(permissions: BotPermissions, handlers: BotToolHand
     tools.push({
       name: 'get_available_slots',
       description:
-        'Devuelve los horarios libres (hora local del negocio, formato HH:MM) para un servicio en una fecha dada. Si esa fecha no tiene horarios, la respuesta incluye la proxima fecha con disponibilidad y sus horarios: ofrecelos. SIEMPRE llama primero a list_services y usa el id exacto que devuelve; nunca inventes un service_id.',
+        'Devuelve los horarios libres (hora local del negocio, formato HH:MM) para un servicio en una fecha dada — para servicios con agendable=false son los horarios de su reunion inicial. Si esa fecha no tiene horarios, la respuesta incluye la proxima fecha con disponibilidad y sus horarios: ofrecelos. SIEMPRE llama primero a list_services y usa el id exacto que devuelve; nunca inventes un service_id.',
       parameters: {
         type: 'object',
         properties: {
@@ -120,7 +122,7 @@ export function buildBotTools(permissions: BotPermissions, handlers: BotToolHand
     tools.push({
       name: 'book_appointment',
       description:
-        'Reserva un turno para el cliente de esta conversacion. Solo despues de que el cliente confirme explicitamente servicio y horario. Antes de reservar consulta get_available_slots en este mismo turno: hora_local debe ser exactamente uno de los horarios que devolvio para esa fecha. Si el cliente pidio una modalidad especial (ej. virtual/por Meet) o dejo un pedido puntual, registralo en nota Y ademas llama request_human para que el equipo lo coordine.',
+        'Reserva un turno para el cliente de esta conversacion. Solo despues de que el cliente confirme explicitamente servicio y horario. Antes de reservar consulta get_available_slots en este mismo turno: hora_local debe ser exactamente uno de los horarios que devolvio para esa fecha. Si el servicio tiene agendable=false, lo reservado es una REUNION INICIAL para tratarlo (la respuesta lo indica en tipo): confirmaselo asi al cliente. Si el cliente pidio una modalidad especial (ej. virtual/por Meet) o dejo un pedido puntual, registralo en nota Y ademas llama request_human para que el equipo lo coordine.',
       parameters: {
         type: 'object',
         properties: {
