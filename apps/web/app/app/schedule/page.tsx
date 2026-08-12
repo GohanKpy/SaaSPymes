@@ -16,6 +16,14 @@ interface Conflict {
   cliente: string;
   servicio: string;
 }
+// Inputs compactos propios: inputClass trae w-full y para hora/fecha un ancho
+// fijo chico es lo correcto (w-40 pegado a inputClass PIERDE contra su w-full
+// segun el orden del CSS generado, por eso el date quedaba a lo ancho).
+const timeInput =
+  'w-[5rem] rounded border border-slate-300 bg-white px-1 py-0.5 text-xs tabular-nums focus:border-sky-500 focus:outline-none';
+const dateInput =
+  'w-40 rounded border border-slate-300 bg-white px-2 py-1.5 text-sm focus:border-sky-500 focus:outline-none';
+
 const DIAS: { dow: string; label: string }[] = [
   { dow: '1', label: 'Lunes' },
   { dow: '2', label: 'Martes' },
@@ -66,7 +74,8 @@ export default function SchedulePage() {
   const [conflicts, setConflicts] = useState<Conflict[] | null>(null);
   const [cancelMsg, setCancelMsg] = useState('');
   const [askMessage, setAskMessage] = useState(false);
-  const [scheduleMsg, setScheduleMsg] = useState<string | null>(null);
+  // ok distingue exito de error: verde o rojo segun corresponda.
+  const [scheduleMsg, setScheduleMsg] = useState<{ text: string; ok: boolean } | null>(null);
 
   const load = useCallback(() => {
     // Fecha incompleta (mientras se tipea) no dispara consultas.
@@ -176,20 +185,22 @@ export default function SchedulePage() {
       setConflicts(null);
       setAskMessage(false);
       setCancelMsg('');
-      setScheduleMsg(
-        onConflict === 'cancel_notify'
-          ? `✓ Horario guardado; ${res.conflicts} turno(s) cancelados y avisados por chat`
-          : onConflict === 'keep'
-            ? `✓ Horario guardado (los ${res.conflicts} turno(s) existentes se mantienen)`
-            : '✓ Horario guardado',
-      );
+      setScheduleMsg({
+        text:
+          onConflict === 'cancel_notify'
+            ? `✓ Horario guardado; ${res.conflicts} turno(s) cancelados y avisados por chat`
+            : onConflict === 'keep'
+              ? `✓ Horario guardado (los ${res.conflicts} turno(s) existentes se mantienen)`
+              : '✓ Horario guardado',
+        ok: true,
+      });
       load();
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) {
         setConflicts(((e.problem as { conflicts?: Conflict[] }).conflicts ?? []) as Conflict[]);
         return;
       }
-      setScheduleMsg(e instanceof Error ? e.message : 'Error');
+      setScheduleMsg({ text: e instanceof Error ? e.message : 'Error', ok: false });
     }
   }
 
@@ -197,7 +208,7 @@ export default function SchedulePage() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-center gap-4">
         <h1 className="text-xl font-semibold">Agenda</h1>
-        <input type="date" className={`${inputClass} w-40`} value={date} onChange={(e) => setDate(e.target.value)} />
+        <input type="date" className={dateInput} value={date} onChange={(e) => setDate(e.target.value)} />
         <button className={`${buttonGhost} ml-auto`} onClick={() => (showSchedule ? setShowSchedule(false) : void openSchedule())}>
           {showSchedule ? 'Cerrar horarios' : 'Horarios de atencion'}
         </button>
@@ -205,97 +216,134 @@ export default function SchedulePage() {
       <ErrorNote error={error} />
 
       {showSchedule && (
-        <section className="space-y-3 rounded-lg border border-amber-200 bg-white p-4">
-          <div>
-            <h2 className="font-medium">Horarios de atencion</h2>
-            <p className="text-xs text-slate-500">
-              Hasta dos franjas por dia: el hueco entre la primera y la segunda es tu corte
-              (almuerzo). Destilda un dia para cerrarlo. Nada se agenda fuera de estas franjas.
-            </p>
-          </div>
-          <div className="space-y-1.5">
-            {DIAS.map(({ dow, label }) => {
-              const franjas = week[dow] ?? [];
-              const abierto = franjas.length > 0;
-              const f1 = franjas[0] ?? { from: '', to: '' };
-              const f2 = franjas[1] ?? { from: '', to: '' };
-              return (
-                <div key={dow} className="flex flex-wrap items-center gap-2 text-sm">
-                  <label className="flex w-28 items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={abierto}
-                      onChange={(e) =>
-                        setWeek({ ...week, [dow]: e.target.checked ? [{ from: '08:00', to: '18:00' }] : [] })
-                      }
-                    />
-                    {label}
-                  </label>
-                  {abierto ? (
-                    <>
-                      <input type="time" className={`${inputClass} w-28`} value={f1.from} onChange={(e) => setWeek({ ...week, [dow]: [{ ...f1, from: e.target.value }, ...(franjas[1] ? [f2] : [])] })} />
-                      <span className="text-slate-400">a</span>
-                      <input type="time" className={`${inputClass} w-28`} value={f1.to} onChange={(e) => setWeek({ ...week, [dow]: [{ ...f1, to: e.target.value }, ...(franjas[1] ? [f2] : [])] })} />
-                      {franjas[1] ? (
-                        <>
-                          <span className="text-xs text-slate-400">· 2da franja</span>
-                          <input type="time" className={`${inputClass} w-28`} value={f2.from} onChange={(e) => setWeek({ ...week, [dow]: [f1, { ...f2, from: e.target.value }] })} />
-                          <span className="text-slate-400">a</span>
-                          <input type="time" className={`${inputClass} w-28`} value={f2.to} onChange={(e) => setWeek({ ...week, [dow]: [f1, { ...f2, to: e.target.value }] })} />
-                          <button type="button" className="text-xs text-red-600 hover:underline" onClick={() => setWeek({ ...week, [dow]: [f1] })}>
-                            quitar
-                          </button>
-                        </>
-                      ) : (
-                        <button
-                          type="button"
-                          className="text-xs text-sky-700 hover:underline"
-                          onClick={() => setWeek({ ...week, [dow]: [{ ...f1, to: '12:00' }, { from: '13:00', to: f1.to || '18:00' }] })}
-                        >
-                          + corte al mediodia
-                        </button>
-                      )}
-                    </>
-                  ) : (
-                    <span className="text-xs text-slate-400">cerrado</span>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-
-          <div className="border-t border-slate-100 pt-3">
-            <p className="mb-1 text-sm font-medium">Dias cerrados (feriados, vacaciones)</p>
-            <div className="flex flex-wrap items-center gap-2">
-              <input type="date" className={`${inputClass} w-40`} value={newClosed} onChange={(e) => setNewClosed(e.target.value)} />
-              <button
-                type="button"
-                className={buttonGhost}
-                onClick={() => {
-                  if (/^\d{4}-\d{2}-\d{2}$/.test(newClosed) && !closedDates.includes(newClosed)) {
-                    setClosedDates([...closedDates, newClosed].sort());
-                    setNewClosed('');
-                  }
-                }}
-              >
-                Agregar dia cerrado
-              </button>
-              {closedDates.map((d) => (
-                <span key={d} className="flex items-center gap-1 rounded bg-slate-100 px-2 py-0.5 text-xs">
-                  {d.split('-').reverse().join('/')}
-                  <button type="button" className="text-red-600" onClick={() => setClosedDates(closedDates.filter((x) => x !== d))}>
-                    ✕
-                  </button>
+        <section className="rounded-lg border border-amber-200 bg-white p-4">
+          {/* Encabezado con la accion primaria SIEMPRE visible: nada de
+              scrollear hasta el fondo para guardar. */}
+          <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="font-medium">Horarios de atencion</h2>
+              <p className="text-xs text-slate-500">
+                Hasta dos franjas por dia: el hueco entre ambas es tu corte (almuerzo). Destilda un
+                dia para cerrarlo. Nada se agenda fuera de estas franjas.
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              {scheduleMsg && (
+                <span className={`text-sm ${scheduleMsg.ok ? 'text-emerald-600' : 'text-red-600'}`}>
+                  {scheduleMsg.text}
                 </span>
-              ))}
+              )}
+              <button className={buttonClass} onClick={() => void saveSchedule('abort')}>
+                Guardar horarios
+              </button>
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <button className={buttonClass} onClick={() => void saveSchedule('abort')}>
-              Guardar horarios
-            </button>
-            {scheduleMsg && <span className="text-sm text-emerald-600">{scheduleMsg}</span>}
+          {/* Semana a la izquierda, dias cerrados a la derecha: todo entra
+              sin scroll en una pantalla comun. */}
+          <div className="grid gap-x-8 gap-y-4 lg:grid-cols-[auto_minmax(220px,1fr)]">
+            <div className="overflow-x-auto">
+              <div className="w-fit text-sm">
+                <div className="grid grid-cols-[5.5rem_10rem_12rem] gap-x-3 pb-1 text-[11px] uppercase tracking-wide text-slate-400">
+                  <span>Dia</span>
+                  <span>Mañana / unica</span>
+                  <span>Tarde (2da franja)</span>
+                </div>
+                {DIAS.map(({ dow, label }) => {
+                  const franjas = week[dow] ?? [];
+                  const abierto = franjas.length > 0;
+                  const f1 = franjas[0] ?? { from: '', to: '' };
+                  const f2 = franjas[1] ?? { from: '', to: '' };
+                  return (
+                    <div
+                      key={dow}
+                      className="grid grid-cols-[5.5rem_10rem_12rem] items-center gap-x-3 border-t border-slate-50 py-1"
+                    >
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={abierto}
+                          onChange={(e) =>
+                            setWeek({ ...week, [dow]: e.target.checked ? [{ from: '08:00', to: '18:00' }] : [] })
+                          }
+                        />
+                        {label}
+                      </label>
+                      {abierto ? (
+                        <>
+                          <div className="flex items-center gap-1">
+                            <input type="time" className={timeInput} value={f1.from} onChange={(e) => setWeek({ ...week, [dow]: [{ ...f1, from: e.target.value }, ...(franjas[1] ? [f2] : [])] })} />
+                            <span className="text-slate-400">–</span>
+                            <input type="time" className={timeInput} value={f1.to} onChange={(e) => setWeek({ ...week, [dow]: [{ ...f1, to: e.target.value }, ...(franjas[1] ? [f2] : [])] })} />
+                          </div>
+                          {franjas[1] ? (
+                            <div className="flex items-center gap-1">
+                              <input type="time" className={timeInput} value={f2.from} onChange={(e) => setWeek({ ...week, [dow]: [f1, { ...f2, from: e.target.value }] })} />
+                              <span className="text-slate-400">–</span>
+                              <input type="time" className={timeInput} value={f2.to} onChange={(e) => setWeek({ ...week, [dow]: [f1, { ...f2, to: e.target.value }] })} />
+                              <button
+                                type="button"
+                                className="ml-1 text-xs text-red-600 hover:underline"
+                                title="Quitar la segunda franja"
+                                onClick={() => setWeek({ ...week, [dow]: [f1] })}
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              className="w-fit text-xs text-sky-700 hover:underline"
+                              onClick={() => setWeek({ ...week, [dow]: [{ ...f1, to: '12:00' }, { from: '13:00', to: f1.to || '18:00' }] })}
+                            >
+                              + corte al mediodia
+                            </button>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          <span className="text-xs text-slate-400">cerrado</span>
+                          <span />
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="lg:border-l lg:border-slate-100 lg:pl-6">
+              <p className="mb-1 text-sm font-medium">Dias cerrados</p>
+              <p className="mb-2 text-xs text-slate-500">Feriados o vacaciones puntuales.</p>
+              <div className="mb-2 flex items-center gap-2">
+                <input type="date" className={`${dateInput} w-36 py-1 text-xs`} value={newClosed} onChange={(e) => setNewClosed(e.target.value)} />
+                <button
+                  type="button"
+                  className={buttonGhost}
+                  onClick={() => {
+                    if (/^\d{4}-\d{2}-\d{2}$/.test(newClosed) && !closedDates.includes(newClosed)) {
+                      setClosedDates([...closedDates, newClosed].sort());
+                      setNewClosed('');
+                    }
+                  }}
+                >
+                  Agregar
+                </button>
+              </div>
+              <div className="flex max-h-40 flex-wrap content-start gap-1.5 overflow-y-auto">
+                {closedDates.map((d) => (
+                  <span key={d} className="flex h-fit items-center gap-1 rounded bg-slate-100 px-2 py-0.5 text-xs">
+                    {d.split('-').reverse().join('/')}
+                    <button type="button" className="text-red-600" onClick={() => setClosedDates(closedDates.filter((x) => x !== d))}>
+                      ✕
+                    </button>
+                  </span>
+                ))}
+                {closedDates.length === 0 && (
+                  <p className="text-xs text-slate-400">Ninguno cargado.</p>
+                )}
+              </div>
+            </div>
           </div>
         </section>
       )}
