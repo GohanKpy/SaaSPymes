@@ -25,7 +25,7 @@ interface BotEnginePublic {
 // Defaults de sistema: rigen solo mientras el dueño no configure otra cosa
 // desde su panel (regla: nada funcional hardcodeado).
 export const DEFAULT_REPLY_DEBOUNCE_SECONDS = 15;
-export const DEFAULT_HOURLY_BUDGET_DIVISOR = 30;
+export const DEFAULT_HOURLY_BUDGET_DIVISOR = 8;
 export const DEFAULT_FALLBACK_NOTICE =
   'Gracias por tu mensaje! En breve una persona del equipo te responde por este mismo chat.';
 export const DEFAULT_BUDGET_NOTICE =

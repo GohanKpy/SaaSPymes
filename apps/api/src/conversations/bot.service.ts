@@ -384,10 +384,11 @@ export class BotService {
     return null;
   }
 
-  /** Tope por hora = presupuesto mensual / divisor del panel admin (piso
-   *  tecnico 2000 tokens): generoso para trafico real, corta bucles. */
+  /** Tope por hora = presupuesto mensual / divisor del panel admin. Piso
+   *  tecnico 30k tokens (~6 respuestas): una conversacion normal jamas debe
+   *  chocar con este freno — es para bucles y abuso, no para clientes. */
   private hourlyCapReached(tenantId: string, monthlyBudget: number, divisor: number): boolean {
-    const cap = Math.max(2_000, Math.floor(monthlyBudget / divisor));
+    const cap = Math.max(30_000, Math.floor(monthlyBudget / divisor));
     const entry = this.hourly.get(tenantId);
     if (!entry || Date.now() - entry.hourStart >= 3_600_000) return false;
     return entry.tokens >= cap;
