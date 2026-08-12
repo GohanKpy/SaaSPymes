@@ -29,6 +29,10 @@ interface Feature {
   code: string;
   name: string;
 }
+interface GoogleCfg {
+  client_id: string | null;
+  has_secret: boolean;
+}
 interface BotEngine {
   provider: 'openai' | 'anthropic';
   model: string | null;
@@ -75,6 +79,11 @@ export default function PlatformPage() {
   // Parametros operativos del bot (nada hardcodeado: el panel manda).
   const [engineOps, setEngineOps] = useState({ debounce: 15, divisor: 30, fallback: '', budget: '' });
 
+  // App OAuth de Google del sistema (ADR 0007).
+  const [googleCfg, setGoogleCfg] = useState<GoogleCfg | null>(null);
+  const [googleForm, setGoogleForm] = useState({ client_id: '', client_secret: '' });
+  const [googleMsg, setGoogleMsg] = useState<{ text: string; ok: boolean } | null>(null);
+
   // Modulo de seguridad: valores del bloqueo de login (viven en el panel).
   const [security, setSecurity] = useState({ login_max_attempts: 10, login_window_min: 10, login_block_min: 10 });
   const [securityMsg, setSecurityMsg] = useState<string | null>(null);
@@ -94,6 +103,12 @@ export default function PlatformPage() {
           fallback: e.fallback_notice ?? '',
           budget: e.budget_notice ?? '',
         });
+      })
+      .catch(() => undefined);
+    void api<GoogleCfg>('/platform/settings/google')
+      .then((g) => {
+        setGoogleCfg(g);
+        setGoogleForm((f) => ({ ...f, client_id: g.client_id ?? '' }));
       })
       .catch(() => undefined);
     void api<{ login_max_attempts: number; login_window_min: number; login_block_min: number }>(
@@ -603,6 +618,61 @@ export default function PlatformPage() {
           Los acuerdos a medida por cliente (forzar una feature con o sin cargo extra) se gestionan
           en la ficha de cada tenant.
         </p>
+      </section>
+
+      <section className="rounded-lg border border-slate-200 bg-white p-4">
+        <h2 className="mb-1 font-medium">Google Calendar (app OAuth del sistema)</h2>
+        <p className="mb-3 text-xs text-slate-500">
+          Credencial de TU app en Google Cloud (identifica al software, como la app de Meta): una
+          sola para toda la plataforma. Cada cliente conecta despues SU cuenta y SU calendario desde
+          sus Ajustes. El secret se guarda cifrado y no se vuelve a mostrar.
+          {googleCfg && (
+            <>
+              {' '}Estado: client_id {googleCfg.client_id ? '✓' : '✗'} · secret{' '}
+              {googleCfg.has_secret ? 'cargado ✓' : '✗'}
+            </>
+          )}
+        </p>
+        <form
+          className="grid grid-cols-1 items-end gap-3 sm:grid-cols-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            setGoogleMsg(null);
+            void api<GoogleCfg>('/platform/settings/google', {
+              method: 'PUT',
+              json: {
+                client_id: googleForm.client_id.trim(),
+                ...(googleForm.client_secret.trim() ? { client_secret: googleForm.client_secret.trim() } : {}),
+              },
+            })
+              .then((updated) => {
+                setGoogleCfg(updated);
+                setGoogleForm((f) => ({ ...f, client_secret: '' }));
+                setGoogleMsg({ text: '✓ guardado; rige en menos de 30 s', ok: true });
+              })
+              .catch((err) => setGoogleMsg({ text: err instanceof Error ? err.message : 'Error', ok: false }));
+          }}
+        >
+          <Field label="Client ID (termina en .apps.googleusercontent.com)">
+            <input className={inputClass} value={googleForm.client_id} onChange={(e) => setGoogleForm({ ...googleForm, client_id: e.target.value })} required />
+          </Field>
+          <Field label="Client Secret">
+            <input
+              className={inputClass}
+              type="password"
+              autoComplete="off"
+              placeholder={googleCfg?.has_secret ? 'cargado ✓ — vacio = mantener' : 'GOCSPX-...'}
+              value={googleForm.client_secret}
+              onChange={(e) => setGoogleForm({ ...googleForm, client_secret: e.target.value })}
+            />
+          </Field>
+          <div className="flex items-center gap-2">
+            <button className={buttonClass}>Guardar Google</button>
+            {googleMsg && (
+              <span className={`text-sm ${googleMsg.ok ? 'text-emerald-600' : 'text-red-600'}`}>{googleMsg.text}</span>
+            )}
+          </div>
+        </form>
       </section>
 
       {user.role === 'admin' && <OperatorsSection />}

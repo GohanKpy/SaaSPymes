@@ -4,9 +4,14 @@ import {
   Delete,
   Get,
   HttpCode,
+  Inject,
   Param,
+  Post,
   Put,
+  Query,
   Req,
+  Res,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import {
   sifenIntegrationPut,
@@ -17,18 +22,28 @@ import {
   type SmtpIntegrationPut,
   type WhatsappIntegrationPut,
 } from '@pymes/shared';
-import type { FastifyRequest } from 'fastify';
+import type { Env } from '@pymes/shared';
+import type { FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
 import { Prisma } from '@pymes/db';
 
-import { Roles, type AuthRequest } from '../auth/decorators';
+import { Public, Roles, type AuthRequest } from '../auth/decorators';
 import { CryptoService } from '../common/crypto.service';
 import { tenantCtx } from '../common/tenant-ctx';
 import { ZodPipe } from '../common/zod.pipe';
+import { ENV } from '../env.module';
 import { AppPrisma } from '../prisma/app-prisma.service';
+import { GoogleCalendarService } from './google-calendar.service';
 
 const typeParam = z.enum(['whatsapp', 'smtp', 'sifen', 'google_calendar', 'payment']);
+
+// Google agrega parametros propios al callback: sin strict.
+const googleCallbackQuery = z.object({
+  code: z.string().max(1000).optional(),
+  state: z.string().max(2000),
+  error: z.string().max(200).optional(),
+});
 
 /**
  * Integraciones del tenant: SOLO root (doc 04 §3.3, regla de negocio central).
@@ -42,7 +57,57 @@ export class IntegrationsController {
   constructor(
     private readonly appDb: AppPrisma,
     private readonly crypto: CryptoService,
+    private readonly google: GoogleCalendarService,
+    @Inject(ENV) private readonly env: Env,
   ) {}
+
+  /** Origen del panel validado contra la misma lista del CORS: el callback
+   *  de OAuth redirige ahi y un origen arbitrario seria un open redirect. */
+  private panelOrigin(origin: string | undefined): string {
+    const allowed = this.env.WEB_ORIGIN.split(',').map((o) => o.trim());
+    const dev = /^https?:\/\/[^/]+:430[08]$/;
+    if (origin && (allowed.includes(origin) || (this.env.NODE_ENV !== 'production' && dev.test(origin)))) {
+      return origin;
+    }
+    return allowed[0] ?? 'http://localhost:4300';
+  }
+
+  /** Arranque del flujo OAuth de Google Calendar (ADR 0007): solo root. */
+  @Post('google/connect')
+  async googleConnect(@Req() req: FastifyRequest & AuthRequest) {
+    const ctx = tenantCtx(req);
+    const origin = this.panelOrigin(req.headers.origin);
+    try {
+      const url = await this.google.authUrl(ctx.tenantId, ctx.userId ?? '', origin);
+      return { auth_url: url };
+    } catch (error) {
+      if (error instanceof Error && error.message === 'google_oauth_not_configured') {
+        throw new UnprocessableEntityException({
+          title: 'La plataforma aun no tiene configurada la app de Google (avisale al administrador del sistema)',
+        });
+      }
+      throw error;
+    }
+  }
+
+  /** Retorno de Google: publico (viene del navegador del cliente, sin JWT);
+   *  la identidad viaja cifrada en el state que emitio /google/connect. */
+  @Get('google/callback')
+  @Public()
+  async googleCallback(
+    @Query(new ZodPipe(googleCallbackQuery)) q: { code?: string; state: string; error?: string },
+    @Res() reply: FastifyReply,
+  ) {
+    let origin = this.panelOrigin(undefined);
+    try {
+      if (q.error || !q.code) throw new Error(q.error ?? 'sin code');
+      const result = await this.google.connect(q.state, q.code);
+      origin = this.panelOrigin(result.origin);
+      await reply.redirect(`${origin}/app/settings?google=connected`, 302);
+    } catch {
+      await reply.redirect(`${origin}/app/settings?google=error`, 302);
+    }
+  }
 
   @Get()
   async list(@Req() req: FastifyRequest & AuthRequest): Promise<IntegrationStatus[]> {

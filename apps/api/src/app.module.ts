@@ -17,6 +17,7 @@ import { CustomersController } from './crm/customers.controller';
 import { CustomersService } from './crm/customers.service';
 import { ENV, EnvModule } from './env.module';
 import { HealthController } from './health.controller';
+import { GoogleCalendarService } from './integrations/google-calendar.service';
 import { IntegrationsController } from './integrations/integrations.controller';
 import { InvoicesController } from './invoicing/invoices.controller';
 import { INVOICING_PROVIDER, InvoicesService } from './invoicing/invoices.service';
@@ -48,6 +49,7 @@ import { UsersController } from './tenant/users.controller';
   ],
   providers: [
     CryptoService,
+    GoogleCalendarService,
     CustomersService,
     AppointmentsService,
     BranchScheduleService,

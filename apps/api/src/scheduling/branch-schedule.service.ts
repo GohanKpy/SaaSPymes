@@ -7,6 +7,7 @@ import { Prisma } from '@pymes/db';
 import { serializeMessage } from '../conversations/conversations.service';
 import { TenantEventsService } from '../conversations/events.service';
 import { WaSenderService } from '../conversations/wa-sender.service';
+import { GoogleCalendarService } from '../integrations/google-calendar.service';
 import { AppPrisma } from '../prisma/app-prisma.service';
 import { rangesForDate, type BranchSchedule } from './appointments.service';
 
@@ -38,6 +39,7 @@ export class BranchScheduleService {
     private readonly appDb: AppPrisma,
     private readonly events: TenantEventsService,
     private readonly waSender: WaSenderService,
+    private readonly google: GoogleCalendarService,
   ) {}
 
   async get(ctx: TenantContext, branchId: string) {
@@ -139,10 +141,14 @@ export class BranchScheduleService {
     for (const conflict of conflicts) {
       try {
         const result = await this.appDb.tx(ctx, async (tx) => {
-          await tx.appointment.update({
+          const cancelled = await tx.appointment.update({
             where: { id: conflict.id },
             data: { status: 'cancelled' },
           });
+          // Espejo a Google (ADR 0007): la cancelacion tambien sale del calendario.
+          if (cancelled.googleEventId) {
+            void this.google.removeAppointment(ctx.tenantId, cancelled.googleEventId);
+          }
           if (!conflict.phone) return null;
           let conversation = await tx.conversation.findFirst({
             where: { phoneE164: conflict.phone },

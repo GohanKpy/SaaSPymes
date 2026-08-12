@@ -66,6 +66,15 @@ export const envSchema = z.object({
   // WhatsApp Cloud API: servidor falso en local, Graph API en produccion.
   WHATSAPP_API_URL: z.url(),
 
+  // Google OAuth + Calendar API (ADR 0007): bases por variable (regla de
+  // portabilidad); los defaults son los endpoints reales de Google.
+  GOOGLE_OAUTH_AUTH_URL: z.url().default('https://accounts.google.com/o/oauth2/v2/auth'),
+  GOOGLE_OAUTH_TOKEN_URL: z.url().default('https://oauth2.googleapis.com/token'),
+  GOOGLE_CALENDAR_API_URL: z.url().default('https://www.googleapis.com/calendar/v3'),
+  // URL publica del API (el redirect_uri de OAuth debe coincidir EXACTO con
+  // el registrado en Google). En el laboratorio: la del tunel.
+  PUBLIC_API_URL: z.string().optional(),
+
   // InvoicingProvider: fake en local; sandbox o proveedor real despues.
   INVOICING_PROVIDER: z.string().min(1),
 

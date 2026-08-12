@@ -25,7 +25,7 @@ export function rangesForDate(schedule: BranchSchedule, date: string): { from: s
 }
 
 /** Instante UTC de una hora local del tenant (dos pasadas con Intl). */
-function localToUtc(date: string, hour: number, minute: number, timeZone: string): Date {
+export function localToUtc(date: string, hour: number, minute: number, timeZone: string): Date {
   const guess = new Date(`${date}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00Z`);
   const formatter = new Intl.DateTimeFormat('en-US', {
     timeZone,
@@ -106,6 +106,13 @@ export class AppointmentsService {
         },
         select: { startsAt: true, endsAt: true },
       });
+      // Bloqueos importados del Google Calendar del negocio (ADR 0007 fase C):
+      // un evento cargado a mano en Google tapa el hueco por completo, sin
+      // importar la capacidad de solape de turnos.
+      const blocks = await tx.calendarBlock.findMany({
+        where: { startsAt: { lt: dayEnd }, endsAt: { gt: dayStart } },
+        select: { startsAt: true, endsAt: true },
+      });
 
       const slots: string[] = [];
       const stepMs = duration * 60_000;
@@ -118,6 +125,7 @@ export class AppointmentsService {
         for (let start = rangeStart; start + stepMs <= rangeEnd; start += stepMs) {
           const end = start + stepMs;
           if (start < now) continue;
+          if (blocks.some((b) => b.startsAt.getTime() < end && b.endsAt.getTime() > start)) continue;
           const overlapping = busy.filter(
             (b) => b.startsAt.getTime() < end && b.endsAt.getTime() > start,
           ).length;

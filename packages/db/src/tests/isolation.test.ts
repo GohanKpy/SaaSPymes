@@ -40,6 +40,7 @@ const APP_TABLES = [
   'bot_settings',
   'bot_usage_monthly',
   'bot_tool_calls',
+  'calendar_blocks',
   'integration_credentials',
   'notification_emails',
   'audit_log',
@@ -100,6 +101,15 @@ async function seedTenant(name: string, phone: string): Promise<SeededTenant> {
     await tx.botUsageMonthly.create({
       data: { tenantId: tenant.id, period: '2026-08', inputTokens: 1n, outputTokens: 1n },
     });
+    await tx.calendarBlock.create({
+      data: {
+        tenantId: tenant.id,
+        googleEventId: `evt-${name}`,
+        startsAt: new Date('2026-09-01T15:00:00Z'),
+        endsAt: new Date('2026-09-01T16:00:00Z'),
+        summary: `bloqueo ${name}`,
+      },
+    });
     await tx.message.create({
       data: {
         tenantId: tenant.id,
@@ -140,6 +150,7 @@ async function wipeTenant(tenantId: string): Promise<void> {
   await tenantTx(migrator, { tenantId, actorType: 'system' }, async (tx) => {
     // Orden por dependencias FK; audit_log al final (los deletes lo alimentan).
     for (const table of [
+      'calendar_blocks',
       'bot_tool_calls',
       'bot_usage_monthly',
       'messages',

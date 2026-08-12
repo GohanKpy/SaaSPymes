@@ -79,3 +79,26 @@ vez**, sin re-autenticación periódica.
 
 Prerequisito operativo: cuenta Google Cloud del proyecto con OAuth consent
 screen publicada en producción (sin esto, re-auth cada 7 días garantizada).
+
+## Amendment 2026-08-12 — fase C promovida a requisito (implementada)
+
+Johan pidió reciprocidad total: los eventos creados a mano en el Google
+Calendar del negocio deben bloquear la agenda interna ("para no coincidir en
+actividades"). La fase C dejó de ser opcional:
+
+- Tabla `app.calendar_blocks` (RLS): eventos AJENOS al sistema importados por
+  el barrido; `availability()` los resta — bot y panel dejan de ofrecer esos
+  huecos, sin que nada de Google entre al prompt del bot.
+- Vuelta implementada con **reconciliación incremental (`syncToken`) cada
+  5 min** en la API (suficiente para fase 1); los watch channels push quedan
+  para cuando entre SQS+worker.
+- Ida implementada in-process tras crear/cancelar el turno (panel, bot y
+  cancelaciones por cambio de horario), best-effort con log; el paso a cola
+  llega con el hardening.
+- Anti-eco: nuestros eventos llevan `extendedProperties.private.
+  pymes_appointment_id`; el barrido jamás los reimporta como bloqueo, y si se
+  borran a mano en Google el turno interno se cancela y libera el slot.
+- App OAuth del SISTEMA en `platform_settings` clave `google_oauth`
+  (client_id público, secret cifrado; sección en el panel admin). La conexión
+  de cada tenant (su cuenta, su refresh token) sigue en
+  `integration_credentials` tipo `google_calendar`, como WhatsApp.

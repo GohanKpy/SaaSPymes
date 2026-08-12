@@ -117,6 +117,7 @@ model Tenant {
   botSettings        BotSettings?
   botUsage           BotUsageMonthly[]
   botToolCalls       BotToolCall[]
+  calendarBlocks     CalendarBlock[]
   integrationCreds   IntegrationCredential[]
   notificationEmails NotificationEmail[]
 
@@ -568,6 +569,26 @@ model BotUsageMonthly {
 
   @@id([tenantId, period])
   @@map("bot_usage_monthly")
+  @@schema("app")
+}
+
+// Bloqueos importados del Google Calendar del tenant (ADR 0007 fase C):
+// eventos ajenos al sistema que restan disponibilidad de la agenda.
+model CalendarBlock {
+  id            BigInt   @id @default(autoincrement())
+  tenantId      String   @map("tenant_id") @db.Uuid
+  branchId      String?  @map("branch_id") @db.Uuid // NULL = todo el tenant
+  googleEventId String   @map("google_event_id")
+  startsAt      DateTime @map("starts_at") @db.Timestamptz(6)
+  endsAt        DateTime @map("ends_at") @db.Timestamptz(6)
+  summary       String?
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, googleEventId])
+  @@index([tenantId, startsAt, endsAt], map: "calendar_blocks_rango")
+  @@map("calendar_blocks")
   @@schema("app")
 }
 

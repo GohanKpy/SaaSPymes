@@ -96,6 +96,15 @@ export default function SettingsPage() {
   }, []);
   useEffect(() => load(), [load]);
 
+  // Retorno del flujo OAuth de Google (?google=connected|error): mensaje y
+  // limpieza de la URL para que un F5 no lo repita.
+  useEffect(() => {
+    const google = new URLSearchParams(window.location.search).get('google');
+    if (google === 'connected') setSaved('✓ Google Calendar conectado');
+    if (google === 'error') setError('No se pudo conectar Google Calendar: proba de nuevo');
+    if (google) window.history.replaceState(null, '', window.location.pathname);
+  }, []);
+
   function onLogoFile(file: File | undefined) {
     if (!file) return;
     if (!['image/png', 'image/jpeg'].includes(file.type)) {
@@ -178,6 +187,31 @@ export default function SettingsPage() {
 
   const waConf = integrations.find((i) => i.type === 'whatsapp');
   const sifenConf = integrations.find((i) => i.type === 'sifen');
+  const gcalConf = integrations.find((i) => i.type === 'google_calendar');
+  const gcalConnected = gcalConf?.configured && gcalConf.public_config.status === 'connected';
+
+  async function connectGoogle() {
+    setError(null);
+    try {
+      const res = await api<{ auth_url: string }>('/integrations/google/connect', {
+        method: 'POST',
+        json: {},
+      });
+      window.location.href = res.auth_url;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error');
+    }
+  }
+
+  async function disconnectGoogle() {
+    if (!confirm('¿Desconectar Google Calendar? Los turnos dejaran de reflejarse en tu calendario.')) return;
+    try {
+      await api('/integrations/google_calendar', { method: 'DELETE' });
+      void api<Integration[]>('/integrations').then(setIntegrations);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error');
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -372,6 +406,38 @@ export default function SettingsPage() {
             </label>
             <button className={buttonClass}>Guardar WhatsApp</button>
           </form>
+        </section>
+
+        <section className="rounded-lg border border-slate-200 bg-white p-4">
+          <h2 className="font-medium">
+            Google Calendar{' '}
+            {gcalConnected ? (
+              <span className="text-xs text-emerald-600">
+                (conectado{gcalConf?.public_config.connected_email ? `: ${String(gcalConf.public_config.connected_email)}` : ''})
+              </span>
+            ) : gcalConf?.configured ? (
+              <span className="text-xs text-red-600">(desconectado: reconecta)</span>
+            ) : null}
+          </h2>
+          <p className="mb-3 text-xs text-slate-500">
+            Conecta el calendario de Google de tu negocio: cada turno agendado aparece como evento,
+            las cancelaciones lo quitan, y los eventos que cargues a mano en Google bloquean esos
+            horarios en la agenda (nadie te agenda encima). Se conecta UNA vez con tu cuenta de
+            Google; podes desconectarla cuando quieras.
+          </p>
+          <div className="flex items-center gap-2">
+            <button className={buttonClass} onClick={() => void connectGoogle()}>
+              {gcalConf?.configured ? 'Reconectar' : 'Conectar Google Calendar'}
+            </button>
+            {gcalConf?.configured && (
+              <button
+                className="rounded border border-red-200 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50"
+                onClick={() => void disconnectGoogle()}
+              >
+                Desconectar
+              </button>
+            )}
+          </div>
         </section>
 
         <section className="rounded-lg border border-slate-200 bg-white p-4">

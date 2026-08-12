@@ -3,6 +3,7 @@ import {
   botBudgetPut,
   botEngineSettingsPut,
   featureCreate,
+  googleOauthSettingsPut,
   overridePut,
   planCreate,
   planUpdate,
@@ -17,6 +18,7 @@ import {
   type BotBudgetPut,
   type BotEngineSettingsPut,
   type FeatureCreate,
+  type GoogleOauthSettingsPut,
   type OverridePut,
   type PlanCreate,
   type PlanUpdate,
@@ -33,6 +35,7 @@ import type { FastifyRequest } from 'fastify';
 import { PlatformRoles, type AuthRequest } from '../auth/decorators';
 import { ZodPipe } from '../common/zod.pipe';
 import { BotEngineService } from './bot-engine.service';
+import { GoogleOauthService } from './google-oauth.service';
 import { PlatformNetworkGuard } from './platform-network.guard';
 import { SecuritySettingsService } from './security-settings.service';
 import { PlansService } from './plans.service';
@@ -55,7 +58,23 @@ export class PlatformController {
     private readonly botEngine: BotEngineService,
     private readonly security: SecuritySettingsService,
     private readonly users: PlatformUsersService,
+    private readonly googleOauth: GoogleOauthService,
   ) {}
+
+  /** App OAuth de Google del sistema (ADR 0007): una para toda la plataforma. */
+  @Get('settings/google')
+  googleSettings() {
+    return this.googleOauth.view();
+  }
+
+  @Put('settings/google')
+  @PlatformRoles('admin')
+  putGoogleSettings(
+    @Body(new ZodPipe(googleOauthSettingsPut)) dto: GoogleOauthSettingsPut,
+    @Req() req: FastifyRequest & AuthRequest,
+  ) {
+    return this.googleOauth.save(dto, actor(req), req.ip);
+  }
 
   // --- Mi perfil (cualquier operador del portal) ---
 

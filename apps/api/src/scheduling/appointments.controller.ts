@@ -15,12 +15,16 @@ import type { FastifyRequest } from 'fastify';
 import { RequireFeature, type AuthRequest } from '../auth/decorators';
 import { tenantCtx } from '../common/tenant-ctx';
 import { ZodPipe } from '../common/zod.pipe';
+import { GoogleCalendarService } from '../integrations/google-calendar.service';
 import { AppointmentsService } from './appointments.service';
 
 @Controller('appointments')
 @RequireFeature('scheduling')
 export class AppointmentsController {
-  constructor(private readonly appointments: AppointmentsService) {}
+  constructor(
+    private readonly appointments: AppointmentsService,
+    private readonly google: GoogleCalendarService,
+  ) {}
 
   @Get()
   list(
@@ -39,11 +43,15 @@ export class AppointmentsController {
   }
 
   @Post()
-  create(
+  async create(
     @Body(new ZodPipe(appointmentCreate)) dto: AppointmentCreate,
     @Req() req: FastifyRequest & AuthRequest,
   ) {
-    return this.appointments.create(tenantCtx(req), dto, 'panel');
+    const ctx = tenantCtx(req);
+    const appointment = await this.appointments.create(ctx, dto, 'panel');
+    // Espejo a Google en segundo plano (ADR 0007): jamas frena la reserva.
+    void this.google.pushAppointment(ctx.tenantId, appointment.id);
+    return appointment;
   }
 
   @Post(':id/confirm')
@@ -52,12 +60,17 @@ export class AppointmentsController {
   }
 
   @Post(':id/cancel')
-  cancel(
+  async cancel(
     @Param('id', new ZodPipe(uuid)) id: string,
     @Body(new ZodPipe(appointmentCancel)) dto: AppointmentCancel,
     @Req() req: FastifyRequest & AuthRequest,
   ) {
-    return this.appointments.transition(tenantCtx(req), id, 'cancel', dto.reason);
+    const ctx = tenantCtx(req);
+    const appointment = await this.appointments.transition(ctx, id, 'cancel', dto.reason);
+    if (appointment.googleEventId) {
+      void this.google.removeAppointment(ctx.tenantId, appointment.googleEventId);
+    }
+    return appointment;
   }
 
   @Post(':id/complete')

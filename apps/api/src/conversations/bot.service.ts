@@ -5,6 +5,7 @@ import type { Env } from '@pymes/shared';
 import { AppPrisma } from '../prisma/app-prisma.service';
 import { dvRuc } from '../common/ruc';
 import { ENV } from '../env.module';
+import { GoogleCalendarService } from '../integrations/google-calendar.service';
 import { BotEngineService } from '../platform/bot-engine.service';
 import { AppointmentsService, type BranchSchedule } from '../scheduling/appointments.service';
 import { serializeMessage } from './conversations.service';
@@ -86,6 +87,7 @@ export class BotService {
     private readonly appointments: AppointmentsService,
     private readonly engine: BotEngineService,
     private readonly waSender: WaSenderService,
+    private readonly google: GoogleCalendarService,
   ) {}
 
   /** Config viva del motor (ADR 0003): panel manda, env es fallback. */
@@ -613,7 +615,7 @@ export class BotService {
             `las ${hora} del ${date} no esta disponible; horarios vigentes: ${vigentes}. Ofrece al cliente estas opciones.`,
           );
         }
-        return this.appDb.tx(ctx, async (tx) => {
+        const reserva = await this.appDb.tx(ctx, async (tx) => {
           const conversation = await tx.conversation.findFirst({ where: { id: conversationId } });
           if (!conversation) throw new Error('conversacion inexistente');
           let customerId = conversation.customerId;
@@ -656,6 +658,9 @@ export class BotService {
             serviceName: appointment.service?.name ?? '',
           };
         });
+        // Espejo a Google en segundo plano (ADR 0007): jamas frena la reserva.
+        void this.google.pushAppointment(tenantId, reserva.id);
+        return reserva;
       },
 
       saveCustomerName: async (fullName) => {

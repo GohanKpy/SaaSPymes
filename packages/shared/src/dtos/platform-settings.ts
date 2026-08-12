@@ -37,3 +37,19 @@ export interface BotEngineSettingsView {
   /** 'panel' si hay registro en base; 'env' si rige el fallback de entorno. */
   source: 'panel' | 'env';
 }
+
+/** App OAuth de Google del sistema (ADR 0007): una para toda la plataforma. */
+export const googleOauthSettingsPut = z
+  .object({
+    client_id: z.string().min(10).max(200),
+    /** Solo al cargar o rotar; ausente = mantener el guardado. */
+    client_secret: z.string().min(10).max(200).optional(),
+  })
+  .strict();
+export type GoogleOauthSettingsPut = z.infer<typeof googleOauthSettingsPut>;
+
+export interface GoogleOauthSettingsView {
+  client_id: string | null;
+  /** Solo presencia, jamas el valor. */
+  has_secret: boolean;
+}
