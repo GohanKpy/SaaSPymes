@@ -7,6 +7,8 @@ export const appointmentCreate = z
     branch_id: uuid,
     customer_id: uuid,
     service_id: uuid.optional(),
+    /** Empleado asignado; ausente = auto-asignacion (ADR 0009). */
+    employee_id: uuid.optional(),
     starts_at: z.iso.datetime({ offset: true }),
     // sin ends_at: se calcula con la duracion del servicio (default 30 min)
     ends_at: z.iso.datetime({ offset: true }).optional(),

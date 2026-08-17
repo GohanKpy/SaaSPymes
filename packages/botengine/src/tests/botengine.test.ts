@@ -17,6 +17,7 @@ const handlers: BotToolHandlers = {
       horaLocal: '09:00',
       serviceName: 's',
       tipo: 'servicio' as const,
+      atendidoPor: null,
     }),
   getCustomerHistory: () => Promise.resolve([]),
   saveCustomerName: () => Promise.resolve({ saved: true, detail: 'ok' }),

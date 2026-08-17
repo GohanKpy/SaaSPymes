@@ -118,6 +118,7 @@ model Tenant {
   botUsage           BotUsageMonthly[]
   botToolCalls       BotToolCall[]
   calendarBlocks     CalendarBlock[]
+  employees          Employee[]
   integrationCreds   IntegrationCredential[]
   notificationEmails NotificationEmail[]
 
@@ -238,6 +239,7 @@ model Branch {
   @@unique([tenantId, id]) // habilita FKs compuestas
   @@map("branches")
   @@schema("app")
+  employees    Employee[]
 }
 
 model User {
@@ -389,16 +391,18 @@ model Appointment {
   confirmedBy   String?   @map("confirmed_by") @db.Uuid
   confirmedAt   DateTime? @map("confirmed_at") @db.Timestamptz(6)
   invoiceId     String?   @map("invoice_id") @db.Uuid
+  employeeId    String?   @map("employee_id") @db.Uuid
   googleEventId String?   @map("google_event_id")
   notes         String?
   deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(6)
   createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt     DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
 
-  tenant   Tenant   @relation(fields: [tenantId], references: [id])
-  branch   Branch   @relation(fields: [tenantId, branchId], references: [tenantId, id])
-  customer Customer @relation(fields: [tenantId, customerId], references: [tenantId, id])
-  service  Service? @relation(fields: [tenantId, serviceId], references: [tenantId, id])
+  tenant   Tenant    @relation(fields: [tenantId], references: [id])
+  branch   Branch    @relation(fields: [tenantId, branchId], references: [tenantId, id])
+  customer Customer  @relation(fields: [tenantId, customerId], references: [tenantId, id])
+  service  Service?  @relation(fields: [tenantId, serviceId], references: [tenantId, id])
+  employee Employee? @relation(fields: [tenantId, employeeId], references: [tenantId, id])
 
   @@id([id])
   @@unique([tenantId, id])
@@ -569,6 +573,42 @@ model BotUsageMonthly {
 
   @@id([tenantId, period])
   @@map("bot_usage_monthly")
+  @@schema("app")
+}
+
+// Ficha de RRHH (ADR 0009): empleado != usuario del panel. Solo los
+// bookable participan de la agenda; salary visible solo root/admin.
+model Employee {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid
+  branchId         String?   @map("branch_id") @db.Uuid
+  userId           String?   @map("user_id") @db.Uuid
+  firstName        String    @map("first_name")
+  lastName         String    @map("last_name")
+  ciNumber         String?   @map("ci_number")
+  birthDate        DateTime? @map("birth_date") @db.Date
+  phone            String?
+  email            String?   @db.Citext
+  address          String?
+  position         String?
+  hiredAt          DateTime? @map("hired_at") @db.Date
+  ipsNumber        String?   @map("ips_number")
+  emergencyContact String?   @map("emergency_contact")
+  salary           BigInt?
+  notes            String?
+  bookable         Boolean   @default(true)
+  isActive         Boolean   @default(true) @map("is_active")
+  deletedAt        DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id])
+  branch       Branch?       @relation(fields: [tenantId, branchId], references: [tenantId, id])
+  appointments Appointment[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, isActive, bookable], map: "employees_tenant_idx")
+  @@map("employees")
   @@schema("app")
 }
 

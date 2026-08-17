@@ -42,6 +42,7 @@ interface Appointment {
   source: string;
   customer: { firstName: string; lastName: string | null };
   service: { name: string } | null;
+  employee: { firstName: string; lastName: string } | null;
 }
 interface Option {
   id: string;
@@ -61,7 +62,8 @@ export default function SchedulePage() {
   const [services, setServices] = useState<Option[]>([]);
   const [customers, setCustomers] = useState<Option[]>([]);
   const [slots, setSlots] = useState<string[]>([]);
-  const [form, setForm] = useState({ customer_id: '', service_id: '', slot: '' });
+  const [form, setForm] = useState({ customer_id: '', service_id: '', slot: '', employee_id: '' });
+  const [employees, setEmployees] = useState<{ id: string; firstName: string; lastName: string; bookable: boolean; isActive: boolean }[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const branch = branches[0]?.id;
@@ -97,6 +99,9 @@ export default function SchedulePage() {
     void api<Option[]>('/branches').then(setBranches).catch(() => undefined);
     void api<Option[]>('/catalog/services').then(setServices).catch(() => undefined);
     void api<{ data: Option[] }>('/customers').then((r) => setCustomers(r.data)).catch(() => undefined);
+    void api<{ id: string; firstName: string; lastName: string; bookable: boolean; isActive: boolean }[]>('/employees')
+      .then((r) => setEmployees(r.filter((e) => e.bookable && e.isActive)))
+      .catch(() => undefined);
   }, []);
   useEffect(() => load(), [load]);
 
@@ -113,7 +118,13 @@ export default function SchedulePage() {
     try {
       await api('/appointments', {
         method: 'POST',
-        json: { branch_id: branch, customer_id: form.customer_id, service_id: form.service_id, starts_at: form.slot },
+        json: {
+          branch_id: branch,
+          customer_id: form.customer_id,
+          service_id: form.service_id,
+          starts_at: form.slot,
+          ...(form.employee_id ? { employee_id: form.employee_id } : {}),
+        },
       });
       setForm({ ...form, slot: '' });
       load();
@@ -433,6 +444,18 @@ export default function SchedulePage() {
             ))}
           </select>
         </Field>
+        {employees.length > 0 && (
+          <Field label="Atiende">
+            <select className={inputClass} value={form.employee_id} onChange={(e) => setForm({ ...form, employee_id: e.target.value })}>
+              <option value="">Auto (menos cargado)</option>
+              {employees.map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.firstName} {e.lastName}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
         <div className="flex items-end">
           <button className={buttonClass}>Agendar</button>
         </div>
@@ -445,6 +468,7 @@ export default function SchedulePage() {
               <th className="p-2">Hora</th>
               <th>Cliente</th>
               <th>Servicio</th>
+              <th>Atiende</th>
               <th>Estado</th>
               <th>Origen</th>
               <th></th>
@@ -458,6 +482,7 @@ export default function SchedulePage() {
                   {a.customer.firstName} {a.customer.lastName}
                 </td>
                 <td>{a.service?.name ?? '—'}</td>
+                <td>{a.employee ? `${a.employee.firstName} ${a.employee.lastName}` : '—'}</td>
                 <td>
                   <span className={`rounded px-2 py-0.5 text-xs ${badge(a.status)}`}>{a.status}</span>
                 </td>

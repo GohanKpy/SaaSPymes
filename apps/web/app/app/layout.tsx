@@ -11,6 +11,7 @@ const NAV = [
   { href: '/app', label: 'Inicio' },
   { href: '/app/inbox', label: 'Chat' },
   { href: '/app/schedule', label: 'Agenda' },
+  { href: '/app/employees', label: 'Empleados' },
   { href: '/app/customers', label: 'Clientes' },
   { href: '/app/catalog', label: 'Catalogo' },
   { href: '/app/invoices', label: 'Facturas' },

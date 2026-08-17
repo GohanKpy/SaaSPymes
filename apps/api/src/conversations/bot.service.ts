@@ -657,6 +657,9 @@ export class BotService {
             horaLocal: horaLocal(appointment.startsAt.toISOString()),
             serviceName: appointment.service?.name ?? '',
             tipo: service.bookableByBot ? ('servicio' as const) : ('reunion_inicial' as const),
+            atendidoPor: appointment.employee
+              ? `${appointment.employee.firstName} ${appointment.employee.lastName}`
+              : null,
           };
         });
         // Espejo a Google en segundo plano (ADR 0007): jamas frena la reserva.

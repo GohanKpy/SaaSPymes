@@ -56,6 +56,8 @@ export interface BotToolHandlers {
     serviceName: string;
     /** 'servicio' = turno del servicio en si; 'reunion_inicial' = reunion para tratarlo. */
     tipo: 'servicio' | 'reunion_inicial';
+    /** Nombre del empleado asignado; null si el negocio no maneja empleados. */
+    atendidoPor: string | null;
   }>;
   getCustomerHistory(): Promise<
     { startsAt: string; serviceName: string | null; visitStatus: string }[]

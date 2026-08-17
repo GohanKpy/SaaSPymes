@@ -37,6 +37,7 @@ const APP_TABLES = [
   'invoices',
   'invoice_items',
   'payments',
+  'employees',
   'bot_settings',
   'bot_usage_monthly',
   'bot_tool_calls',
@@ -101,6 +102,9 @@ async function seedTenant(name: string, phone: string): Promise<SeededTenant> {
     await tx.botUsageMonthly.create({
       data: { tenantId: tenant.id, period: '2026-08', inputTokens: 1n, outputTokens: 1n },
     });
+    await tx.employee.create({
+      data: { tenantId: tenant.id, firstName: 'Empleado', lastName: name, bookable: true },
+    });
     await tx.calendarBlock.create({
       data: {
         tenantId: tenant.id,
@@ -164,6 +168,7 @@ async function wipeTenant(tenantId: string): Promise<void> {
       'user_branch_access',
       'refresh_tokens',
       'notification_emails',
+      'employees',
       'bot_settings',
       'integration_credentials',
       'customers',

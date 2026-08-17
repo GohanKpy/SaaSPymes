@@ -70,6 +70,7 @@ export class AppointmentsService {
         include: {
           customer: { select: { id: true, firstName: true, lastName: true, phoneE164: true } },
           service: { select: { id: true, name: true, durationMin: true } },
+          employee: { select: { id: true, firstName: true, lastName: true } },
         },
         orderBy: { startsAt: 'asc' },
         take: 500,
@@ -106,6 +107,13 @@ export class AppointmentsService {
         },
         select: { startsAt: true, endsAt: true },
       });
+      // Capacidad por franja (ADR 0009): con empleados agendables cargados,
+      // la capacidad es la cantidad de empleados; sin empleados rige el
+      // SLOT_CAPACITY fijo (negocio unipersonal, comportamiento historico).
+      const agendables = await tx.employee.count({
+        where: { deletedAt: null, isActive: true, bookable: true },
+      });
+      const capacity = agendables > 0 ? agendables : SLOT_CAPACITY;
       // Bloqueos importados del Google Calendar del negocio (ADR 0007 fase C):
       // un evento cargado a mano en Google tapa el hueco por completo, sin
       // importar la capacidad de solape de turnos.
@@ -129,7 +137,7 @@ export class AppointmentsService {
           const overlapping = busy.filter(
             (b) => b.startsAt.getTime() < end && b.endsAt.getTime() > start,
           ).length;
-          if (overlapping < SLOT_CAPACITY) slots.push(new Date(start).toISOString());
+          if (overlapping < capacity) slots.push(new Date(start).toISOString());
         }
       }
       return slots;
@@ -164,17 +172,75 @@ export class AppointmentsService {
       ? new Date(dto.ends_at)
       : new Date(startsAt.getTime() + (service?.durationMin ?? DEFAULT_DURATION_MIN) * 60_000);
 
-    const overlapping = await tx.appointment.count({
-      where: {
-        branchId: dto.branch_id,
-        deletedAt: null,
-        status: { in: ['pending', 'confirmed'] },
-        startsAt: { lt: endsAt },
-        endsAt: { gt: startsAt },
-      },
+    // Asignacion de empleado (ADR 0009): con empleados agendables, cada
+    // reserva queda asignada a uno libre. El advisory lock por tenant
+    // serializa las reservas concurrentes: dos clientes pidiendo el mismo
+    // horario jamas terminan con el mismo empleado en dos turnos solapados.
+    const agendables = await tx.employee.findMany({
+      where: { deletedAt: null, isActive: true, bookable: true },
+      select: { id: true, firstName: true, lastName: true },
     });
-    if (overlapping >= SLOT_CAPACITY) {
-      throw new ConflictException({ title: 'Sin disponibilidad en ese horario' });
+    let employeeId: string | null = null;
+    if (agendables.length > 0) {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`${ctx.tenantId}:employee-scheduling`}, 0))`;
+      const candidatos = dto.employee_id
+        ? agendables.filter((e) => e.id === dto.employee_id)
+        : agendables;
+      if (dto.employee_id && candidatos.length === 0) {
+        throw new ConflictException({ title: 'El empleado elegido no existe o no es agendable' });
+      }
+      const solapados = await tx.appointment.findMany({
+        where: {
+          deletedAt: null,
+          status: { in: ['pending', 'confirmed'] },
+          employeeId: { in: candidatos.map((e) => e.id) },
+          startsAt: { lt: endsAt },
+          endsAt: { gt: startsAt },
+        },
+        select: { employeeId: true },
+      });
+      const ocupados = new Set(solapados.map((s) => s.employeeId));
+      const libres = candidatos.filter((e) => !ocupados.has(e.id));
+      if (libres.length === 0) {
+        throw new ConflictException({
+          title: dto.employee_id
+            ? 'El empleado elegido ya tiene un turno en ese horario'
+            : 'Sin empleados libres en ese horario',
+        });
+      }
+      if (dto.employee_id) {
+        employeeId = dto.employee_id;
+      } else {
+        // Auto-asignacion: el libre con menos turnos del dia (reparte carga).
+        const dia = 86_400_000;
+        const cargas = await tx.appointment.groupBy({
+          by: ['employeeId'],
+          where: {
+            deletedAt: null,
+            status: { in: ['pending', 'confirmed'] },
+            employeeId: { in: libres.map((e) => e.id) },
+            startsAt: { gt: new Date(startsAt.getTime() - dia), lt: new Date(startsAt.getTime() + dia) },
+          },
+          _count: { _all: true },
+        });
+        const carga = new Map(cargas.map((c) => [c.employeeId, c._count._all]));
+        libres.sort((a, b) => (carga.get(a.id) ?? 0) - (carga.get(b.id) ?? 0));
+        employeeId = libres[0]?.id ?? null;
+      }
+    } else {
+      // Sin empleados cargados: capacidad fija historica (doc 04 §3.6).
+      const overlapping = await tx.appointment.count({
+        where: {
+          branchId: dto.branch_id,
+          deletedAt: null,
+          status: { in: ['pending', 'confirmed'] },
+          startsAt: { lt: endsAt },
+          endsAt: { gt: startsAt },
+        },
+      });
+      if (overlapping >= SLOT_CAPACITY) {
+        throw new ConflictException({ title: 'Sin disponibilidad en ese horario' });
+      }
     }
 
     // Turnos por bot nacen pending o confirmed segun auto_confirm_bookings
@@ -186,6 +252,7 @@ export class AppointmentsService {
         branchId: dto.branch_id,
         customerId: dto.customer_id,
         serviceId: dto.service_id,
+        employeeId,
         startsAt,
         endsAt,
         status,
@@ -193,7 +260,10 @@ export class AppointmentsService {
         notes: dto.notes,
         ...(status === 'confirmed' ? { confirmedAt: new Date() } : {}),
       },
-      include: { service: { select: { name: true } } },
+      include: {
+        service: { select: { name: true } },
+        employee: { select: { firstName: true, lastName: true } },
+      },
     });
   }
 

@@ -225,7 +225,7 @@ export class GoogleCalendarService implements OnModuleInit, OnModuleDestroy {
       const data = await this.appDb.tx(ctx, async (tx) => {
         const appointment = await tx.appointment.findFirst({
           where: { id: appointmentId, deletedAt: null },
-          include: { customer: true, service: true },
+          include: { customer: true, service: true, employee: true },
         });
         const tenant = await tx.tenant.findUnique({
           where: { id: tenantId },
@@ -246,6 +246,9 @@ export class GoogleCalendarService implements OnModuleInit, OnModuleDestroy {
             summary: `${appointment.service?.name ?? 'Turno'} — ${cliente}`,
             description: [
               `Cliente: ${cliente} (${appointment.customer.phoneE164 ?? 'sin telefono'})`,
+              appointment.employee
+                ? `Atiende: ${appointment.employee.firstName} ${appointment.employee.lastName}`
+                : null,
               appointment.notes ? `Nota: ${appointment.notes}` : null,
               'Agendado desde el panel PyMEs.',
             ]
