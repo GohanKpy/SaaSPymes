@@ -51,7 +51,12 @@ export class CatalogController {
     const ctx = tenantCtx(req);
     return this.appDb.tx(ctx, (tx) =>
       tx.serviceCategory.create({
-        data: { tenantId: ctx.tenantId, name: dto.name, sortOrder: dto.sort_order },
+        data: {
+          tenantId: ctx.tenantId,
+          name: dto.name,
+          sortOrder: dto.sort_order,
+          defaultKind: dto.default_kind,
+        },
       }),
     );
   }
@@ -67,7 +72,7 @@ export class CatalogController {
       if (!existing) throw new NotFoundException();
       return tx.serviceCategory.update({
         where: { id },
-        data: { name: dto.name, sortOrder: dto.sort_order },
+        data: { name: dto.name, sortOrder: dto.sort_order, defaultKind: dto.default_kind },
       });
     });
   }
@@ -106,8 +111,14 @@ export class CatalogController {
     @Req() req: FastifyRequest & AuthRequest,
   ) {
     const ctx = tenantCtx(req);
-    return this.appDb.tx(ctx, (tx) =>
-      tx.service.create({
+    return this.appDb.tx(ctx, async (tx) => {
+      const category = await tx.serviceCategory.findFirst({
+        where: { id: dto.category_id, deletedAt: null },
+      });
+      if (!category) throw new NotFoundException({ title: 'Categoria inexistente' });
+      // El tipo vive en el producto; la categoria solo presta su default.
+      const kind = dto.kind ?? category.defaultKind;
+      return tx.service.create({
         data: {
           tenantId: ctx.tenantId,
           categoryId: dto.category_id,
@@ -116,12 +127,14 @@ export class CatalogController {
           price: dto.price,
           currency: dto.currency,
           taxRate: dto.tax_rate,
-          durationMin: dto.duration_min,
-          bookableByBot: dto.bookable_by_bot,
           isActive: dto.is_active,
+          kind,
+          durationMin: kind === 'servicio' ? dto.duration_min : null,
+          requiresMeeting: kind === 'item' ? (dto.requires_meeting ?? true) : false,
+          meetingMin: kind === 'item' ? dto.meeting_min : null,
         },
-      }),
-    );
+      });
+    });
   }
 
   @Patch('services/:id')
@@ -133,6 +146,13 @@ export class CatalogController {
     return this.appDb.tx(tenantCtx(req), async (tx) => {
       const existing = await tx.service.findFirst({ where: { id, deletedAt: null } });
       if (!existing) throw new NotFoundException();
+      // Normalizacion por tipo sobre el estado FINAL: un servicio no arrastra
+      // datos de reunion y un item no tiene duracion de tarea.
+      const kind = dto.kind ?? existing.kind;
+      const durationMin = dto.duration_min !== undefined ? dto.duration_min : existing.durationMin;
+      const requiresMeeting =
+        dto.requires_meeting !== undefined ? dto.requires_meeting : existing.requiresMeeting;
+      const meetingMin = dto.meeting_min !== undefined ? dto.meeting_min : existing.meetingMin;
       return tx.service.update({
         where: { id },
         data: {
@@ -142,9 +162,11 @@ export class CatalogController {
           price: dto.price,
           currency: dto.currency,
           taxRate: dto.tax_rate,
-          durationMin: dto.duration_min,
-          bookableByBot: dto.bookable_by_bot,
           isActive: dto.is_active,
+          kind,
+          durationMin: kind === 'servicio' ? durationMin : null,
+          requiresMeeting: kind === 'item' ? requiresMeeting : false,
+          meetingMin: kind === 'item' ? meetingMin : null,
         },
       });
     });

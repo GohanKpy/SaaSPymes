@@ -338,6 +338,8 @@ model ServiceCategory {
   tenantId  String    @map("tenant_id") @db.Uuid
   name      String
   sortOrder Int       @default(0) @map("sort_order")
+  // Default de conveniencia al crear productos: el tipo real vive en Service.
+  defaultKind String  @default("servicio") @map("default_kind")
   deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
@@ -360,8 +362,13 @@ model Service {
   price         BigInt
   currency      String    @default("PYG") @db.Char(3)
   taxRate       Int       @default(10) @map("tax_rate") @db.SmallInt // 0|5|10
-  durationMin   Int?      @map("duration_min")
-  bookableByBot Boolean   @default(true) @map("bookable_by_bot")
+  // ADR 0009 fase 2: 'servicio' (durationMin = duracion de la tarea) o
+  // 'item' (venta; con requiresMeeting el bot coordina una reunion inicial
+  // de meetingMin minutos).
+  kind            String  @default("servicio")
+  durationMin     Int?    @map("duration_min")
+  requiresMeeting Boolean @default(false) @map("requires_meeting")
+  meetingMin      Int?    @map("meeting_min")
   isActive      Boolean   @default(true) @map("is_active")
   deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(6)
   createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)

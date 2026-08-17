@@ -4,9 +4,15 @@ import type { AppointmentCreate, AppointmentListQuery, AvailabilityQuery } from 
 
 import { AppPrisma } from '../prisma/app-prisma.service';
 
-const DEFAULT_DURATION_MIN = 30;
+export const DEFAULT_DURATION_MIN = 30;
 // Capacidad por franja v1 = 1 (doc 03: la capacidad se valida en la app).
 const SLOT_CAPACITY = 1;
+
+/** Duracion efectiva del turno (ADR 0009 fase 2): la tarea del servicio, o
+ *  la reunion inicial cuando el producto es un item. */
+function slotDurationMin(s: { kind: string; durationMin: number | null; meetingMin: number | null }): number {
+  return (s.kind === 'item' ? s.meetingMin : s.durationMin) ?? DEFAULT_DURATION_MIN;
+}
 
 export interface BranchSchedule {
   week?: Record<string, { from: string; to: string }[]>;
@@ -88,7 +94,7 @@ export class AppointmentsService {
       ]);
       if (!service || !branch) throw new NotFoundException();
       const timezone = tenant?.timezone ?? 'America/Asuncion';
-      const duration = service.durationMin ?? DEFAULT_DURATION_MIN;
+      const duration = slotDurationMin(service);
 
       // Franjas configuradas por la sucursal (almuerzo = hueco entre franjas;
       // dia cerrado = sin franjas). Sin configuracion: 08-18.
@@ -170,7 +176,7 @@ export class AppointmentsService {
     const startsAt = new Date(dto.starts_at);
     const endsAt = dto.ends_at
       ? new Date(dto.ends_at)
-      : new Date(startsAt.getTime() + (service?.durationMin ?? DEFAULT_DURATION_MIN) * 60_000);
+      : new Date(startsAt.getTime() + (service ? slotDurationMin(service) : DEFAULT_DURATION_MIN) * 60_000);
 
     // Asignacion de empleado (ADR 0009): con empleados agendables, cada
     // reserva queda asignada a uno libre. El advisory lock por tenant

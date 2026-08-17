@@ -104,6 +104,7 @@ describe('buildSystem: reglas de seguridad inviolables', () => {
     ['duracion solo del catalogo', 'EXACTAMENTE durationMin'],
     ['no ofrecer dias cerrados', 'dias marcados como cerrados'],
     ['todo servicio se coordina (reunion inicial)', 'REUNION INICIAL'],
+    ['catalogo tipado: items reservan reunion inicial', 'tipo "item"'],
   ])('la regla "%s" esta presente', (_nombre, fragmento) => {
     expect(system).toContain(fragmento);
   });

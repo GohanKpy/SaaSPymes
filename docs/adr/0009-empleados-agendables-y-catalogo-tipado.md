@@ -1,7 +1,7 @@
 # ADR 0009 — Empleados agendables (RRHH) y catálogo tipado
 
-- Estado: aceptado (fase 1 implementada; fase 2 planificada)
-- Fecha: 2026-08-13
+- Estado: aceptado (fases 1 y 2 implementadas; fase 3 pendiente)
+- Fecha: 2026-08-13 (fase 2: 2026-08-17)
 
 ## Contexto
 
@@ -41,13 +41,30 @@ root/admin del tenant (el rol staff no lee la ficha completa).
   el motivo. La elección por el cliente final via chat queda para fase 3.
 - El evento de Google Calendar incluye quién atiende.
 
-### 3. Catálogo tipado (fase 2, diseño cerrado)
+### 3. Catálogo tipado (fase 2, implementada 2026-08-17)
 
 El TIPO vive en el producto (no en la categoría, que solo aporta un default
 de conveniencia al crear): `kind: servicio | item`. Servicio → `duration_min`
-es el tiempo de la TAREA. Ítem → venta pura; con `requiere_reunion` ✓ usa
-`meeting_min` (default 30) y el bot coordina una reunión inicial — absorbe el
-`bookable_by_bot` actual (migración: true→servicio; false→ítem con reunión).
+es el tiempo de la TAREA. Ítem → venta pura; con `requires_meeting` ✓ usa
+`meeting_min` (default 30 en código) y el bot coordina una reunión inicial —
+absorbió `bookable_by_bot` (migración 20260817: true→servicio; false→ítem con
+reunión heredando `duration_min` como `meeting_min`; la columna se eliminó).
+
+Detalles de implementación:
+
+- Regla universal intacta: TODO el catálogo se coordina por chat. En un ítem,
+  `requires_meeting` solo decide si el bot OFRECE la reunión por iniciativa
+  propia; con ✗ la agenda igual si el cliente lo pide (regla 2026-08-16 del
+  dueño: jamás "no se agenda por chat").
+- La duración efectiva del turno la resuelve `slotDurationMin()` en
+  appointments.service: tarea del servicio o reunión inicial del ítem.
+- `list_services` del bot expone `tipo`, `durationMin` (solo servicio),
+  `requiereReunion` y `reunionInicialMin` (solo ítem); ya no existe
+  `agendable`.
+- Al crear/editar, la API normaliza por tipo: servicio sin datos de reunión,
+  ítem sin duración de tarea.
+- UI de categorías propia en Catálogo: alta/edición con tipo por defecto,
+  conteo de productos y eliminación protegida (409 con productos activos).
 
 ## Fases
 

@@ -7,7 +7,11 @@ import { dvRuc } from '../common/ruc';
 import { ENV } from '../env.module';
 import { GoogleCalendarService } from '../integrations/google-calendar.service';
 import { BotEngineService } from '../platform/bot-engine.service';
-import { AppointmentsService, type BranchSchedule } from '../scheduling/appointments.service';
+import {
+  AppointmentsService,
+  DEFAULT_DURATION_MIN,
+  type BranchSchedule,
+} from '../scheduling/appointments.service';
 import { serializeMessage } from './conversations.service';
 import { TenantEventsService } from './events.service';
 import { WaSenderService } from './wa-sender.service';
@@ -497,8 +501,8 @@ export class BotService {
         hour12: false,
       });
     return {
-      // TODO el catalogo activo, no solo lo agendable: el bot tambien informa
-      // precios de servicios que se contratan sin turno (flyer, logo, etc.).
+      // TODO el catalogo activo: el bot tambien informa precios de items que
+      // se venden sin turno (flyer, logo, etc.) y coordina su reunion inicial.
       listServices: () =>
         this.appDb.tx(ctx, async (tx) => {
           const services = await tx.service.findMany({
@@ -509,8 +513,10 @@ export class BotService {
               description: true,
               price: true,
               currency: true,
+              kind: true,
               durationMin: true,
-              bookableByBot: true,
+              requiresMeeting: true,
+              meetingMin: true,
               category: { select: { name: true, sortOrder: true } },
             },
             orderBy: [{ category: { sortOrder: 'asc' } }, { name: 'asc' }],
@@ -522,8 +528,10 @@ export class BotService {
             descripcion: s.description,
             price: s.price.toString(),
             currency: s.currency,
-            durationMin: s.durationMin,
-            agendable: s.bookableByBot,
+            tipo: s.kind as 'servicio' | 'item',
+            durationMin: s.kind === 'servicio' ? s.durationMin : null,
+            requiereReunion: s.kind === 'item' ? s.requiresMeeting : false,
+            reunionInicialMin: s.kind === 'item' ? (s.meetingMin ?? DEFAULT_DURATION_MIN) : null,
           }));
         }),
 
@@ -630,13 +638,13 @@ export class BotService {
               customer_id: customerId,
               service_id: service.id,
               starts_at: slot,
-              // Modalidad o pedido especial del cliente, y si el servicio no
-              // se agenda en si (agendable=false), la marca de que esto es una
+              // Modalidad o pedido especial del cliente, y si el producto es
+              // un item (ADR 0009 fase 2), la marca de que esto es una
               // REUNION INICIAL para tratarlo (regla 2026-08-12): visible en
               // la Agenda para el equipo.
               notes:
                 [
-                  service.bookableByBot ? null : `Reunion inicial por: ${service.name}`,
+                  service.kind === 'item' ? `Reunion inicial por: ${service.name}` : null,
                   nota?.trim() || null,
                 ]
                   .filter(Boolean)
@@ -656,7 +664,7 @@ export class BotService {
             date,
             horaLocal: horaLocal(appointment.startsAt.toISOString()),
             serviceName: appointment.service?.name ?? '',
-            tipo: service.bookableByBot ? ('servicio' as const) : ('reunion_inicial' as const),
+            tipo: service.kind === 'item' ? ('reunion_inicial' as const) : ('servicio' as const),
             atendidoPor: appointment.employee
               ? `${appointment.employee.firstName} ${appointment.employee.lastName}`
               : null,
