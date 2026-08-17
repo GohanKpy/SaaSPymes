@@ -40,6 +40,8 @@ export const availabilityQuery = z.object({
   branch_id: uuid,
   service_id: uuid,
   date: z.iso.date(),
+  /** Solo horarios donde ESTE empleado esta libre (eleccion de profesional). */
+  employee_id: uuid.optional(),
 });
 export type AvailabilityQuery = z.infer<typeof availabilityQuery>;
 

@@ -400,6 +400,9 @@ model Appointment {
   invoiceId     String?   @map("invoice_id") @db.Uuid
   employeeId    String?   @map("employee_id") @db.Uuid
   googleEventId String?   @map("google_event_id")
+  // Copia del evento en el calendario del empleado asignado (fase 3); solo
+  // la del negocio (googleEventId) dispara cancelaciones reciprocas.
+  employeeGoogleEventId String? @map("employee_google_event_id")
   notes         String?
   deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(6)
   createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -605,13 +608,17 @@ model Employee {
   notes            String?
   bookable         Boolean   @default(true)
   isActive         Boolean   @default(true) @map("is_active")
+  // Horario propio (mismo formato que Branch.schedule); null = el de la sucursal.
+  schedule         Json?
   deletedAt        DateTime? @map("deleted_at") @db.Timestamptz(6)
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
 
-  tenant       Tenant        @relation(fields: [tenantId], references: [id])
-  branch       Branch?       @relation(fields: [tenantId, branchId], references: [tenantId, id])
-  appointments Appointment[]
+  tenant         Tenant                  @relation(fields: [tenantId], references: [id])
+  branch         Branch?                 @relation(fields: [tenantId, branchId], references: [tenantId, id])
+  appointments   Appointment[]
+  calendarBlocks CalendarBlock[]
+  credentials    IntegrationCredential[]
 
   @@unique([tenantId, id])
   @@index([tenantId, isActive, bookable], map: "employees_tenant_idx")
@@ -625,15 +632,20 @@ model CalendarBlock {
   id            BigInt   @id @default(autoincrement())
   tenantId      String   @map("tenant_id") @db.Uuid
   branchId      String?  @map("branch_id") @db.Uuid // NULL = todo el tenant
+  // NULL = bloquea todo el negocio (calendario del tenant); con valor solo
+  // saca a ese empleado de la franja (su Google personal, fase 3).
+  employeeId    String?  @map("employee_id") @db.Uuid
   googleEventId String   @map("google_event_id")
   startsAt      DateTime @map("starts_at") @db.Timestamptz(6)
   endsAt        DateTime @map("ends_at") @db.Timestamptz(6)
   summary       String?
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  tenant Tenant @relation(fields: [tenantId], references: [id])
+  tenant   Tenant    @relation(fields: [tenantId], references: [id])
+  employee Employee? @relation(fields: [tenantId, employeeId], references: [tenantId, id])
 
-  @@unique([tenantId, googleEventId])
+  // La unicidad real es un indice NULLS NOT DISTINCT (migracion 20260818).
+  @@unique([tenantId, googleEventId, employeeId], map: "calendar_blocks_tenant_event_employee_key")
   @@index([tenantId, startsAt, endsAt], map: "calendar_blocks_rango")
   @@map("calendar_blocks")
   @@schema("app")
@@ -664,6 +676,9 @@ model IntegrationCredential {
   id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId         String   @map("tenant_id") @db.Uuid
   type             String // whatsapp|smtp|sifen|google_calendar|payment
+  // NULL = credencial del negocio; con valor, conexion propia del empleado
+  // (hoy solo google_calendar, fase 3 del ADR 0009).
+  employeeId       String?  @map("employee_id") @db.Uuid
   encryptedPayload Bytes    @map("encrypted_payload") // envelope encryption (doc 05)
   publicConfig     Json     @default("{}") @map("public_config")
   isActive         Boolean  @default(true) @map("is_active")
@@ -671,9 +686,11 @@ model IntegrationCredential {
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
 
-  tenant Tenant @relation(fields: [tenantId], references: [id])
+  tenant   Tenant    @relation(fields: [tenantId], references: [id])
+  employee Employee? @relation(fields: [tenantId, employeeId], references: [tenantId, id])
 
-  @@unique([tenantId, type])
+  // La unicidad real es un indice NULLS NOT DISTINCT (migracion 20260818).
+  @@unique([tenantId, type, employeeId], map: "integration_credentials_tenant_type_employee_key")
   @@map("integration_credentials")
   @@schema("app")
 }

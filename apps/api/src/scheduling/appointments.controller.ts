@@ -67,9 +67,7 @@ export class AppointmentsController {
   ) {
     const ctx = tenantCtx(req);
     const appointment = await this.appointments.transition(ctx, id, 'cancel', dto.reason);
-    if (appointment.googleEventId) {
-      void this.google.removeAppointment(ctx.tenantId, appointment.googleEventId);
-    }
+    void this.google.removeAppointment(ctx.tenantId, appointment);
     return appointment;
   }
 

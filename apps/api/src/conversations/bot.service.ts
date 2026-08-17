@@ -232,6 +232,9 @@ export class BotService {
           businessName: tenant?.tradeName ?? tenant?.legalName ?? 'el negocio',
           timezone,
           businessHours: this.describeSchedule(branch?.schedule, timezone),
+          // Equipo agendable (fase 3): unicos nombres validos para que el
+          // cliente elija con quien atenderse.
+          team: (await this.teamNames(tenantId)).join(', ') || null,
           basePrompt,
           instructions,
           instructionsPriority: settings.instructionsOverride,
@@ -388,6 +391,39 @@ export class BotService {
     return null;
   }
 
+  /**
+   * Busca un empleado agendable por nombre ("Maria", "Maria Gonzalez"):
+   * match UNICO normalizado por nombre completo o solo nombre de pila.
+   * Mismo criterio que resolveService: nada de ambiguedad para el modelo.
+   */
+  private async resolveEmployee(tenantId: string, raw: string) {
+    const wanted = normalizar(raw);
+    if (!wanted) return null;
+    const all = await this.appDb.tx({ tenantId, actorType: 'bot' as const }, (tx) =>
+      tx.employee.findMany({
+        where: { deletedAt: null, isActive: true, bookable: true },
+        select: { id: true, firstName: true, lastName: true },
+      }),
+    );
+    const matches = all.filter(
+      (e) =>
+        normalizar(`${e.firstName} ${e.lastName}`) === wanted || normalizar(e.firstName) === wanted,
+    );
+    return matches.length === 1 ? (matches[0] ?? null) : null;
+  }
+
+  /** Nombres del equipo agendable, para el contexto del bot y sus errores. */
+  private async teamNames(tenantId: string): Promise<string[]> {
+    const rows = await this.appDb.tx({ tenantId, actorType: 'bot' as const }, (tx) =>
+      tx.employee.findMany({
+        where: { deletedAt: null, isActive: true, bookable: true },
+        select: { firstName: true, lastName: true },
+        orderBy: { firstName: 'asc' },
+      }),
+    );
+    return rows.map((e) => `${e.firstName} ${e.lastName}`);
+  }
+
   /** Tope por hora = presupuesto mensual / divisor del panel admin. Piso
    *  tecnico 30k tokens (~6 respuestas): una conversacion normal jamas debe
    *  chocar con este freno — es para bucles y abuso, no para clientes. */
@@ -535,7 +571,7 @@ export class BotService {
           }));
         }),
 
-      getAvailableSlots: async (serviceId, date) => {
+      getAvailableSlots: async (serviceId, date, empleado) => {
         // Errores accionables: el modelo debe poder corregirse solo
         // (ej. si invento un service_id en lugar de consultar list_services).
         const service = await this.resolveService(tenantId, serviceId);
@@ -547,11 +583,23 @@ export class BotService {
         if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
           throw new Error(`date '${date}' invalida: usa formato YYYY-MM-DD`);
         }
+        // Eleccion de profesional (fase 3): filtra a los horarios de ESE
+        // empleado. Nombre no reconocido → error con el equipo real.
+        let employeeId: string | undefined;
+        if (empleado?.trim()) {
+          const match = await this.resolveEmployee(tenantId, empleado);
+          if (!match) {
+            const equipo = (await this.teamNames(tenantId)).join(', ') || 'sin empleados cargados';
+            throw new Error(`empleado '${empleado}' no reconocido; el equipo es: ${equipo}`);
+          }
+          employeeId = match.id;
+        }
         const branch = await this.mainBranch(tenantId);
         const slots = await this.appointments.availability(ctx, {
           branch_id: branch,
           service_id: service.id,
           date,
+          employee_id: employeeId,
         });
         if (slots.length > 0) {
           return { date, horarios_disponibles: slots.map(horaLocal) };
@@ -566,6 +614,7 @@ export class BotService {
             branch_id: branch,
             service_id: service.id,
             date: nextDate,
+            employee_id: employeeId,
           });
           if (nextSlots.length > 0) {
             return {
@@ -579,7 +628,7 @@ export class BotService {
         return { date, horarios_disponibles: [] };
       },
 
-      bookAppointment: async ({ serviceId, date, horaLocal: horaPedida, nota }) => {
+      bookAppointment: async ({ serviceId, date, horaLocal: horaPedida, nota, empleado }) => {
         // Los modelos a veces fabrican valores desde el texto del chat en vez
         // de re-consultar las herramientas: cada validacion devuelve un error
         // accionable para que el modelo se corrija solo. El contrato es SOLO
@@ -600,12 +649,24 @@ export class BotService {
             `hora_local '${horaPedida}' invalida: usa el formato HH:MM tal como lo devuelve get_available_slots`,
           );
         }
+        // Profesional pedido por el cliente (fase 3): la disponibilidad y la
+        // reserva quedan atadas a ESE empleado.
+        let employeeId: string | undefined;
+        if (empleado?.trim()) {
+          const match = await this.resolveEmployee(tenantId, empleado);
+          if (!match) {
+            const equipo = (await this.teamNames(tenantId)).join(', ') || 'sin empleados cargados';
+            throw new Error(`empleado '${empleado}' no reconocido; el equipo es: ${equipo}`);
+          }
+          employeeId = match.id;
+        }
         const hora = `${horaMatch[1].padStart(2, '0')}:${horaMatch[2]}`;
         const branch = await this.mainBranch(tenantId);
         const open = await this.appointments.availability(ctx, {
           branch_id: branch,
           service_id: service.id,
           date,
+          employee_id: employeeId,
         });
         const slot = open.find((iso) => horaLocal(iso) === hora);
         if (!slot) {
@@ -637,6 +698,7 @@ export class BotService {
               branch_id: branch,
               customer_id: customerId,
               service_id: service.id,
+              employee_id: employeeId,
               starts_at: slot,
               // Modalidad o pedido especial del cliente, y si el producto es
               // un item (ADR 0009 fase 2), la marca de que esto es una
@@ -679,6 +741,13 @@ export class BotService {
         const cleaned = fullName.trim().replace(/\s+/g, ' ');
         if (cleaned.length < 2 || cleaned.length > 200) {
           throw new Error('full_name invalido: envia el nombre tal como lo confirmo el cliente');
+        }
+        // El modelo a veces registra un relleno en vez de un nombre real
+        // (visto 2026-08-17: "cliente no especificado"): se rechaza.
+        if (/no especificado|sin nombre|desconocido|no dio|anonimo|^cliente\b/i.test(cleaned)) {
+          throw new Error(
+            'full_name invalido: registra SOLO el nombre real que el cliente dio; si no lo dio, no llames esta herramienta',
+          );
         }
         const [firstName, ...rest] = cleaned.split(' ');
         const lastName = rest.length > 0 ? rest.join(' ') : null;

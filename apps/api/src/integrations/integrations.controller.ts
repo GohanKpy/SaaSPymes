@@ -45,6 +45,8 @@ const googleCallbackQuery = z.object({
   error: z.string().max(200).optional(),
 });
 
+const googleConnectBody = z.object({ employee_id: z.uuid().optional() }).strict();
+
 /**
  * Integraciones del tenant: SOLO root (doc 04 §3.3, regla de negocio central).
  * La API jamas devuelve secretos, ni siquiera enmascarados; lo secreto vive
@@ -72,13 +74,31 @@ export class IntegrationsController {
     return allowed[0] ?? 'http://localhost:4300';
   }
 
-  /** Arranque del flujo OAuth de Google Calendar (ADR 0007): solo root. */
+  /** Arranque del flujo OAuth de Google Calendar (ADR 0007): solo root.
+   *  Con employee_id (fase 3) la conexion queda a nombre de ese empleado:
+   *  el root puede abrir el link el mismo o pasarselo al empleado. */
   @Post('google/connect')
-  async googleConnect(@Req() req: FastifyRequest & AuthRequest) {
+  async googleConnect(
+    @Body(new ZodPipe(googleConnectBody)) dto: { employee_id?: string },
+    @Req() req: FastifyRequest & AuthRequest,
+  ) {
     const ctx = tenantCtx(req);
     const origin = this.panelOrigin(req.headers.origin);
+    if (dto.employee_id) {
+      const employee = await this.appDb.tx(ctx, (tx) =>
+        tx.employee.findFirst({ where: { id: dto.employee_id, deletedAt: null } }),
+      );
+      if (!employee) {
+        throw new UnprocessableEntityException({ title: 'El empleado no existe' });
+      }
+    }
     try {
-      const url = await this.google.authUrl(ctx.tenantId, ctx.userId ?? '', origin);
+      const url = await this.google.authUrl(
+        ctx.tenantId,
+        ctx.userId ?? '',
+        origin,
+        dto.employee_id ?? null,
+      );
       return { auth_url: url };
     } catch (error) {
       if (error instanceof Error && error.message === 'google_oauth_not_configured') {
@@ -88,6 +108,18 @@ export class IntegrationsController {
       }
       throw error;
     }
+  }
+
+  /** Desconecta el Google Calendar propio de un empleado (fase 3). */
+  @Delete('google/employee/:employeeId')
+  @HttpCode(204)
+  async googleDisconnectEmployee(
+    @Param('employeeId', new ZodPipe(z.uuid())) employeeId: string,
+    @Req() req: FastifyRequest & AuthRequest,
+  ) {
+    await this.appDb.tx(tenantCtx(req), (tx) =>
+      tx.integrationCredential.deleteMany({ where: { type: 'google_calendar', employeeId } }),
+    );
   }
 
   /** Retorno de Google: publico (viene del navegador del cliente, sin JWT);
@@ -103,7 +135,9 @@ export class IntegrationsController {
       if (q.error || !q.code) throw new Error(q.error ?? 'sin code');
       const result = await this.google.connect(q.state, q.code);
       origin = this.panelOrigin(result.origin);
-      await reply.redirect(`${origin}/app/settings?google=connected`, 302);
+      // path viene del state cifrado que emitimos nosotros (/app/settings o
+      // /app/employees), jamas del navegador.
+      await reply.redirect(`${origin}${result.path}?google=connected`, 302);
     } catch {
       await reply.redirect(`${origin}/app/settings?google=error`, 302);
     }
@@ -111,8 +145,11 @@ export class IntegrationsController {
 
   @Get()
   async list(@Req() req: FastifyRequest & AuthRequest): Promise<IntegrationStatus[]> {
+    // Solo credenciales del negocio: las conexiones por empleado (fase 3)
+    // se ven en la seccion Empleados, no en Ajustes.
     const rows = await this.appDb.tx(tenantCtx(req), (tx) =>
       tx.integrationCredential.findMany({
+        where: { employeeId: null },
         select: { type: true, isActive: true, publicConfig: true },
       }),
     );
@@ -174,9 +211,10 @@ export class IntegrationsController {
     @Param('type', new ZodPipe(typeParam)) type: string,
     @Req() req: FastifyRequest & AuthRequest,
   ) {
-    // Desactiva y purga credenciales (doc 04 §3.3).
+    // Desactiva y purga credenciales (doc 04 §3.3). Solo la del negocio:
+    // las conexiones por empleado tienen su propio DELETE.
     await this.appDb.tx(tenantCtx(req), (tx) =>
-      tx.integrationCredential.deleteMany({ where: { type } }),
+      tx.integrationCredential.deleteMany({ where: { type, employeeId: null } }),
     );
   }
 
@@ -187,24 +225,33 @@ export class IntegrationsController {
   ): Promise<IntegrationStatus> {
     const ctx = tenantCtx(req);
     const encryptedPayload = this.crypto.encryptJson(data.secret);
-    const row = await this.appDb.tx(ctx, (tx) =>
-      tx.integrationCredential.upsert({
-        where: { tenantId_type: { tenantId: ctx.tenantId, type } },
-        update: {
-          encryptedPayload,
-          publicConfig: data.publicConfig as Prisma.InputJsonValue,
-          isActive: true,
-          updatedBy: ctx.userId ?? ctx.tenantId,
-        },
-        create: {
+    // La unicidad (tenant, type, employee) es NULLS NOT DISTINCT (fase 3):
+    // para la credencial del negocio (employee_id null) el upsert es manual.
+    const row = await this.appDb.tx(ctx, async (tx) => {
+      const existing = await tx.integrationCredential.findFirst({
+        where: { type, employeeId: null },
+      });
+      if (existing) {
+        return tx.integrationCredential.update({
+          where: { id: existing.id },
+          data: {
+            encryptedPayload,
+            publicConfig: data.publicConfig as Prisma.InputJsonValue,
+            isActive: true,
+            updatedBy: ctx.userId ?? ctx.tenantId,
+          },
+        });
+      }
+      return tx.integrationCredential.create({
+        data: {
           tenantId: ctx.tenantId,
           type,
           encryptedPayload,
           publicConfig: data.publicConfig as Prisma.InputJsonValue,
           updatedBy: ctx.userId ?? ctx.tenantId,
         },
-      }),
-    );
+      });
+    });
     return {
       type: type as IntegrationStatus['type'],
       configured: true,

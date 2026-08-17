@@ -4,6 +4,22 @@ import { montoGs, uuid } from '../validators';
 
 const fecha = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'fecha YYYY-MM-DD');
 
+const horaHHMM = z.string().regex(/^\d{2}:\d{2}$/, 'hora HH:MM');
+const franja = z
+  .object({ from: horaHHMM, to: horaHHMM })
+  .refine((r) => r.from < r.to, 'la franja debe terminar despues de empezar');
+
+/** Horario propio del empleado (fase 3): mismo formato que el de la sucursal
+ *  (week 0=domingo..6=sabado, closed_dates = dias libres). null = usa el
+ *  horario del negocio. */
+export const employeeSchedule = z
+  .object({
+    week: z.record(z.string().regex(/^[0-6]$/), z.array(franja).max(3)),
+    closed_dates: z.array(fecha).max(400).default([]),
+  })
+  .strict();
+export type EmployeeSchedule = z.infer<typeof employeeSchedule>;
+
 /**
  * Planilla de RRHH del empleado (ADR 0009). Empleado != usuario del panel:
  * el vinculo a un login es opcional y llega en fase posterior. `bookable`
@@ -27,6 +43,7 @@ export const employeeCreate = z
     notes: z.string().max(2000).optional(),
     bookable: z.boolean().default(true),
     is_active: z.boolean().default(true),
+    schedule: employeeSchedule.nullable().optional(),
   })
   .strict();
 export type EmployeeCreate = z.infer<typeof employeeCreate>;

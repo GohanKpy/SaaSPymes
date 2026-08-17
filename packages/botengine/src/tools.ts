@@ -41,6 +41,8 @@ export interface BotToolHandlers {
   getAvailableSlots(
     serviceId: string,
     date: string,
+    /** Solo horarios de ESTE empleado (nombre del EQUIPO), si el cliente lo pidio. */
+    empleado?: string,
   ): Promise<{
     date: string;
     horarios_disponibles: string[];
@@ -53,6 +55,8 @@ export interface BotToolHandlers {
     horaLocal: string;
     /** Pedido especial o modalidad (ej. "prefiere por Meet"): va a notes. */
     nota?: string;
+    /** Empleado elegido por el cliente (nombre del EQUIPO); vacio = asigna el sistema. */
+    empleado?: string;
   }): Promise<{
     id: string;
     status: string;
@@ -111,25 +115,32 @@ export function buildBotTools(permissions: BotPermissions, handlers: BotToolHand
     tools.push({
       name: 'get_available_slots',
       description:
-        'Devuelve los horarios libres (hora local del negocio, formato HH:MM) para un producto en una fecha dada — para tipo="item" son los horarios de su reunion inicial. Si esa fecha no tiene horarios, la respuesta incluye la proxima fecha con disponibilidad y sus horarios: ofrecelos. SIEMPRE llama primero a list_services y usa el id exacto que devuelve; nunca inventes un service_id.',
+        'Devuelve los horarios libres (hora local del negocio, formato HH:MM) para un producto en una fecha dada — para tipo="item" son los horarios de su reunion inicial. Si esa fecha no tiene horarios, la respuesta incluye la proxima fecha con disponibilidad y sus horarios: ofrecelos. SIEMPRE llama primero a list_services y usa el id exacto que devuelve; nunca inventes un service_id. Si el cliente pidio ser atendido por alguien puntual del EQUIPO, pasa su nombre en empleado y los horarios seran los de esa persona.',
       parameters: {
         type: 'object',
         properties: {
           service_id: { type: 'string', description: 'id del servicio (de list_services)' },
           date: { type: 'string', description: 'fecha YYYY-MM-DD en la zona del negocio' },
+          empleado: {
+            type: 'string',
+            description:
+              'opcional: nombre del EQUIPO elegido por el cliente; omitilo si no pidio a nadie puntual',
+          },
         },
         required: ['service_id', 'date'],
         additionalProperties: false,
       },
       run: async (args) =>
-        JSON.stringify(await handlers.getAvailableSlots(args.service_id ?? '', args.date ?? '')),
+        JSON.stringify(
+          await handlers.getAvailableSlots(args.service_id ?? '', args.date ?? '', args.empleado),
+        ),
     });
   }
   if (permissions.allowBooking) {
     tools.push({
       name: 'book_appointment',
       description:
-        'Reserva un turno para el cliente de esta conversacion. Solo despues de que el cliente confirme explicitamente servicio y horario. Antes de reservar consulta get_available_slots en este mismo turno: hora_local debe ser exactamente uno de los horarios que devolvio para esa fecha. Si el producto es tipo="item", lo reservado es una REUNION INICIAL para tratarlo (la respuesta lo indica en tipo): confirmaselo asi al cliente. Si el cliente pidio una modalidad especial (ej. virtual/por Meet) o dejo un pedido puntual, registralo en nota Y ademas llama request_human para que el equipo lo coordine.',
+        'Reserva un turno para el cliente de esta conversacion. Solo despues de que el cliente confirme explicitamente servicio y horario. Antes de reservar consulta get_available_slots en este mismo turno: hora_local debe ser exactamente uno de los horarios que devolvio para esa fecha (con el MISMO empleado, si el cliente eligio uno). Si el producto es tipo="item", lo reservado es una REUNION INICIAL para tratarlo (la respuesta lo indica en tipo): confirmaselo asi al cliente. Si el cliente pidio una modalidad especial (ej. virtual/por Meet) o dejo un pedido puntual, registralo en nota Y ademas llama request_human para que el equipo lo coordine.',
       parameters: {
         type: 'object',
         properties: {
@@ -144,6 +155,11 @@ export function buildBotTools(permissions: BotPermissions, handlers: BotToolHand
             description:
               'opcional: modalidad o pedido especial del cliente (ej. "prefiere por Meet"); queda visible para el equipo en la reserva',
           },
+          empleado: {
+            type: 'string',
+            description:
+              'opcional: nombre del EQUIPO elegido por el cliente; omitilo si no pidio a nadie puntual (el sistema asigna solo)',
+          },
         },
         required: ['service_id', 'date', 'hora_local'],
         additionalProperties: false,
@@ -155,6 +171,7 @@ export function buildBotTools(permissions: BotPermissions, handlers: BotToolHand
             date: args.date ?? '',
             horaLocal: args.hora_local ?? '',
             nota: args.nota,
+            empleado: args.empleado,
           }),
         ),
     });

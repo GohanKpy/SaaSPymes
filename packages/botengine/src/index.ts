@@ -28,6 +28,9 @@ export interface BotTurnInput {
   /** Horarios de atencion del negocio + proximos dias cerrados, ya resumidos
    *  en texto: ancla al bot para no ofrecer dias cerrados ni inventar slots. */
   businessHours?: string | null;
+  /** Nombres del equipo agendable ("Maria Gonzalez, Carlos Lopez"): unicos
+   *  nombres validos para el parametro empleado de las herramientas. */
+  team?: string | null;
   permissions: BotPermissions;
   handlers: BotToolHandlers;
   /** Historial reciente de la conversacion, del mas viejo al mas nuevo. */
@@ -120,6 +123,7 @@ export function buildSystem(input: BotTurnInput): string {
     '- No ofrezcas consultar disponibilidad para dias marcados como cerrados en HORARIOS DE ATENCION: proponer un dia cerrado y desdecirse queda pesimo.',
     '- Al hablar de turnos o disponibilidad acompana SIEMPRE "hoy", "manana" o el dia con su fecha completa: ej. "manana, viernes 8 de agosto". Nunca un "manana" suelto.',
     '- Todos los horarios de tus herramientas ya estan en hora local del negocio (HH:MM): mostralos tal cual, sin convertir de zona horaria.',
+    '- Si el cliente pide ser atendido por una persona puntual del EQUIPO, pasa ese nombre en el parametro empleado de get_available_slots y book_appointment; si no lo pide, NO elijas vos: el sistema asigna solo. JAMAS inventes nombres de empleados ni afirmes quien va a atender si no salio de tus herramientas.',
     '- Si el cliente se presenta espontaneamente con nombre y apellido, registralo directamente con save_customer_name (si esta disponible) sin pedir confirmacion; confirma antes solo si el nombre es ambiguo o incompleto. No vuelvas a preguntar ni a registrar si ya esta agendado.',
     '- Nunca digas que sos un bot, una IA o un asistente virtual, ni hables de "humanos" como si vos no lo fueras. Si te preguntan directamente si sos un bot, respondelo con honestidad y brevedad, sin dar explicaciones tecnicas.',
     '- JAMAS prometas acciones futuras del negocio (enviar informacion despues, recordatorios, llamadas, confirmaciones) que no puedas ejecutar vos con tus herramientas en este momento. Si el dato existe (ej. la direccion en Datos del negocio), respondelo ya; si no lo tenes, deci que un companero del equipo lo confirma por este chat.',
@@ -135,6 +139,14 @@ export function buildSystem(input: BotTurnInput): string {
       '',
       'HORARIOS DE ATENCION DEL NEGOCIO (referencia general; los turnos concretos SIEMPRE salen de get_available_slots):',
       input.businessHours,
+    );
+  }
+
+  if (input.team) {
+    parts.push(
+      '',
+      'EQUIPO QUE ATIENDE (unicos nombres validos para el parametro empleado; el cliente puede elegir con quien atenderse):',
+      input.team,
     );
   }
 

@@ -19,6 +19,8 @@ import {
 } from '@pymes/shared';
 import type { FastifyRequest } from 'fastify';
 
+import { Prisma } from '@pymes/db';
+
 import { Roles, type AuthRequest } from '../auth/decorators';
 import { tenantCtx } from '../common/tenant-ctx';
 import { ZodPipe } from '../common/zod.pipe';
@@ -36,14 +38,29 @@ export class EmployeesController {
   @Get()
   async list(@Req() req: FastifyRequest & AuthRequest) {
     const ctx = tenantCtx(req);
-    const rows = await this.appDb.tx(ctx, (tx) =>
-      tx.employee.findMany({
+    const { rows, google } = await this.appDb.tx(ctx, async (tx) => ({
+      rows: await tx.employee.findMany({
         where: { deletedAt: null },
         orderBy: [{ isActive: 'desc' }, { firstName: 'asc' }],
       }),
+      // Estado de la conexion Google propia de cada empleado (fase 3).
+      google: await tx.integrationCredential.findMany({
+        where: { type: 'google_calendar', employeeId: { not: null } },
+        select: { employeeId: true, publicConfig: true },
+      }),
+    }));
+    const googleStatus = new Map(
+      google.map((g) => [
+        g.employeeId,
+        ((g.publicConfig as { status?: string }).status ?? 'connected') as string,
+      ]),
     );
     const verSalario = ['root', 'admin'].includes(req.authUser?.role ?? '');
-    return rows.map((e) => ({ ...e, salary: verSalario ? e.salary : null }));
+    return rows.map((e) => ({
+      ...e,
+      salary: verSalario ? e.salary : null,
+      googleCalendar: googleStatus.get(e.id) ?? null,
+    }));
   }
 
   @Post()
@@ -116,6 +133,11 @@ export class EmployeesController {
       notes: dto.notes,
       bookable: dto.bookable,
       isActive: dto.is_active,
+      // Horario propio (fase 3): null explicito = volver al de la sucursal.
+      schedule:
+        dto.schedule === undefined
+          ? undefined
+          : ((dto.schedule as Prisma.InputJsonValue | null) ?? Prisma.DbNull),
     };
   }
 }

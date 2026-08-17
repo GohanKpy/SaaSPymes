@@ -30,6 +30,25 @@ export function rangesForDate(schedule: BranchSchedule, date: string): { from: s
   return schedule.week[String(dow)] ?? [];
 }
 
+/** Franjas de una fecha como intervalos UTC en ms (para comparar con slots). */
+function utcRanges(
+  schedule: BranchSchedule,
+  date: string,
+  timezone: string,
+): { start: number; end: number }[] {
+  return rangesForDate(schedule, date).map((r) => {
+    const [fromH, fromM] = r.from.split(':').map(Number);
+    const [toH, toM] = r.to.split(':').map(Number);
+    return {
+      start: localToUtc(date, fromH ?? 0, fromM ?? 0, timezone).getTime(),
+      end: localToUtc(date, toH ?? 0, toM ?? 0, timezone).getTime(),
+    };
+  });
+}
+
+const dentroDe = (ranges: { start: number; end: number }[], start: number, end: number) =>
+  ranges.some((r) => r.start <= start && end <= r.end);
+
 /** Instante UTC de una hora local del tenant (dos pasadas con Intl). */
 export function localToUtc(date: string, hour: number, minute: number, timeZone: string): Date {
   const guess = new Date(`${date}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00Z`);
@@ -111,22 +130,36 @@ export class AppointmentsService {
           startsAt: { lt: dayEnd },
           endsAt: { gt: dayStart },
         },
-        select: { startsAt: true, endsAt: true },
+        select: { startsAt: true, endsAt: true, employeeId: true },
       });
       // Capacidad por franja (ADR 0009): con empleados agendables cargados,
-      // la capacidad es la cantidad de empleados; sin empleados rige el
-      // SLOT_CAPACITY fijo (negocio unipersonal, comportamiento historico).
-      const agendables = await tx.employee.count({
+      // la capacidad es la cantidad de empleados LIBRES Y EN SU HORARIO
+      // (fase 3: cada uno puede tener horario propio; null = el del negocio).
+      // Sin empleados rige el SLOT_CAPACITY fijo (negocio unipersonal).
+      const agendables = await tx.employee.findMany({
         where: { deletedAt: null, isActive: true, bookable: true },
+        select: { id: true, schedule: true },
       });
-      const capacity = agendables > 0 ? agendables : SLOT_CAPACITY;
-      // Bloqueos importados del Google Calendar del negocio (ADR 0007 fase C):
-      // un evento cargado a mano en Google tapa el hueco por completo, sin
-      // importar la capacidad de solape de turnos.
+      // Bloqueos del Google Calendar (ADR 0007 fase C): employee_id NULL tapa
+      // el hueco para todo el negocio; con valor solo saca a ese empleado.
       const blocks = await tx.calendarBlock.findMany({
         where: { startsAt: { lt: dayEnd }, endsAt: { gt: dayStart } },
-        select: { startsAt: true, endsAt: true },
+        select: { startsAt: true, endsAt: true, employeeId: true },
       });
+      const tenantBlocks = blocks.filter((b) => !b.employeeId);
+      const branchSchedule = (branch.schedule ?? {}) as BranchSchedule;
+      const pool = (query.employee_id
+        ? agendables.filter((e) => e.id === query.employee_id)
+        : agendables
+      ).map((e) => ({
+        id: e.id,
+        ranges: e.schedule
+          ? utcRanges(e.schedule as BranchSchedule, query.date, timezone)
+          : utcRanges(branchSchedule, query.date, timezone),
+      }));
+
+      const overlap = (s: { startsAt: Date; endsAt: Date }, start: number, end: number) =>
+        s.startsAt.getTime() < end && s.endsAt.getTime() > start;
 
       const slots: string[] = [];
       const stepMs = duration * 60_000;
@@ -139,11 +172,22 @@ export class AppointmentsService {
         for (let start = rangeStart; start + stepMs <= rangeEnd; start += stepMs) {
           const end = start + stepMs;
           if (start < now) continue;
-          if (blocks.some((b) => b.startsAt.getTime() < end && b.endsAt.getTime() > start)) continue;
-          const overlapping = busy.filter(
-            (b) => b.startsAt.getTime() < end && b.endsAt.getTime() > start,
+          if (tenantBlocks.some((b) => overlap(b, start, end))) continue;
+          if (agendables.length === 0) {
+            const overlapping = busy.filter((b) => overlap(b, start, end)).length;
+            if (overlapping < SLOT_CAPACITY) slots.push(new Date(start).toISOString());
+            continue;
+          }
+          const libres = pool.filter(
+            (e) =>
+              dentroDe(e.ranges, start, end) &&
+              !blocks.some((b) => b.employeeId === e.id && overlap(b, start, end)) &&
+              !busy.some((b) => b.employeeId === e.id && overlap(b, start, end)),
           ).length;
-          if (overlapping < capacity) slots.push(new Date(start).toISOString());
+          // Turnos sin asignar (previos a cargar empleados) igual consumen a
+          // alguien: se descuentan de los libres.
+          const sinAsignar = busy.filter((b) => !b.employeeId && overlap(b, start, end)).length;
+          if (libres - sinAsignar > 0) slots.push(new Date(start).toISOString());
         }
       }
       return slots;
@@ -184,7 +228,7 @@ export class AppointmentsService {
     // horario jamas terminan con el mismo empleado en dos turnos solapados.
     const agendables = await tx.employee.findMany({
       where: { deletedAt: null, isActive: true, bookable: true },
-      select: { id: true, firstName: true, lastName: true },
+      select: { id: true, firstName: true, lastName: true, schedule: true },
     });
     let employeeId: string | null = null;
     if (agendables.length > 0) {
@@ -195,18 +239,51 @@ export class AppointmentsService {
       if (dto.employee_id && candidatos.length === 0) {
         throw new ConflictException({ title: 'El empleado elegido no existe o no es agendable' });
       }
+      // Horario individual (fase 3): solo cuentan los que trabajan en esa
+      // franja segun SU horario (o el de la sucursal si no tienen propio).
+      const [branch, tenant] = await Promise.all([
+        tx.branch.findFirst({ where: { id: dto.branch_id, deletedAt: null } }),
+        tx.tenant.findUnique({ where: { id: ctx.tenantId }, select: { timezone: true } }),
+      ]);
+      const timezone = tenant?.timezone ?? 'America/Asuncion';
+      const branchSchedule = (branch?.schedule ?? {}) as BranchSchedule;
+      const dateLocal = startsAt.toLocaleDateString('en-CA', { timeZone: timezone });
+      const trabajando = candidatos.filter((e) =>
+        dentroDe(
+          utcRanges(((e.schedule as BranchSchedule | null) ?? branchSchedule), dateLocal, timezone),
+          startsAt.getTime(),
+          endsAt.getTime(),
+        ),
+      );
+      if (trabajando.length === 0) {
+        throw new ConflictException({
+          title: dto.employee_id
+            ? 'El empleado elegido no trabaja en ese horario'
+            : 'Ningun empleado agendable trabaja en ese horario',
+        });
+      }
       const solapados = await tx.appointment.findMany({
         where: {
           deletedAt: null,
           status: { in: ['pending', 'confirmed'] },
-          employeeId: { in: candidatos.map((e) => e.id) },
+          employeeId: { in: trabajando.map((e) => e.id) },
           startsAt: { lt: endsAt },
           endsAt: { gt: startsAt },
         },
         select: { employeeId: true },
       });
       const ocupados = new Set(solapados.map((s) => s.employeeId));
-      const libres = candidatos.filter((e) => !ocupados.has(e.id));
+      // Bloqueo personal del Google del empleado (fase 3): tambien lo ocupa.
+      const bloqueosPersonales = await tx.calendarBlock.findMany({
+        where: {
+          employeeId: { in: trabajando.map((e) => e.id) },
+          startsAt: { lt: endsAt },
+          endsAt: { gt: startsAt },
+        },
+        select: { employeeId: true },
+      });
+      for (const b of bloqueosPersonales) if (b.employeeId) ocupados.add(b.employeeId);
+      const libres = trabajando.filter((e) => !ocupados.has(e.id));
       if (libres.length === 0) {
         throw new ConflictException({
           title: dto.employee_id

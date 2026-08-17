@@ -1,7 +1,7 @@
 # ADR 0009 — Empleados agendables (RRHH) y catálogo tipado
 
-- Estado: aceptado (fases 1 y 2 implementadas; fase 3 pendiente)
-- Fecha: 2026-08-13 (fase 2: 2026-08-17)
+- Estado: aceptado (fases 1, 2 y 3 implementadas)
+- Fecha: 2026-08-13 (fases 2 y 3: 2026-08-17)
 
 ## Contexto
 
@@ -66,10 +66,37 @@ Detalles de implementación:
 - UI de categorías propia en Catálogo: alta/edición con tipo por defecto,
   conteo de productos y eliminación protegida (409 con productos activos).
 
+### 4. Fase 3 (implementada 2026-08-17)
+
+- **Horario propio**: `employees.schedule` (mismo formato que el de la
+  sucursal: week + closed_dates como días libres/vacaciones); NULL = usa el
+  horario del negocio. La grilla de slots sigue saliendo del horario de la
+  SUCURSAL: el horario del empleado filtra adentro (nunca ofrece fuera del
+  horario de atención). Disponibilidad = hay al menos un agendable en su
+  franja, sin turno ni bloqueo personal (los turnos sin asignar se
+  descuentan). Asignar a alguien fuera de su horario da 409 con el motivo.
+- **Google Calendar por empleado**: filas adicionales de
+  `integration_credentials` con `employee_id` (unicidad tenant+type+employee
+  NULLS NOT DISTINCT). El root genera el link OAuth por empleado y puede
+  abrirlo o pasárselo (state cifrado TTL 10 min con el employee_id). Ida: el
+  turno se copia también al calendario del asignado
+  (`appointments.employee_google_event_id`). Vuelta: el barrido por CONEXIÓN
+  importa eventos ajenos como `calendar_blocks.employee_id` (bloquean solo a
+  esa persona). Borrar nuestro evento del calendario del NEGOCIO cancela el
+  turno; borrarlo del calendario del empleado se ignora (la agenda del
+  negocio manda). Unicidad de blocks tenant+evento+empleado NULLS NOT
+  DISTINCT (misma cuenta conectada dos veces no colisiona).
+- **Elección de profesional por chat**: `get_available_slots` y
+  `book_appointment` aceptan `empleado` (nombre); el server lo resuelve con
+  match único normalizado (nombre completo o de pila) contra los agendables
+  y ata slots + reserva a esa persona. El prompt recibe la sección EQUIPO
+  (únicos nombres válidos) y la regla de no inventar nombres ni elegir por
+  su cuenta. Nombre no reconocido → error accionable con el equipo real.
+
 ## Fases
 
-1. (esta) Empleados + asignación + anti-solape + disponibilidad por empleados
-   libres + auto-asignación + sección RRHH en el panel.
-2. Catálogo tipado + migración de `bookable_by_bot` + UI de categorías.
+1. Empleados + asignación + anti-solape + disponibilidad por empleados
+   libres + auto-asignación + sección RRHH en el panel. ✔
+2. Catálogo tipado + migración de `bookable_by_bot` + UI de categorías. ✔
 3. Horarios individuales por empleado, calendario Google propio por empleado,
-   elección de profesional por chat.
+   elección de profesional por chat. ✔

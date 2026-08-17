@@ -146,9 +146,7 @@ export class BranchScheduleService {
             data: { status: 'cancelled' },
           });
           // Espejo a Google (ADR 0007): la cancelacion tambien sale del calendario.
-          if (cancelled.googleEventId) {
-            void this.google.removeAppointment(ctx.tenantId, cancelled.googleEventId);
-          }
+          void this.google.removeAppointment(ctx.tenantId, cancelled);
           if (!conflict.phone) return null;
           let conversation = await tx.conversation.findFirst({
             where: { phoneE164: conflict.phone },

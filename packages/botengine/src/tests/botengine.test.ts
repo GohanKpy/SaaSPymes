@@ -105,6 +105,7 @@ describe('buildSystem: reglas de seguridad inviolables', () => {
     ['no ofrecer dias cerrados', 'dias marcados como cerrados'],
     ['todo servicio se coordina (reunion inicial)', 'REUNION INICIAL'],
     ['catalogo tipado: items reservan reunion inicial', 'tipo "item"'],
+    ['eleccion de profesional sin inventar nombres', 'JAMAS inventes nombres de empleados'],
   ])('la regla "%s" esta presente', (_nombre, fragmento) => {
     expect(system).toContain(fragmento);
   });
@@ -146,6 +147,14 @@ describe('buildSystem: capas segun configuracion (ADR 0008)', () => {
   it('la guia estandar admite variables {{...}} del negocio', () => {
     expect(DEFAULT_BASE_PROMPT).toContain('{{nombre_negocio}}');
     expect(DEFAULT_BASE_PROMPT).toContain('{{razon_social}}');
+  });
+
+  it('el equipo agendable se inyecta solo si viene', () => {
+    const header = 'EQUIPO QUE ATIENDE';
+    const con = buildSystem({ ...baseInput, team: 'Maria Gonzalez, Carlos Lopez' });
+    expect(con).toContain(header);
+    expect(con).toContain('Maria Gonzalez, Carlos Lopez');
+    expect(buildSystem(baseInput)).not.toContain(header);
   });
 
   it('los horarios de atencion se inyectan solo si vienen', () => {
