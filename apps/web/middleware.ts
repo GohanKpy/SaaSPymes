@@ -9,6 +9,9 @@ export function middleware(request: NextRequest): NextResponse {
   const { pathname } = request.nextUrl;
   const url = request.nextUrl.clone();
 
+  // La guia de uso es un HTML estatico visible desde ambos portales.
+  if (pathname === '/guia.html') return NextResponse.next();
+
   if (isAdminPortal) {
     if (!pathname.startsWith('/platform')) {
       url.pathname = '/platform';

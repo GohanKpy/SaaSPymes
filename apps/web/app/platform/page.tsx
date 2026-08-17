@@ -232,6 +232,9 @@ export default function PlatformPage() {
         <h1 className="text-2xl font-semibold">Panel de plataforma</h1>
         <div className="flex items-center gap-3 text-sm text-slate-500">
           {user.email}
+          <a className={buttonGhost} href="/guia.html" target="_blank" rel="noopener">
+            Guia
+          </a>
           <button className={buttonGhost} onClick={() => void logout().then(() => location.assign('/platform/login'))}>
             Salir
           </button>
