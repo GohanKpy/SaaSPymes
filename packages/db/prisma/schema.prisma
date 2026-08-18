@@ -550,6 +550,9 @@ model BotSettings {
   enabled             Boolean  @default(false)
   instructionsText    String?  @map("instructions_text")
   instructionsFileKey String?  @map("instructions_file_key")
+  // Link fijo de videollamada del negocio (Meet/Zoom). NULL = el bot no
+  // ofrece modalidad virtual (pedido 2026-08-17).
+  virtualMeetingLink  String?  @map("virtual_meeting_link")
   accessCatalog       Boolean  @default(false) @map("access_catalog")
   accessHistory       Boolean  @default(false) @map("access_history")
   accessCustomerData  Boolean  @default(false) @map("access_customer_data")

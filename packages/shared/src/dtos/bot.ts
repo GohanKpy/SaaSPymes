@@ -15,6 +15,8 @@ export const botSettingsPatch = z
     access_calendar: z.boolean(),
     allow_booking: z.boolean(),
     auto_confirm_bookings: z.boolean(),
+    /** Link fijo de videollamada (Meet/Zoom); null = sin modalidad virtual. */
+    virtual_meeting_link: z.url().max(500).nullable(),
   })
   .partial()
   .strict();

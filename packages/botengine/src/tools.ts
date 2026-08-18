@@ -33,7 +33,7 @@ export interface BotToolHandlers {
       durationMin: number | null;
       /** Solo items: el negocio pide coordinar una reunion inicial para tratarlo. */
       requiereReunion: boolean;
-      /** Solo items: duracion en minutos de la reunion inicial. */
+      /** Solo items que requieren reunion: duracion en minutos; null = venta directa. */
       reunionInicialMin: number | null;
     }[]
   >;

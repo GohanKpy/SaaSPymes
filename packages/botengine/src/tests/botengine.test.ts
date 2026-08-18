@@ -106,6 +106,10 @@ describe('buildSystem: reglas de seguridad inviolables', () => {
     ['todo servicio se coordina (reunion inicial)', 'REUNION INICIAL'],
     ['catalogo tipado: items reservan reunion inicial', 'tipo "item"'],
     ['eleccion de profesional sin inventar nombres', 'JAMAS inventes nombres de empleados'],
+    ['el nombre jamas es requisito', 'JAMAS es un requisito'],
+    ['horarios solo de la seccion', 'UNICAMENTE de la seccion HORARIOS DE ATENCION'],
+    ['sin promos inventadas', 'No existen promociones'],
+    ['links de reunion en regla de promesas', 'links de reunion'],
   ])('la regla "%s" esta presente', (_nombre, fragmento) => {
     expect(system).toContain(fragmento);
   });
@@ -113,6 +117,15 @@ describe('buildSystem: reglas de seguridad inviolables', () => {
   it('incluye fecha de hoy y zona horaria del negocio', () => {
     expect(system).toContain('Hoy es');
     expect(system).toContain('America/Asuncion');
+  });
+
+  it('incluye el calendario de proximos dias con fechas literales', () => {
+    // Anti-bug bateria 2026-08-17: "el jueves 18" siendo martes.
+    expect(system).toContain('Proximos dias');
+    const pasado = new Date(Date.now() + 3 * 86_400_000).toLocaleDateString('en-CA', {
+      timeZone: 'America/Asuncion',
+    });
+    expect(system).toContain(pasado);
   });
 });
 
@@ -155,6 +168,19 @@ describe('buildSystem: capas segun configuracion (ADR 0008)', () => {
     expect(con).toContain(header);
     expect(con).toContain('Maria Gonzalez, Carlos Lopez');
     expect(buildSystem(baseInput)).not.toContain(header);
+  });
+
+  it('sin link de videollamada, la modalidad virtual queda vetada', () => {
+    const system = buildSystem(baseInput);
+    expect(system).toContain('NO ofrece reuniones virtuales');
+    expect(system).not.toContain('REUNIONES VIRTUALES: el negocio SI');
+  });
+
+  it('con link de videollamada, el bot lo usa tal cual', () => {
+    const system = buildSystem({ ...baseInput, virtualMeeting: 'https://meet.google.com/abc-defg-hij' });
+    expect(system).toContain('https://meet.google.com/abc-defg-hij');
+    expect(system).toContain('REUNIONES VIRTUALES: el negocio SI');
+    expect(system).not.toContain('NO ofrece reuniones virtuales');
   });
 
   it('los horarios de atencion se inyectan solo si vienen', () => {

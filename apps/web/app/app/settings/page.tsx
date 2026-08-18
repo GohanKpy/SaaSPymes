@@ -14,6 +14,7 @@ interface Integration {
 interface BotSettings {
   enabled: boolean;
   instructionsText: string | null;
+  virtualMeetingLink: string | null;
   accessCatalog: boolean;
   accessHistory: boolean;
   accessCustomerData: boolean;
@@ -333,6 +334,20 @@ export default function SettingsPage() {
             ))}
           </div>
           <div className="mt-3">
+            <Field label="Link de reuniones virtuales (Meet/Zoom) — vacio: el bot NO ofrece videollamadas">
+              <input
+                className={inputClass}
+                type="url"
+                defaultValue={bot.virtualMeetingLink ?? ''}
+                placeholder="https://meet.google.com/xxx-xxxx-xxx"
+                onBlur={(e) => void patchBot({ virtual_meeting_link: e.target.value.trim() || null })}
+              />
+            </Field>
+            <p className="mb-3 mt-1 text-xs text-slate-400">
+              Con el link cargado, el bot ofrece la modalidad virtual y lo entrega al confirmar la
+              reserva. Sin link, si un cliente pide videollamada el bot aclara que la atencion es
+              presencial.
+            </p>
             <Field label="Instrucciones del negocio (personalidad del bot, se adapta a tu rubro)">
               <textarea
                 className={`${inputClass} h-24`}

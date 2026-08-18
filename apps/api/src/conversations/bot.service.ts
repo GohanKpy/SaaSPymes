@@ -235,6 +235,8 @@ export class BotService {
           // Equipo agendable (fase 3): unicos nombres validos para que el
           // cliente elija con quien atenderse.
           team: (await this.teamNames(tenantId)).join(', ') || null,
+          // Modalidad virtual solo si el negocio cargo su link (2026-08-17).
+          virtualMeeting: settings.virtualMeetingLink ?? null,
           basePrompt,
           instructions,
           instructionsPriority: settings.instructionsOverride,
@@ -334,7 +336,12 @@ export class BotService {
     const DIAS = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'];
     const lines: string[] = [];
     if (!schedule.week) {
-      lines.push('- todos los dias de 08:00 a 18:00');
+      // Sin configuracion rige el default del sistema. Se dice explicito para
+      // que el modelo no "deduzca" el horario tipico del rubro (bateria
+      // 2026-08-17: invento "no atendemos sabados" con este default vigente).
+      lines.push(
+        '- TODOS los dias (lunes a domingo) de 08:00 a 18:00. Si preguntan por dias de apertura, responde exactamente esto: no hay dias cerrados.',
+      );
     } else {
       for (const dow of [1, 2, 3, 4, 5, 6, 0]) {
         const franjas = schedule.week[String(dow)] ?? [];
@@ -567,7 +574,11 @@ export class BotService {
             tipo: s.kind as 'servicio' | 'item',
             durationMin: s.kind === 'servicio' ? s.durationMin : null,
             requiereReunion: s.kind === 'item' ? s.requiresMeeting : false,
-            reunionInicialMin: s.kind === 'item' ? (s.meetingMin ?? DEFAULT_DURATION_MIN) : null,
+            // Solo los items que REQUIEREN reunion llevan su duracion: un item
+            // de venta directa con "reunion de 30 min" confundia al modelo
+            // (bateria 2026-08-17, hallazgo 5).
+            reunionInicialMin:
+              s.kind === 'item' && s.requiresMeeting ? (s.meetingMin ?? DEFAULT_DURATION_MIN) : null,
           }));
         }),
 
@@ -743,10 +754,24 @@ export class BotService {
           throw new Error('full_name invalido: envia el nombre tal como lo confirmo el cliente');
         }
         // El modelo a veces registra un relleno en vez de un nombre real
-        // (visto 2026-08-17: "cliente no especificado"): se rechaza.
-        if (/no especificado|sin nombre|desconocido|no dio|anonimo|^cliente\b/i.test(cleaned)) {
+        // (visto 2026-08-17: "cliente no especificado", "Confirmo",
+        // "Confirmado"): se rechaza toda palabra de cortesia/confirmacion y
+        // cualquier cosa que no tenga pinta de nombre.
+        const RELLENO = new Set([
+          'confirmo', 'confirmado', 'confirmada', 'ok', 'oka', 'okey', 'dale', 'si', 'no',
+          'gracias', 'listo', 'lista', 'bueno', 'buenas', 'hola', 'perfecto', 'genial',
+          'claro', 'obvio', 'ya', 'aja', 'reserva', 'turno', 'cancelo', 'cancelar',
+          'quiero', 'cliente', 'senor', 'senora', 'anonimo', 'desconocido', 'especificado',
+        ]);
+        const palabras = normalizar(cleaned).split(' ').filter(Boolean);
+        if (
+          /no especificado|sin nombre|no dio/i.test(cleaned) ||
+          /\d/.test(cleaned) ||
+          palabras.length > 6 ||
+          palabras.some((p) => RELLENO.has(p))
+        ) {
           throw new Error(
-            'full_name invalido: registra SOLO el nombre real que el cliente dio; si no lo dio, no llames esta herramienta',
+            'full_name invalido: registra SOLO el nombre real que el cliente dio (ej. "Ana Benitez"); una confirmacion o cortesia NO es un nombre. Si no dio su nombre, no llames esta herramienta',
           );
         }
         const [firstName, ...rest] = cleaned.split(' ');
