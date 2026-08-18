@@ -46,6 +46,9 @@ export interface BotToolHandlers {
   ): Promise<{
     date: string;
     horarios_disponibles: string[];
+    /** La misma lista partida: manana < 13:00 <= tarde (guia de lectura). */
+    manana?: string[];
+    tarde?: string[];
     proxima_fecha_con_horarios?: string;
     horarios_de_proxima_fecha?: string[];
   }>;
@@ -115,7 +118,7 @@ export function buildBotTools(permissions: BotPermissions, handlers: BotToolHand
     tools.push({
       name: 'get_available_slots',
       description:
-        'Devuelve los horarios libres (hora local del negocio, formato HH:MM) para un producto en una fecha dada — para tipo="item" son los horarios de su reunion inicial. Si esa fecha no tiene horarios, la respuesta incluye la proxima fecha con disponibilidad y sus horarios: ofrecelos. SIEMPRE llama primero a list_services y usa el id exacto que devuelve; nunca inventes un service_id. Si el cliente pidio ser atendido por alguien puntual del EQUIPO, pasa su nombre en empleado y los horarios seran los de esa persona.',
+        'Devuelve los horarios libres (hora local del negocio, formato HH:MM) para un producto en una fecha dada — para tipo="item" son los horarios de su reunion inicial. La respuesta ya viene separada en manana y tarde: usa esas listas tal cual para responder "a la manana/a la tarde". NO requiere que el cliente este registrado: consultala apenas pregunte por horarios, sin pedirle ningun dato antes. Si esa fecha no tiene horarios, la respuesta incluye la proxima fecha con disponibilidad y sus horarios: ofrecelos. SIEMPRE llama primero a list_services y usa el id exacto que devuelve; nunca inventes un service_id. Si el cliente pidio ser atendido por alguien puntual del EQUIPO, pasa su nombre en empleado y los horarios seran los de esa persona.',
       parameters: {
         type: 'object',
         properties: {
@@ -140,7 +143,7 @@ export function buildBotTools(permissions: BotPermissions, handlers: BotToolHand
     tools.push({
       name: 'book_appointment',
       description:
-        'Reserva un turno para el cliente de esta conversacion. Solo despues de que el cliente confirme explicitamente servicio y horario. Antes de reservar consulta get_available_slots en este mismo turno: hora_local debe ser exactamente uno de los horarios que devolvio para esa fecha (con el MISMO empleado, si el cliente eligio uno). Si el producto es tipo="item", lo reservado es una REUNION INICIAL para tratarlo (la respuesta lo indica en tipo): confirmaselo asi al cliente. Si el cliente pidio una modalidad especial (ej. virtual/por Meet) o dejo un pedido puntual, registralo en nota Y ademas llama request_human para que el equipo lo coordine.',
+        'Reserva un turno para el cliente de esta conversacion. NO requiere que el cliente este registrado ni haya dado su nombre: el sistema lo identifica por su telefono y reserva igual — JAMAS pospongas ni condiciones la reserva a pedirle el nombre. Reserva solo despues de que el cliente confirme explicitamente servicio y horario. Antes de reservar consulta get_available_slots en este mismo turno: hora_local debe ser exactamente uno de los horarios que devolvio para esa fecha (con el MISMO empleado, si el cliente eligio uno). Si el producto es tipo="item", lo reservado es una REUNION INICIAL para tratarlo (la respuesta lo indica en tipo): confirmaselo asi al cliente. Si el cliente pidio una modalidad especial o dejo un pedido puntual, registralo en nota Y ademas llama request_human para que el equipo lo coordine.',
       parameters: {
         type: 'object',
         properties: {
@@ -237,7 +240,7 @@ export function buildBotTools(permissions: BotPermissions, handlers: BotToolHand
   tools.push({
     name: 'request_human',
     description:
-      'Marca esta conversacion como "necesita humano" en la bandeja del negocio para que una persona del equipo la atienda y le avisa en vivo. Usala SIEMPRE que le digas al cliente que le pasas la consulta a un companero, que alguien lo va a contactar o coordinar algo, o cuando pida hablar con una persona. Nunca prometas derivacion sin llamarla.',
+      'Marca esta conversacion como "necesita humano" en la bandeja del negocio para que una persona del equipo la atienda y le avisa en vivo. NO requiere ningun dato del cliente: si pide hablar con una persona, llamala YA, aunque no sepa su nombre. Usala SIEMPRE que le digas al cliente que le pasas la consulta a un companero, que alguien lo va a contactar o coordinar algo, o cuando pida hablar con una persona. Nunca prometas derivacion sin llamarla.',
     parameters: {
       type: 'object',
       properties: {

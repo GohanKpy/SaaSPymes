@@ -107,6 +107,7 @@ describe('buildSystem: reglas de seguridad inviolables', () => {
     ['catalogo tipado: items reservan reunion inicial', 'tipo "item"'],
     ['eleccion de profesional sin inventar nombres', 'JAMAS inventes nombres de empleados'],
     ['el nombre jamas es requisito', 'JAMAS es un requisito'],
+    ['anti-bucle del nombre', 'PROHIBIDO volver a pedirlo'],
     ['horarios solo de la seccion', 'UNICAMENTE de la seccion HORARIOS DE ATENCION'],
     ['sin promos inventadas', 'No existen promociones'],
     ['links de reunion en regla de promesas', 'links de reunion'],

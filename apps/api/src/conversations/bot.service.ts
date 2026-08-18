@@ -223,32 +223,33 @@ export class BotService {
       const basePrompt = renderInstructions(engineConfig.basePrompt ?? DEFAULT_BASE_PROMPT, vars);
       const instructions = renderInstructions(settings.instructionsText, vars);
 
+      const turnInput = {
+        provider: engineConfig.provider,
+        apiKey,
+        model: engineConfig.model,
+        businessName: tenant?.tradeName ?? tenant?.legalName ?? 'el negocio',
+        timezone,
+        businessHours: this.describeSchedule(branch?.schedule, timezone),
+        // Equipo agendable (fase 3): unicos nombres validos para que el
+        // cliente elija con quien atenderse.
+        team: (await this.teamNames(tenantId)).join(', ') || null,
+        // Modalidad virtual solo si el negocio cargo su link (2026-08-17).
+        virtualMeeting: settings.virtualMeetingLink ?? null,
+        basePrompt,
+        instructions,
+        instructionsPriority: settings.instructionsOverride,
+        customerContext,
+        permissions: settings,
+        handlers,
+        history: history.map((m) => ({
+          direction: m.direction as 'in' | 'out',
+          senderType: m.senderType,
+          body: m.body,
+        })),
+      };
       let result;
       try {
-        result = await runBotTurn({
-          provider: engineConfig.provider,
-          apiKey,
-          model: engineConfig.model,
-          businessName: tenant?.tradeName ?? tenant?.legalName ?? 'el negocio',
-          timezone,
-          businessHours: this.describeSchedule(branch?.schedule, timezone),
-          // Equipo agendable (fase 3): unicos nombres validos para que el
-          // cliente elija con quien atenderse.
-          team: (await this.teamNames(tenantId)).join(', ') || null,
-          // Modalidad virtual solo si el negocio cargo su link (2026-08-17).
-          virtualMeeting: settings.virtualMeetingLink ?? null,
-          basePrompt,
-          instructions,
-          instructionsPriority: settings.instructionsOverride,
-          customerContext,
-          permissions: settings,
-          handlers,
-          history: history.map((m) => ({
-            direction: m.direction as 'in' | 'out',
-            senderType: m.senderType,
-            body: m.body,
-          })),
-        });
+        result = await runBotTurn(turnInput);
       } catch (error) {
         // Fallback seguro (auditoria 2026-08-07): timeout, 5xx o falta de
         // credito del proveedor ya agotaron el reintento del runner. Antes el
@@ -263,6 +264,43 @@ export class BotService {
         }
         await this.setNeedsHuman(tenantId, conversationId, true);
         return;
+      }
+
+      // Supervisor anti-bucle del registro (baterias 2026-08-17/18): gpt-4.1-mini
+      // a veces exige el nombre para reservar pese a las reglas y se ancla a su
+      // propia exigencia. Si va a pedirlo por SEGUNDA vez, el sistema corta el
+      // bucle relanzando el turno UNA vez con la orden de ejecutar el pedido.
+      const exigeNombre = (texto: string | null | undefined) =>
+        /(necesito|necesitare|compartas|compartis|comparti\w*|proporcion\w*|requiero|falta|antes de|diste|dime|decime|indicame|indica\w*|dame|me des|pasame|podrias compartir)[^.?]{0,80}nombre y apellido/i.test(
+          texto ?? '',
+        );
+      if (
+        result.reply &&
+        exigeNombre(result.reply) &&
+        history.some((m) => m.senderType === 'bot' && exigeNombre(m.body))
+      ) {
+        this.logger.warn(`bucle de registro detectado conv=${conversationId}: reintento dirigido`);
+        try {
+          const retry = await runBotTurn({
+            ...turnInput,
+            history: [
+              ...turnInput.history,
+              { direction: 'out' as const, senderType: 'bot', body: result.reply },
+              {
+                direction: 'in' as const,
+                senderType: 'system',
+                body: '[sistema] El cliente NO va a dar su nombre y NO hace falta: el telefono ya lo identifica. Ejecuta AHORA su pedido con tus herramientas (consultar horarios, reservar o derivar, segun corresponda) y no menciones el registro nunca mas.',
+              },
+            ],
+          });
+          result = {
+            ...retry,
+            inputTokens: result.inputTokens + retry.inputTokens,
+            outputTokens: result.outputTokens + retry.outputTokens,
+          };
+        } catch {
+          // si el reintento falla, sale la respuesta original: nunca silencio
+        }
       }
 
       this.addHourlyUsage(tenantId, result.inputTokens + result.outputTokens);
@@ -613,7 +651,15 @@ export class BotService {
           employee_id: employeeId,
         });
         if (slots.length > 0) {
-          return { date, horarios_disponibles: slots.map(horaLocal) };
+          const horas = slots.map(horaLocal);
+          // Separado en manana/tarde ademas de la lista completa: el modelo a
+          // veces leia mal "la tarde" de la lista cruda (corrida 5, P18).
+          return {
+            date,
+            horarios_disponibles: horas,
+            manana: horas.filter((h) => h < '13:00'),
+            tarde: horas.filter((h) => h >= '13:00'),
+          };
         }
         // Dia sin horarios (ej. consulta de noche): buscar la proxima fecha
         // con disponibilidad para que el bot SIEMPRE tenga algo que ofrecer.
