@@ -109,6 +109,9 @@ model Tenant {
   branches           Branch[]
   users              User[]
   customers          Customer[]
+  contactPoints      CustomerContactPoint[]
+  customFieldDefs    CustomFieldDef[]
+  customerActivities CustomerActivity[]
   serviceCategories  ServiceCategory[]
   services           Service[]
   appointments       Appointment[]
@@ -318,18 +321,104 @@ model Customer {
   /// Resumen de la ultima conversacion inactiva (seguimiento comercial).
   lastConversationSummary String?   @map("last_conversation_summary")
   lastSummaryAt           DateTime? @map("last_summary_at") @db.Timestamptz(6)
+  // CRM extendido (2026-08-26): valores de campos personalizados del tenant
+  // (definidos en CustomFieldDef) + campos estandar estilo Bitrix.
+  customData     Json      @default("{}") @map("custom_data")
+  source         String? // whatsapp|instagram|facebook|recomendacion|web|local|otro
+  sourceDetail   String?   @map("source_detail")
+  companyName    String?   @map("company_name")
+  jobTitle       String?   @map("job_title")
+  city           String?
+  tags           String[]  @default([])
+  assignedUserId String?   @map("assigned_user_id") @db.Uuid
+  marketingOptIn Boolean   @default(true) @map("marketing_opt_in")
+  rating         Int?      @db.SmallInt
   deletedAt      DateTime? @map("deleted_at") @db.Timestamptz(6)
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
 
-  tenant        Tenant         @relation(fields: [tenantId], references: [id])
+  tenant        Tenant                 @relation(fields: [tenantId], references: [id])
   appointments  Appointment[]
   conversations Conversation[]
   invoices      Invoice[]
+  contactPoints CustomerContactPoint[]
+  activities    CustomerActivity[]
 
   @@id([id])
   @@unique([tenantId, id])
   @@map("customers")
+  @@schema("app")
+}
+
+// Multifield tipado del CRM (2026-08-26, estilo Bitrix): N telefonos, emails,
+// webs y redes por cliente, con etiqueta y marca de principal.
+model CustomerContactPoint {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  customerId String   @map("customer_id") @db.Uuid
+  kind       String // phone|email|web|im
+  label      String   @default("otro")
+  value      String
+  isPrimary  Boolean  @default(false) @map("is_primary")
+  sort       Int      @default(0)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id])
+  customer Customer @relation(fields: [tenantId, customerId], references: [tenantId, id])
+
+  @@unique([tenantId, id])
+  @@index([tenantId, customerId, kind], map: "contact_points_customer_idx")
+  @@map("customer_contact_points")
+  @@schema("app")
+}
+
+// Definicion de campos personalizados por tenant (2026-08-26): la ficha
+// arranca con el minimo (nombre, apellido, celular, email) y cada negocio
+// agrega lo que necesite; los valores viven en customers.custom_data.
+model CustomFieldDef {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  entity     String // customer|service|appointment|invoice
+  code       String
+  label      String
+  fieldType  String   @map("field_type") // text|number|date|boolean|list|money|url
+  options    Json     @default("[]")
+  required   Boolean  @default(false)
+  showInForm Boolean  @default(true) @map("show_in_form")
+  sort       Int      @default(0)
+  isActive   Boolean  @default(true) @map("is_active")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, entity, code])
+  @@map("custom_field_defs")
+  @@schema("app")
+}
+
+// Timeline propio del cliente (2026-08-26): notas manuales y tareas de
+// seguimiento con vencimiento, ademas de lo que ya aportan turnos,
+// conversaciones y facturas.
+model CustomerActivity {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String    @map("tenant_id") @db.Uuid
+  customerId     String    @map("customer_id") @db.Uuid
+  activityType   String    @map("activity_type") // nota|llamada|reunion|tarea|seguimiento
+  body           String
+  dueAt          DateTime? @map("due_at") @db.Timestamptz(6)
+  doneAt         DateTime? @map("done_at") @db.Timestamptz(6)
+  assignedUserId String?   @map("assigned_user_id") @db.Uuid
+  createdBy      String?   @map("created_by") @db.Uuid
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id])
+  customer Customer @relation(fields: [tenantId, customerId], references: [tenantId, id])
+
+  @@unique([tenantId, id])
+  @@index([tenantId, customerId, createdAt(sort: Desc)], map: "activities_customer_idx")
+  @@map("customer_activities")
   @@schema("app")
 }
 

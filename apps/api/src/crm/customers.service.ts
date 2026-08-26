@@ -1,5 +1,10 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import type { TenantContext } from '@pymes/db';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
+import { Prisma, type TenantContext, type TenantTx } from '@pymes/db';
 import type { CustomerCreate, CustomerListQuery, CustomerUpdate, Page } from '@pymes/shared';
 
 import { decodeCursor, encodeCursor } from '../common/pagination';
@@ -16,6 +21,8 @@ export class CustomersService {
       tx.customer.findMany({
         where: {
           deletedAt: null,
+          ...(query.tag ? { tags: { has: query.tag } } : {}),
+          ...(query.source ? { source: query.source } : {}),
           ...(query.q
             ? {
                 OR: [
@@ -24,6 +31,7 @@ export class CustomersService {
                   { phoneE164: { contains: query.q } },
                   { docNumber: { contains: query.q } },
                   { email: { contains: query.q, mode: 'insensitive' } },
+                  { companyName: { contains: query.q, mode: 'insensitive' } },
                 ],
               }
             : {}),
@@ -60,6 +68,7 @@ export class CustomersService {
           detail: clash.id,
         });
       }
+      await this.validateCustomData(tx, dto.custom_data);
       return tx.customer.create({
         data: { tenantId: ctx.tenantId, ...mapCustomer(dto), firstName: dto.first_name },
       });
@@ -68,7 +77,12 @@ export class CustomersService {
 
   async get(ctx: TenantContext, id: string) {
     const customer = await this.appDb.tx(ctx, (tx) =>
-      tx.customer.findFirst({ where: { id, deletedAt: null } }),
+      tx.customer.findFirst({
+        where: { id, deletedAt: null },
+        include: {
+          contactPoints: { orderBy: [{ kind: 'asc' }, { sort: 'asc' }] },
+        },
+      }),
     );
     if (!customer) throw new NotFoundException();
     return customer;
@@ -78,8 +92,44 @@ export class CustomersService {
     return this.appDb.tx(ctx, async (tx) => {
       const existing = await tx.customer.findFirst({ where: { id, deletedAt: null } });
       if (!existing) throw new NotFoundException();
+      await this.validateCustomData(tx, dto.custom_data);
       return tx.customer.update({ where: { id }, data: mapCustomer(dto) });
     });
+  }
+
+  /** custom_data solo acepta claves DEFINIDAS y activas del tenant, con el
+   *  tipo declarado: el panel jamas guarda datos huerfanos ni mal tipados. */
+  private async validateCustomData(
+    tx: TenantTx,
+    data: Record<string, string | number | boolean> | undefined,
+  ): Promise<void> {
+    if (!data || Object.keys(data).length === 0) return;
+    const defs = await tx.customFieldDef.findMany({
+      where: { entity: 'customer', isActive: true },
+    });
+    const porCode = new Map(defs.map((d) => [d.code, d]));
+    for (const [code, value] of Object.entries(data)) {
+      const def = porCode.get(code);
+      if (!def) {
+        throw new UnprocessableEntityException({
+          title: `El campo personalizado '${code}' no existe (definilo primero en Ajustes)`,
+        });
+      }
+      const esperado =
+        def.fieldType === 'number' || def.fieldType === 'money'
+          ? typeof value === 'number'
+          : def.fieldType === 'boolean'
+            ? typeof value === 'boolean'
+            : typeof value === 'string';
+      const opcionValida =
+        def.fieldType !== 'list' ||
+        (Array.isArray(def.options) && (def.options as unknown[]).includes(value));
+      if (!esperado || !opcionValida) {
+        throw new UnprocessableEntityException({
+          title: `Valor invalido para el campo '${def.label}' (${def.fieldType})`,
+        });
+      }
+    }
   }
 
   /** Soft delete; 409 si tiene facturas: se desactiva, no se borra (doc 04 §3.4). */
@@ -156,5 +206,16 @@ function mapCustomer(dto: CustomerCreate | CustomerUpdate) {
     notes: dto.notes,
     notifyWhatsapp: dto.notify_whatsapp,
     notifyEmail: dto.notify_email,
+    // CRM extendido (2026-08-26)
+    source: dto.source,
+    sourceDetail: dto.source_detail,
+    companyName: dto.company_name,
+    jobTitle: dto.job_title,
+    city: dto.city,
+    tags: dto.tags,
+    assignedUserId: dto.assigned_user_id,
+    marketingOptIn: dto.marketing_opt_in,
+    rating: dto.rating,
+    customData: dto.custom_data === undefined ? undefined : (dto.custom_data as Prisma.InputJsonValue),
   };
 }

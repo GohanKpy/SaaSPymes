@@ -13,6 +13,7 @@ import { WaSenderService } from './conversations/wa-sender.service';
 import { InactivityService } from './conversations/inactivity.service';
 import { TenantEventsService } from './conversations/events.service';
 import { WebhooksController } from './conversations/webhooks.controller';
+import { CrmExtrasController } from './crm/crm-extras.controller';
 import { CustomersController } from './crm/customers.controller';
 import { CustomersService } from './crm/customers.service';
 import { ENV, EnvModule } from './env.module';
@@ -41,6 +42,7 @@ import { UsersController } from './tenant/users.controller';
     EmployeesController,
     UsersController,
     CustomersController,
+    CrmExtrasController,
     CatalogController,
     AppointmentsController,
     BotController,

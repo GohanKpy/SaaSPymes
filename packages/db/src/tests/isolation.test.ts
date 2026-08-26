@@ -44,6 +44,9 @@ const APP_TABLES = [
   'calendar_blocks',
   'integration_credentials',
   'notification_emails',
+  'customer_contact_points',
+  'custom_field_defs',
+  'customer_activities',
   'audit_log',
 ] as const;
 
@@ -123,6 +126,34 @@ async function seedTenant(name: string, phone: string): Promise<SeededTenant> {
         body: `hola desde ${name}`,
       },
     });
+    // CRM extendido (2026-08-26): una fila por tabla nueva para el caso 4.
+    await tx.customerContactPoint.create({
+      data: {
+        tenantId: tenant.id,
+        customerId: customer.id,
+        kind: 'phone',
+        label: 'celular',
+        value: phone,
+        isPrimary: true,
+      },
+    });
+    await tx.customFieldDef.create({
+      data: {
+        tenantId: tenant.id,
+        entity: 'customer',
+        code: 'talla',
+        label: 'Talla',
+        fieldType: 'text',
+      },
+    });
+    await tx.customerActivity.create({
+      data: {
+        tenantId: tenant.id,
+        customerId: customer.id,
+        activityType: 'nota',
+        body: `nota de ${name}`,
+      },
+    });
     const invoice = await tx.invoice.create({
       data: { tenantId: tenant.id, branchId: branch.id, customerId: customer.id },
     });
@@ -171,6 +202,9 @@ async function wipeTenant(tenantId: string): Promise<void> {
       'employees',
       'bot_settings',
       'integration_credentials',
+      'customer_contact_points',
+      'customer_activities',
+      'custom_field_defs',
       'customers',
       'users',
       'branches',
