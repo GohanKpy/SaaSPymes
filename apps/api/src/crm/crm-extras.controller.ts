@@ -39,6 +39,11 @@ const entityQuery = z.object({
   entity: z.enum(['customer', 'service', 'appointment', 'invoice']).default('customer'),
 });
 
+const tasksQuery = z.object({
+  status: z.enum(['pending', 'done', 'all']).default('pending'),
+  assigned_user_id: uuid.optional(),
+});
+
 /**
  * CRM extendido (2026-08-26): multiples puntos de contacto por cliente,
  * timeline de notas/tareas y definiciones de campos personalizados del
@@ -135,6 +140,31 @@ export class CrmExtrasController {
   ) {
     await this.appDb.tx(tenantCtx(req), (tx) =>
       tx.customerContactPoint.deleteMany({ where: { id: cpId, customerId } }),
+    );
+  }
+
+  // --------------------- bandeja de tareas (todo el negocio) ---------------------
+
+  /** Tareas y seguimientos de TODOS los clientes: la bandeja del panel. */
+  @Get('activities')
+  listTasks(
+    @Query(new ZodPipe(tasksQuery)) q: { status: 'pending' | 'done' | 'all'; assigned_user_id?: string },
+    @Req() req: FastifyRequest & AuthRequest,
+  ) {
+    return this.appDb.tx(tenantCtx(req), (tx) =>
+      tx.customerActivity.findMany({
+        where: {
+          activityType: { in: ['tarea', 'seguimiento'] },
+          ...(q.status === 'pending' ? { doneAt: null } : q.status === 'done' ? { doneAt: { not: null } } : {}),
+          ...(q.assigned_user_id ? { assignedUserId: q.assigned_user_id } : {}),
+          customer: { deletedAt: null },
+        },
+        include: {
+          customer: { select: { id: true, firstName: true, lastName: true, phoneE164: true } },
+        },
+        orderBy: [{ dueAt: { sort: 'asc', nulls: 'last' } }, { createdAt: 'desc' }],
+        take: 200,
+      }),
     );
   }
 

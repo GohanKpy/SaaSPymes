@@ -13,6 +13,7 @@ const NAV = [
   { href: '/app/schedule', label: 'Agenda' },
   { href: '/app/employees', label: 'Empleados' },
   { href: '/app/customers', label: 'Clientes' },
+  { href: '/app/tasks', label: 'Tareas' },
   { href: '/app/catalog', label: 'Catalogo' },
   { href: '/app/invoices', label: 'Facturas' },
   { href: '/app/team', label: 'Equipo', roles: ['root', 'admin'] },

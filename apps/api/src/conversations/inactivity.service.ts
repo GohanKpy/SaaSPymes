@@ -160,6 +160,27 @@ export class InactivityService implements OnModuleInit, OnModuleDestroy {
           where: { id: customerId },
           data: { lastConversationSummary: result.reply, lastSummaryAt: new Date() },
         });
+        // La linea "Seguimiento: ..." del resumen alimenta la bandeja de
+        // tareas. Un solo seguimiento abierto del sistema por cliente: el
+        // resumen nuevo lo refresca en vez de acumular duplicados.
+        const match = /seguimiento:\s*(.+)/i.exec(result.reply);
+        const pending = match?.[1]?.trim();
+        if (pending && pending.length > 3) {
+          const dueAt = new Date(Date.now() + 24 * 3600_000);
+          const open = await tx.customerActivity.findFirst({
+            where: { customerId, activityType: 'seguimiento', doneAt: null, createdBy: null },
+          });
+          if (open) {
+            await tx.customerActivity.update({
+              where: { id: open.id },
+              data: { body: pending, dueAt },
+            });
+          } else {
+            await tx.customerActivity.create({
+              data: { tenantId, customerId, activityType: 'seguimiento', body: pending, dueAt },
+            });
+          }
+        }
       }
     });
     this.logger.log(`resumen guardado tenant=${tenantId} conv=${conversationId}`);
