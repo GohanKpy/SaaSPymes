@@ -29,6 +29,7 @@ import { AppointmentsController } from './scheduling/appointments.controller';
 import { AppointmentsService } from './scheduling/appointments.service';
 import { BranchScheduleService } from './scheduling/branch-schedule.service';
 import { BranchesController } from './tenant/branches.controller';
+import { DashboardController } from './tenant/dashboard.controller';
 import { EmployeesController } from './tenant/employees.controller';
 import { TenantController } from './tenant/tenant.controller';
 import { UsersController } from './tenant/users.controller';
@@ -38,6 +39,7 @@ import { UsersController } from './tenant/users.controller';
   controllers: [
     HealthController,
     TenantController,
+    DashboardController,
     BranchesController,
     EmployeesController,
     UsersController,
