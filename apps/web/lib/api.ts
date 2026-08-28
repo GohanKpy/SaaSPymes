@@ -94,6 +94,19 @@ export async function api<T>(path: string, init?: RequestInit & { json?: unknown
   return body as T;
 }
 
+/** Descarga autenticada de una imagen del API como object URL (para <img>). */
+export async function apiImageUrl(path: string): Promise<string> {
+  const doFetch = () =>
+    fetch(`${API_URL}/api/v1${path}`, {
+      credentials: 'include',
+      headers: accessToken ? { authorization: `Bearer ${accessToken}` } : {},
+    });
+  let res = await doFetch();
+  if (res.status === 401 && (await tryRefresh())) res = await doFetch();
+  if (!res.ok) throw new ApiError(res.status, {});
+  return URL.createObjectURL(await res.blob());
+}
+
 export function sseUrl(path: string): string {
   return `${API_URL}/api/v1${path}?access_token=${accessToken ?? ''}`;
 }

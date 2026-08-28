@@ -43,3 +43,22 @@ export type ServiceCreate = z.infer<typeof serviceCreate>;
 
 export const serviceUpdate = serviceCreate.partial().strict();
 export type ServiceUpdate = z.infer<typeof serviceUpdate>;
+
+// ------------------- fotos de catalogo (P1 2026-08-28) -------------------
+
+/** Piso tecnico del tamano de una foto decodificada (no configurable). */
+export const DEFAULT_MAX_PHOTO_BYTES = 1_500_000;
+/** Tope de fotos por producto. */
+export const DEFAULT_MAX_PHOTOS_PER_SERVICE = 5;
+
+export const servicePhotoCreate = z
+  .object({
+    /** data URL (data:image/png|jpeg|webp;base64,...) — mismo camino que el logo. */
+    data: z
+      .string()
+      .regex(/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/, 'foto: data URL png/jpeg/webp')
+      .max(2_200_000, 'foto demasiado grande (max ~1.5 MB)'),
+    sort: z.number().int().min(0).max(99).default(0),
+  })
+  .strict();
+export type ServicePhotoCreate = z.infer<typeof servicePhotoCreate>;

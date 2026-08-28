@@ -114,6 +114,7 @@ model Tenant {
   customerActivities CustomerActivity[]
   serviceCategories  ServiceCategory[]
   services           Service[]
+  servicePhotos      ServicePhoto[]
   appointments       Appointment[]
   conversations      Conversation[]
   invoices           Invoice[]
@@ -467,10 +468,32 @@ model Service {
   category     ServiceCategory @relation(fields: [tenantId, categoryId], references: [tenantId, id])
   appointments Appointment[]
   invoiceItems InvoiceItem[]
+  photos       ServicePhoto[]
 
   @@id([id])
   @@unique([tenantId, id])
   @@map("services")
+  @@schema("app")
+}
+
+// Fotos de catalogo (P1 2026-08-28): bytes en Postgres a escala laboratorio;
+// la auditoria usa la variante row_audit_sin_data (jamas los bytes).
+model ServicePhoto {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  serviceId String   @map("service_id") @db.Uuid
+  mime      String
+  sizeBytes Int      @map("size_bytes")
+  data      Bytes
+  sort      Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id])
+  service Service @relation(fields: [tenantId, serviceId], references: [tenantId, id])
+
+  @@unique([tenantId, id])
+  @@index([tenantId, serviceId, sort], map: "service_photos_service_idx")
+  @@map("service_photos")
   @@schema("app")
 }
 

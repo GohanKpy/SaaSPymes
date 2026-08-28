@@ -47,6 +47,7 @@ const APP_TABLES = [
   'customer_contact_points',
   'custom_field_defs',
   'customer_activities',
+  'service_photos',
   'audit_log',
 ] as const;
 
@@ -154,6 +155,15 @@ async function seedTenant(name: string, phone: string): Promise<SeededTenant> {
         body: `nota de ${name}`,
       },
     });
+    await tx.servicePhoto.create({
+      data: {
+        tenantId: tenant.id,
+        serviceId: service.id,
+        mime: 'image/png',
+        sizeBytes: 3,
+        data: Buffer.from([1, 2, 3]),
+      },
+    });
     const invoice = await tx.invoice.create({
       data: { tenantId: tenant.id, branchId: branch.id, customerId: customer.id },
     });
@@ -194,6 +204,7 @@ async function wipeTenant(tenantId: string): Promise<void> {
       'invoice_items',
       'appointments',
       'invoices',
+      'service_photos',
       'services',
       'service_categories',
       'user_branch_access',

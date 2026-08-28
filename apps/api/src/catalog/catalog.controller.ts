@@ -10,19 +10,25 @@ import {
   Patch,
   Post,
   Req,
+  Res,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import {
+  DEFAULT_MAX_PHOTOS_PER_SERVICE,
+  DEFAULT_MAX_PHOTO_BYTES,
   categoryCreate,
   categoryUpdate,
   serviceCreate,
+  servicePhotoCreate,
   serviceUpdate,
   uuid,
   type CategoryCreate,
   type CategoryUpdate,
   type ServiceCreate,
+  type ServicePhotoCreate,
   type ServiceUpdate,
 } from '@pymes/shared';
-import type { FastifyRequest } from 'fastify';
+import type { FastifyReply, FastifyRequest } from 'fastify';
 
 import { RequireFeature, type AuthRequest } from '../auth/decorators';
 import { tenantCtx } from '../common/tenant-ctx';
@@ -99,7 +105,11 @@ export class CatalogController {
     return this.appDb.tx(tenantCtx(req), (tx) =>
       tx.service.findMany({
         where: { deletedAt: null },
-        include: { category: { select: { name: true } } },
+        include: {
+          category: { select: { name: true } },
+          // Solo ids para las miniaturas: los bytes se sirven por foto.
+          photos: { select: { id: true, sort: true }, orderBy: { sort: 'asc' } },
+        },
         orderBy: [{ category: { sortOrder: 'asc' } }, { name: 'asc' }],
       }),
     );
@@ -170,6 +180,79 @@ export class CatalogController {
         },
       });
     });
+  }
+
+  // ---------------------- fotos de catalogo (P1) ----------------------
+
+  /** Sube una foto (data URL, mismo camino que el logo del negocio). */
+  @Post('services/:id/photos')
+  addPhoto(
+    @Param('id', new ZodPipe(uuid)) serviceId: string,
+    @Body(new ZodPipe(servicePhotoCreate)) dto: ServicePhotoCreate,
+    @Req() req: FastifyRequest & AuthRequest,
+  ) {
+    const ctx = tenantCtx(req);
+    return this.appDb.tx(ctx, async (tx) => {
+      const service = await tx.service.findFirst({ where: { id: serviceId, deletedAt: null } });
+      if (!service) throw new NotFoundException();
+      const count = await tx.servicePhoto.count({ where: { serviceId } });
+      if (count >= DEFAULT_MAX_PHOTOS_PER_SERVICE) {
+        throw new ConflictException({
+          title: `Maximo ${DEFAULT_MAX_PHOTOS_PER_SERVICE} fotos por producto: borra alguna primero`,
+        });
+      }
+      const [meta, base64] = dto.data.split(',', 2);
+      const mime = /^data:(image\/(?:png|jpeg|webp));base64$/.exec(meta ?? '')?.[1];
+      const bytes = Buffer.from(base64 ?? '', 'base64');
+      if (!mime || bytes.length === 0) throw new UnprocessableEntityException({ title: 'Imagen invalida' });
+      if (bytes.length > DEFAULT_MAX_PHOTO_BYTES) {
+        throw new UnprocessableEntityException({
+          title: `La foto supera ${Math.round(DEFAULT_MAX_PHOTO_BYTES / 1024)} KB: usa una version reducida`,
+        });
+      }
+      const created = await tx.servicePhoto.create({
+        data: {
+          tenantId: ctx.tenantId,
+          serviceId,
+          mime,
+          sizeBytes: bytes.length,
+          data: bytes,
+          sort: dto.sort,
+        },
+        select: { id: true, mime: true, sizeBytes: true, sort: true, createdAt: true },
+      });
+      return created;
+    });
+  }
+
+  /** Bytes de una foto; el id es inmutable, el navegador puede cachear. */
+  @Get('services/:id/photos/:photoId')
+  async getPhoto(
+    @Param('id', new ZodPipe(uuid)) serviceId: string,
+    @Param('photoId', new ZodPipe(uuid)) photoId: string,
+    @Req() req: FastifyRequest & AuthRequest,
+    @Res() reply: FastifyReply,
+  ) {
+    const photo = await this.appDb.tx(tenantCtx(req), (tx) =>
+      tx.servicePhoto.findFirst({ where: { id: photoId, serviceId } }),
+    );
+    if (!photo) throw new NotFoundException();
+    await reply
+      .header('cache-control', 'private, max-age=86400')
+      .type(photo.mime)
+      .send(Buffer.from(photo.data));
+  }
+
+  @Delete('services/:id/photos/:photoId')
+  @HttpCode(204)
+  async removePhoto(
+    @Param('id', new ZodPipe(uuid)) serviceId: string,
+    @Param('photoId', new ZodPipe(uuid)) photoId: string,
+    @Req() req: FastifyRequest & AuthRequest,
+  ) {
+    await this.appDb.tx(tenantCtx(req), (tx) =>
+      tx.servicePhoto.deleteMany({ where: { id: photoId, serviceId } }),
+    );
   }
 
   /** Soft delete: no rompe turnos ni facturas historicas (doc 08 §5). */

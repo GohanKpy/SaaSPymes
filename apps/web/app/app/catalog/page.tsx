@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 
-import { ApiError, api } from '../../../lib/api';
+import { ApiError, api, apiImageUrl } from '../../../lib/api';
 import { ErrorNote, Field, buttonClass, buttonGhost, inputClass, money } from '../../../lib/ui';
 
 type Kind = 'servicio' | 'item';
@@ -26,11 +26,36 @@ interface Service {
   meetingMin: number | null;
   isActive: boolean;
   category: { name: string };
+  photos: { id: string; sort: number }[];
 }
 
 const KIND_LABEL: Record<Kind, string> = { servicio: 'Servicio', item: 'Ítem' };
 
 const deleteBtn = 'rounded border border-red-200 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50';
+
+// Los ids de foto son inmutables: el object URL se cachea por id y se
+// reutiliza entre renders (evita re-descargar en cada carga de la tabla).
+const photoCache = new Map<string, string>();
+
+function PhotoThumb({ serviceId, photoId, className }: { serviceId: string; photoId: string; className: string }) {
+  const [url, setUrl] = useState<string | null>(photoCache.get(photoId) ?? null);
+  useEffect(() => {
+    if (url) return;
+    let alive = true;
+    void apiImageUrl(`/catalog/services/${serviceId}/photos/${photoId}`)
+      .then((u) => {
+        photoCache.set(photoId, u);
+        if (alive) setUrl(u);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [serviceId, photoId, url]);
+  if (!url) return <div className={`${className} animate-pulse bg-slate-100`} />;
+  // object URL local: <img> directo, next/image no aplica
+  return <img src={url} alt="" className={`${className} object-cover`} />;
+}
 
 function KindBadge({ kind }: { kind: Kind }) {
   return (
@@ -159,6 +184,7 @@ export default function CatalogPage() {
   }
 
   const [editing, setEditing] = useState<Service | null>(null);
+  const [editPhotos, setEditPhotos] = useState<{ id: string; sort: number }[]>([]);
   const [edit, setEdit] = useState({
     category_id: '',
     name: '',
@@ -173,6 +199,7 @@ export default function CatalogPage() {
 
   function openEdit(s: Service) {
     setEditing(s);
+    setEditPhotos(s.photos ?? []);
     setEdit({
       category_id: s.categoryId,
       name: s.name,
@@ -209,6 +236,44 @@ export default function CatalogPage() {
         },
       });
       setEditing(null);
+      load();
+    } catch (err) {
+      fail(err);
+    }
+  }
+
+  function onPhotoFile(file: File | undefined) {
+    if (!editing || !file) return;
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+      setError('La foto debe ser PNG, JPEG o WEBP');
+      return;
+    }
+    if (file.size > 1_500_000) {
+      setError('La foto no puede superar 1.5 MB (usa una version reducida)');
+      return;
+    }
+    const serviceId = editing.id;
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const created = await api<{ id: string; sort: number }>(`/catalog/services/${serviceId}/photos`, {
+          method: 'POST',
+          json: { data: String(reader.result) },
+        });
+        setEditPhotos((prev) => [...prev, { id: created.id, sort: created.sort }]);
+        load();
+      } catch (err) {
+        fail(err);
+      }
+    };
+    reader.readAsDataURL(file);
+  }
+
+  async function removePhoto(photoId: string) {
+    if (!editing) return;
+    try {
+      await api(`/catalog/services/${editing.id}/photos/${photoId}`, { method: 'DELETE' });
+      setEditPhotos((prev) => prev.filter((p) => p.id !== photoId));
       load();
     } catch (err) {
       fail(err);
@@ -292,6 +357,40 @@ export default function CatalogPage() {
                 </Field>
               </div>
             )}
+            <div className="space-y-2">
+              <p className="text-sm font-medium text-slate-700">
+                Fotos <span className="font-normal text-slate-400">(max 5, PNG/JPEG/WEBP hasta 1.5 MB)</span>
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {editPhotos.map((p) => (
+                  <div key={p.id} className="relative">
+                    <PhotoThumb serviceId={editing.id} photoId={p.id} className="h-16 w-16 rounded border border-slate-200" />
+                    <button
+                      type="button"
+                      title="Quitar foto"
+                      className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-red-600 text-xs text-white"
+                      onClick={() => void removePhoto(p.id)}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+                {editPhotos.length < 5 && (
+                  <label className="flex h-16 w-16 cursor-pointer items-center justify-center rounded border border-dashed border-slate-300 text-2xl text-slate-400 hover:border-sky-400 hover:text-sky-500">
+                    +
+                    <input
+                      type="file"
+                      className="hidden"
+                      accept="image/png,image/jpeg,image/webp"
+                      onChange={(e) => {
+                        onPhotoFile(e.target.files?.[0]);
+                        e.target.value = '';
+                      }}
+                    />
+                  </label>
+                )}
+              </div>
+            </div>
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={edit.is_active} onChange={(e) => setEdit({ ...edit, is_active: e.target.checked })} />
               Activo (visible en catalogo y para el bot)
@@ -426,7 +525,19 @@ export default function CatalogPage() {
           <tbody>
             {services.map((s) => (
               <tr key={s.id} className="border-t border-slate-100">
-                <td className="p-2">{s.name}</td>
+                <td className="p-2">
+                  <span className="flex items-center gap-2">
+                    {s.photos?.[0] ? (
+                      <PhotoThumb serviceId={s.id} photoId={s.photos[0].id} className="h-8 w-8 rounded" />
+                    ) : (
+                      <span className="flex h-8 w-8 items-center justify-center rounded bg-slate-100 text-xs text-slate-300">—</span>
+                    )}
+                    {s.name}
+                    {s.photos && s.photos.length > 1 && (
+                      <span className="text-xs text-slate-400">+{s.photos.length - 1}</span>
+                    )}
+                  </span>
+                </td>
                 <td>{s.category.name}</td>
                 <td>
                   <KindBadge kind={s.kind} />
