@@ -4,7 +4,9 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { api } from '../../../lib/api';
 import { formatRucConDv } from '../../../lib/ruc';
-import { ErrorNote, Field, buttonClass, inputClass } from '../../../lib/ui';
+import { ErrorNote, Field, buttonClass, inputClass, useSession } from '../../../lib/ui';
+
+import { CustomFieldsSection } from './custom-fields';
 
 interface Integration {
   type: string;
@@ -55,6 +57,7 @@ interface TenantMe {
 }
 
 export default function SettingsPage() {
+  const user = useSession('tenant');
   const [integrations, setIntegrations] = useState<Integration[]>([]);
   const [bot, setBot] = useState<BotSettings | null>(null);
   const [wa, setWa] = useState({ phone_number_id: '', access_token: '', verify_token: 'dev-verify-token', live: false });
@@ -297,6 +300,8 @@ export default function SettingsPage() {
           </div>
         </form>
       </section>
+
+      {user && ['root', 'admin'].includes(user.role) && <CustomFieldsSection onError={setError} />}
 
       {bot && (
         <section className="rounded-lg border border-violet-200 bg-white p-4">

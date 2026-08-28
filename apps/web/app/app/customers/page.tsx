@@ -1,9 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 
-import { api } from '../../../lib/api';
-import { dvRuc } from '../../../lib/ruc';
+import { ApiError, api } from '../../../lib/api';
+import { SOURCES, sourceLabel } from '../../../lib/crm';
 import { ErrorNote, Field, buttonClass, buttonGhost, inputClass } from '../../../lib/ui';
 
 interface Customer {
@@ -12,108 +14,61 @@ interface Customer {
   lastName: string | null;
   phoneE164: string | null;
   email: string | null;
-  docType: string | null;
-  docNumber: string | null;
-  rucDv: string | null;
-  birthDate: string | null;
-  address: string | null;
-  notes: string | null;
-  notifyWhatsapp: boolean;
-  notifyEmail: boolean;
-  lastConversationSummary: string | null;
-  lastSummaryAt: string | null;
+  companyName: string | null;
+  city: string | null;
+  source: string | null;
+  tags: string[];
+  rating: number | null;
 }
 
-// Ficha completa de la agenda (doc 03 app.customers): solo el nombre es
-// obligatorio; el resto se completa cuando el negocio lo tenga.
-const EMPTY = {
-  first_name: '',
-  last_name: '',
-  phone_e164: '',
-  email: '',
-  doc_type: '',
-  doc_number: '',
-  ruc_dv: '',
-  birth_date: '',
-  address: '',
-  notes: '',
-  notify_whatsapp: true,
-  notify_email: false,
-};
-type FormState = typeof EMPTY;
-
-function toForm(c: Customer): FormState {
-  return {
-    first_name: c.firstName,
-    last_name: c.lastName ?? '',
-    phone_e164: c.phoneE164 ?? '',
-    email: c.email ?? '',
-    doc_type: c.docType ?? '',
-    doc_number: c.docNumber ?? '',
-    ruc_dv: c.rucDv ?? '',
-    birth_date: c.birthDate ? c.birthDate.slice(0, 10) : '',
-    address: c.address ?? '',
-    notes: c.notes ?? '',
-    notify_whatsapp: c.notifyWhatsapp,
-    notify_email: c.notifyEmail,
-  };
-}
+// Alta rapida con el minimo por defecto (nombre, apellido, celular, email);
+// todo lo demas se completa en la ficha, que se abre al guardar.
+const EMPTY = { first_name: '', last_name: '', phone_e164: '', email: '' };
 
 export default function CustomersPage() {
+  const router = useRouter();
   const [rows, setRows] = useState<Customer[]>([]);
   const [q, setQ] = useState('');
-  const [form, setForm] = useState<FormState>(EMPTY);
-  const [editing, setEditing] = useState<string | null>(null);
+  const [source, setSource] = useState('');
+  const [tag, setTag] = useState('');
+  const [form, setForm] = useState(EMPTY);
   const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
+  const [duplicateId, setDuplicateId] = useState<string | null>(null);
 
-  const load = useCallback((query: string) => {
-    void api<{ data: Customer[] }>(`/customers?q=${encodeURIComponent(query)}`)
+  const load = useCallback((query: string, src: string, tg: string) => {
+    const params = new URLSearchParams();
+    if (query) params.set('q', query);
+    if (src) params.set('source', src);
+    if (tg) params.set('tag', tg);
+    void api<{ data: Customer[] }>(`/customers?${params.toString()}`)
       .then((r) => setRows(r.data))
       .catch((e) => setError(String(e.message)));
   }, []);
-  useEffect(() => load(''), [load]);
+  useEffect(() => load('', '', ''), [load]);
 
-  async function save(e: React.FormEvent) {
+  async function create(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    setSaved(false);
+    setDuplicateId(null);
     const clean = (v: string) => v.trim() || undefined;
-    const base = {
-      first_name: form.first_name.trim(),
-      last_name: clean(form.last_name),
-      phone_e164: clean(form.phone_e164),
-      email: clean(form.email),
-      doc_type: clean(form.doc_type),
-      doc_number: clean(form.doc_number),
-      ruc_dv: form.doc_type === 'ruc' ? clean(form.ruc_dv) : undefined,
-      birth_date: clean(form.birth_date),
-      address: clean(form.address),
-      notes: clean(form.notes),
-      notify_whatsapp: form.notify_whatsapp,
-      notify_email: form.notify_email,
-    };
     try {
-      if (editing) {
-        // En edicion, vaciar un campo lo borra (null); en alta se omite.
-        const patch = Object.fromEntries(
-          Object.entries(base).map(([k, v]) => [k, v === undefined ? null : v]),
-        );
-        delete patch['first_name'];
-        await api(`/customers/${editing}`, {
-          method: 'PATCH',
-          json: { first_name: base.first_name, ...patch },
-        });
+      const created = await api<{ id: string }>('/customers', {
+        method: 'POST',
+        json: {
+          first_name: form.first_name.trim(),
+          last_name: clean(form.last_name),
+          phone_e164: clean(form.phone_e164),
+          email: clean(form.email),
+        },
+      });
+      router.push(`/app/customers/${created.id}`);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 409 && typeof err.problem.detail === 'string') {
+        setDuplicateId(err.problem.detail);
+        setError(err.problem.title ?? 'Cliente duplicado');
       } else {
-        await api('/customers', { method: 'POST', json: base });
+        setError(err instanceof Error ? err.message : 'Error');
       }
-      setForm(EMPTY);
-      setEditing(null);
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2500);
-      load(q);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error');
     }
   }
 
@@ -121,7 +76,7 @@ export default function CustomersPage() {
     if (!confirm('Desactivar este cliente?')) return;
     try {
       await api(`/customers/${id}`, { method: 'DELETE' });
-      load(q);
+      load(q, source, tag);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error');
     }
@@ -131,17 +86,26 @@ export default function CustomersPage() {
     <div className="space-y-5">
       <h1 className="text-xl font-semibold">Clientes</h1>
       <ErrorNote error={error} />
+      {duplicateId && (
+        <p className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          Ya existe un cliente con ese telefono, email o documento.{' '}
+          <Link className="font-medium underline" href={`/app/customers/${duplicateId}`}>
+            Abrir su ficha
+          </Link>
+        </p>
+      )}
 
       <form
-        className={`grid grid-cols-2 gap-3 rounded-lg border bg-white p-4 md:grid-cols-4 ${editing ? 'border-sky-300' : 'border-slate-200'}`}
-        onSubmit={(e) => void save(e)}
+        className="grid grid-cols-2 gap-3 rounded-lg border border-slate-200 bg-white p-4 md:grid-cols-5"
+        onSubmit={(e) => void create(e)}
       >
-        <div className="col-span-2 flex items-center justify-between md:col-span-4">
+        <div className="col-span-2 md:col-span-5">
           <h2 className="text-sm font-medium">
-            {editing ? 'Editar cliente' : 'Nuevo cliente'}{' '}
-            <span className="font-normal text-slate-400">(solo el nombre es obligatorio)</span>
+            Nuevo cliente{' '}
+            <span className="font-normal text-slate-400">
+              (solo el nombre es obligatorio; al guardar se abre la ficha completa)
+            </span>
           </h2>
-          {saved && <span className="text-sm text-emerald-600">✓ guardado</span>}
         </div>
         <Field label="Nombre *">
           <input className={inputClass} value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} required />
@@ -155,102 +119,43 @@ export default function CustomersPage() {
         <Field label="Email">
           <input className={inputClass} type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
         </Field>
-        <Field label="Tipo de documento">
-          <select
-            className={inputClass}
-            value={form.doc_type}
-            onChange={(e) => {
-              const doc_type = e.target.value;
-              setForm({
-                ...form,
-                doc_type,
-                ruc_dv: doc_type === 'ruc' ? (dvRuc(form.doc_number) ?? '') : '',
-              });
-            }}
-          >
-            <option value="">—</option>
-            <option value="ci">Cedula (CI)</option>
-            <option value="ruc">RUC</option>
-            <option value="pasaporte">Pasaporte</option>
-          </select>
-        </Field>
-        <Field label="Numero de documento">
-          <input
-            className={inputClass}
-            value={form.doc_number}
-            onChange={(e) => {
-              const doc_number = e.target.value;
-              // DV automatico (modulo 11 SET): se recalcula con cada tecla.
-              const ruc_dv = form.doc_type === 'ruc' ? (dvRuc(doc_number) ?? '') : form.ruc_dv;
-              setForm({ ...form, doc_number, ruc_dv });
-            }}
-          />
-        </Field>
-        {form.doc_type === 'ruc' && (
-          <Field label="DV (automatico)">
-            <input className={`${inputClass} bg-slate-50`} readOnly value={form.ruc_dv} title="Se calcula solo con el algoritmo oficial de la SET" />
-          </Field>
-        )}
-        <Field label="Fecha de nacimiento">
-          <input className={inputClass} type="date" value={form.birth_date} onChange={(e) => setForm({ ...form, birth_date: e.target.value })} />
-        </Field>
-        <div className="col-span-2">
-          <Field label="Direccion">
-            <input className={inputClass} value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
-          </Field>
-        </div>
-        <div className="col-span-2">
-          <Field label="Notas internas (alergias, preferencias, historial...)">
-            <input className={inputClass} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
-          </Field>
-        </div>
-        {editing && (() => {
-          const c = rows.find((r) => r.id === editing);
-          return c?.lastConversationSummary ? (
-            <div className="col-span-2 rounded border border-violet-200 bg-violet-50/50 p-3 md:col-span-4">
-              <p className="text-xs font-medium text-violet-800">
-                Resumen de la ultima conversacion
-                {c.lastSummaryAt ? ` (${new Date(c.lastSummaryAt).toLocaleString('es-PY')})` : ''}
-              </p>
-              <p className="mt-1 whitespace-pre-line text-sm text-slate-700">{c.lastConversationSummary}</p>
-            </div>
-          ) : null;
-        })()}
-        <div className="col-span-2 flex flex-wrap items-center gap-4 md:col-span-4">
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={form.notify_whatsapp} onChange={(e) => setForm({ ...form, notify_whatsapp: e.target.checked })} />
-            Acepta avisos por WhatsApp
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={form.notify_email} onChange={(e) => setForm({ ...form, notify_email: e.target.checked })} />
-            Acepta avisos por email
-          </label>
-          <div className="ml-auto flex gap-2">
-            {editing && (
-              <button
-                type="button"
-                className={buttonGhost}
-                onClick={() => {
-                  setEditing(null);
-                  setForm(EMPTY);
-                }}
-              >
-                Cancelar
-              </button>
-            )}
-            <button className={buttonClass}>{editing ? 'Guardar cambios' : 'Agregar cliente'}</button>
-          </div>
+        <div className="flex items-end">
+          <button className={buttonClass}>Agregar y abrir ficha</button>
         </div>
       </form>
 
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <input
           className={`${inputClass} max-w-xs`}
-          placeholder="Buscar por nombre, telefono, documento…"
+          placeholder="Buscar por nombre, telefono, documento, empresa…"
           value={q}
           onChange={(e) => {
             setQ(e.target.value);
-            load(e.target.value);
+            load(e.target.value, source, tag);
+          }}
+        />
+        <select
+          className={`${inputClass} max-w-[180px]`}
+          value={source}
+          onChange={(e) => {
+            setSource(e.target.value);
+            load(q, e.target.value, tag);
+          }}
+        >
+          <option value="">Origen: todos</option>
+          {SOURCES.map((s) => (
+            <option key={s.value} value={s.value}>
+              {s.label}
+            </option>
+          ))}
+        </select>
+        <input
+          className={`${inputClass} max-w-[180px]`}
+          placeholder="Etiqueta exacta"
+          value={tag}
+          onChange={(e) => {
+            setTag(e.target.value);
+            load(q, source, e.target.value.trim());
           }}
         />
       </div>
@@ -262,36 +167,38 @@ export default function CustomersPage() {
               <th className="p-2">Nombre</th>
               <th>WhatsApp</th>
               <th>Email</th>
-              <th>Documento</th>
-              <th>Nacimiento</th>
+              <th>Origen</th>
+              <th>Etiquetas</th>
+              <th>Rating</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
             {rows.map((c) => (
-              <tr key={c.id} className="border-t border-slate-100">
+              <tr key={c.id} className="border-t border-slate-100 hover:bg-slate-50">
                 <td className="p-2">
-                  {c.firstName} {c.lastName}
+                  <Link className="font-medium text-sky-700 hover:underline" href={`/app/customers/${c.id}`}>
+                    {c.firstName} {c.lastName}
+                  </Link>
+                  {c.companyName && <span className="block text-xs text-slate-400">{c.companyName}</span>}
                 </td>
                 <td>{c.phoneE164 ?? '—'}</td>
                 <td>{c.email ?? '—'}</td>
+                <td>{sourceLabel(c.source)}</td>
                 <td>
-                  {c.docNumber
-                    ? `${(c.docType ?? '').toUpperCase()} ${c.docNumber}${c.rucDv ? `-${c.rucDv}` : ''}`
-                    : '—'}
+                  <span className="flex flex-wrap gap-1">
+                    {(c.tags ?? []).map((t) => (
+                      <span key={t} className="rounded bg-sky-50 px-1.5 py-0.5 text-xs text-sky-700">
+                        {t}
+                      </span>
+                    ))}
+                  </span>
                 </td>
-                <td>{c.birthDate ? new Date(c.birthDate).toLocaleDateString('es-PY', { timeZone: 'UTC' }) : '—'}</td>
+                <td className="text-amber-500">{c.rating ? '★'.repeat(c.rating) : '—'}</td>
                 <td className="space-x-1 p-2 text-right">
-                  <button
-                    className={buttonGhost}
-                    onClick={() => {
-                      setEditing(c.id);
-                      setForm(toForm(c));
-                      window.scrollTo({ top: 0, behavior: 'smooth' });
-                    }}
-                  >
-                    Editar
-                  </button>
+                  <Link className={buttonGhost} href={`/app/customers/${c.id}`}>
+                    Ficha
+                  </Link>
                   <button className={buttonGhost} onClick={() => void remove(c.id)}>
                     Desactivar
                   </button>
@@ -300,7 +207,7 @@ export default function CustomersPage() {
             ))}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={6} className="p-4 text-center text-slate-400">
+                <td colSpan={7} className="p-4 text-center text-slate-400">
                   Sin clientes todavia
                 </td>
               </tr>
