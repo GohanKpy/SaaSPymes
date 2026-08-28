@@ -7,7 +7,13 @@ import {
 } from '@nestjs/common';
 import type { TenantContext, TenantTx } from '@pymes/db';
 import type { InvoicingProvider } from '@pymes/invoicing';
-import type { InvoiceCancel, InvoiceCreate, InvoiceListQuery, PaymentCreate } from '@pymes/shared';
+import type {
+  InvoiceCancel,
+  InvoiceCreate,
+  InvoiceItemInput,
+  InvoiceListQuery,
+  PaymentCreate,
+} from '@pymes/shared';
 
 import { AppPrisma } from '../prisma/app-prisma.service';
 import { TenantEventsService } from '../conversations/events.service';
@@ -16,7 +22,7 @@ export const INVOICING_PROVIDER = 'INVOICING_PROVIDER';
 
 const CANCEL_WINDOW_MS = 48 * 3600 * 1000; // 48 h (doc 04 §3.9)
 
-interface ResolvedItem {
+export interface ResolvedItem {
   serviceId?: string;
   description: string;
   quantity: number;
@@ -26,10 +32,45 @@ interface ResolvedItem {
 }
 
 /** IVA incluido en el precio (convencion PY): 10% → total/11, 5% → total/21. */
-function taxPortion(lineTotal: bigint, rate: number): bigint {
+export function taxPortion(lineTotal: bigint, rate: number): bigint {
   if (rate === 10) return (lineTotal + 5n) / 11n;
   if (rate === 5) return (lineTotal + 10n) / 21n;
   return 0n;
+}
+
+/** Precio y descripcion salen del catalogo salvo item libre; el cliente
+ *  jamas fija totales (doc 04 §5). Compartido entre facturas y presupuestos. */
+export async function resolveItems(tx: TenantTx, inputs: InvoiceItemInput[]): Promise<ResolvedItem[]> {
+  const items: ResolvedItem[] = [];
+  for (const input of inputs) {
+    if (input.service_id) {
+      const service = await tx.service.findFirst({
+        where: { id: input.service_id, deletedAt: null },
+      });
+      if (!service) throw new NotFoundException();
+      const quantity = input.quantity;
+      const lineTotal = BigInt(Math.round(Number(service.price) * quantity));
+      items.push({
+        serviceId: service.id,
+        description: input.description ?? service.name,
+        quantity,
+        unitPrice: service.price,
+        taxRate: service.taxRate,
+        lineTotal,
+      });
+    } else {
+      const quantity = input.quantity;
+      const unitPrice = input.unit_price ?? 0n;
+      items.push({
+        description: input.description ?? '',
+        quantity,
+        unitPrice,
+        taxRate: input.tax_rate ?? 10,
+        lineTotal: BigInt(Math.round(Number(unitPrice) * quantity)),
+      });
+    }
+  }
+  return items;
 }
 
 @Injectable()
@@ -73,7 +114,7 @@ export class InvoicesService {
   /** Borrador con totales SIEMPRE recalculados en el server (doc 04 §5). */
   async createDraft(ctx: TenantContext, dto: InvoiceCreate) {
     return this.appDb.tx(ctx, async (tx) => {
-      const items = await this.resolveItems(tx, dto);
+      const items = await resolveItems(tx, dto.items);
       const total = items.reduce((acc, i) => acc + i.lineTotal, 0n);
       const taxTotal = items.reduce((acc, i) => acc + taxPortion(i.lineTotal, i.taxRate), 0n);
       const invoice = await tx.invoice.create({
@@ -274,36 +315,4 @@ export class InvoicesService {
     });
   }
 
-  private async resolveItems(tx: TenantTx, dto: InvoiceCreate): Promise<ResolvedItem[]> {
-    const items: ResolvedItem[] = [];
-    for (const input of dto.items) {
-      if (input.service_id) {
-        const service = await tx.service.findFirst({
-          where: { id: input.service_id, deletedAt: null },
-        });
-        if (!service) throw new NotFoundException();
-        const quantity = input.quantity;
-        const lineTotal = BigInt(Math.round(Number(service.price) * quantity));
-        items.push({
-          serviceId: service.id,
-          description: input.description ?? service.name,
-          quantity,
-          unitPrice: service.price,
-          taxRate: service.taxRate,
-          lineTotal,
-        });
-      } else {
-        const quantity = input.quantity;
-        const unitPrice = input.unit_price ?? 0n;
-        items.push({
-          description: input.description ?? '',
-          quantity,
-          unitPrice,
-          taxRate: input.tax_rate ?? 10,
-          lineTotal: BigInt(Math.round(Number(unitPrice) * quantity)),
-        });
-      }
-    }
-    return items;
-  }
 }

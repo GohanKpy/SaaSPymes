@@ -48,6 +48,8 @@ const APP_TABLES = [
   'custom_field_defs',
   'customer_activities',
   'service_photos',
+  'quotes',
+  'quote_items',
   'audit_log',
 ] as const;
 
@@ -167,6 +169,26 @@ async function seedTenant(name: string, phone: string): Promise<SeededTenant> {
     const invoice = await tx.invoice.create({
       data: { tenantId: tenant.id, branchId: branch.id, customerId: customer.id },
     });
+    const quote = await tx.quote.create({
+      data: {
+        tenantId: tenant.id,
+        branchId: branch.id,
+        customerId: customer.id,
+        number: 1,
+        total: 100000n,
+      },
+    });
+    await tx.quoteItem.create({
+      data: {
+        tenantId: tenant.id,
+        quoteId: quote.id,
+        serviceId: service.id,
+        description: `Servicio ${name}`,
+        unitPrice: 100000n,
+        taxRate: 10,
+        lineTotal: 100000n,
+      },
+    });
     const appointment = await tx.appointment.create({
       data: {
         tenantId: tenant.id,
@@ -201,6 +223,8 @@ async function wipeTenant(tenantId: string): Promise<void> {
       'messages',
       'conversations',
       'payments',
+      'quote_items',
+      'quotes',
       'invoice_items',
       'appointments',
       'invoices',

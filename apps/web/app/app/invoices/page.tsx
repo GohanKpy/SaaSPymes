@@ -5,6 +5,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { API_URL, api, getToken } from '../../../lib/api';
 import { ErrorNote, Field, buttonClass, buttonGhost, dt, inputClass, money } from '../../../lib/ui';
 
+import { QuotesSection } from './quotes';
+
 interface Invoice {
   id: string;
   status: string;
@@ -278,6 +280,14 @@ export default function InvoicesPage() {
           </tbody>
         </table>
       </div>
+
+      <QuotesSection
+        customers={customers}
+        services={services}
+        branchId={branches[0]?.id}
+        onError={setError}
+        onInvoiced={load}
+      />
     </div>
   );
 }

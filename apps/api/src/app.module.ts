@@ -23,6 +23,8 @@ import { IntegrationsController } from './integrations/integrations.controller';
 import { InvoicesController } from './invoicing/invoices.controller';
 import { INVOICING_PROVIDER, InvoicesService } from './invoicing/invoices.service';
 import { KudeService } from './invoicing/kude.service';
+import { QuotesController } from './invoicing/quotes.controller';
+import { QuotesService } from './invoicing/quotes.service';
 import { PlatformModule } from './platform/platform.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { AppointmentsController } from './scheduling/appointments.controller';
@@ -52,6 +54,7 @@ import { UsersController } from './tenant/users.controller';
     WebhooksController,
     IntegrationsController,
     InvoicesController,
+    QuotesController,
   ],
   providers: [
     CryptoService,
@@ -66,6 +69,7 @@ import { UsersController } from './tenant/users.controller';
     BotService,
     InvoicesService,
     KudeService,
+    QuotesService,
     {
       provide: INVOICING_PROVIDER,
       useFactory: (env: Env) => createInvoicingProvider(env.INVOICING_PROVIDER),
