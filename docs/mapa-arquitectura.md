@@ -195,14 +195,17 @@ Una sola instancia PostgreSQL 16, **dos esquemas** (docs/plan/01 §6):
   plataforma, ADR 0005), TenantFeatureOverride, Subscription, PlatformInvoice,
   PlatformSetting (config operativa: motor del bot, OAuth Google; secretos
   cifrados, ADR 0003), PlatformAuditLog.
-- **`app` (24 modelos, todos con `tenant_id` + RLS):** Branch, User,
+- **`app` (27 modelos, todos con `tenant_id` + RLS):** Branch, User,
   UserBranchAccess, RefreshToken, Customer (+ CustomerContactPoint,
   CustomFieldDef, CustomerActivity — CRM extendido 2026-08-26),
   ServiceCategory, Service (catálogo tipado `servicio|item`, ADR 0009),
-  Appointment, Employee (RRHH + agendables, ADR 0009), CalendarBlock (eventos
-  ajenos de Google que bloquean agenda), Conversation, Message, BotSettings,
+  ServicePhoto (fotos en bytea, ADR 0010), Appointment (con
+  `reminder_sent_at`), Employee (RRHH + agendables, ADR 0009), CalendarBlock
+  (eventos ajenos de Google que bloquean agenda), Conversation, Message,
+  BotSettings (permisos del bot + link de Meet + recordatorios),
   BotUsageMonthly (ledger de tokens, ADR 0006), BotToolCall (trazabilidad de
-  herramientas), Invoice, InvoiceItem, Payment, IntegrationCredential
+  herramientas), Invoice, InvoiceItem, Payment, Quote, QuoteItem
+  (presupuestos sin carácter fiscal, ADR 0010), IntegrationCredential
   (secretos con envelope encryption; por tenant y por empleado),
   NotificationEmail, AuditLog.
 
@@ -264,6 +267,13 @@ parte de fase 2 + adelantos de fase 3):
   restricción por IP opcional.
 - CRM extendido (2026-08-26): multifield de contactos, campos personalizados
   por tenant, tags/origen/responsable/rating, timeline propio.
+- **P1 del replanteo COMPLETA (2026-08-28, ADR 0010):** ficha CRM completa en
+  el panel + Ajustes → Campos del cliente, bandeja de tareas transversal (el
+  "Seguimiento:" del resumen del bot crea tarea), dashboard con KPIs en el
+  inicio, fotos de catálogo, presupuestos formales quote → factura con PDF,
+  reprogramar/cancelar turnos por chat (3 tools nuevas del bot) y
+  recordatorios de turno por WhatsApp (barrido in-process, plantillas Meta
+  por tenant).
 - Catálogo tipado, agenda con empleados agendables (anti-solape por advisory
   lock, auto-asignación, horarios propios), RRHH.
 - Bandeja de chat con SSE, bot completo con QA intensivo (7/7 hallazgos

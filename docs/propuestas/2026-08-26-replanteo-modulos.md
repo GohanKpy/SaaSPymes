@@ -19,7 +19,10 @@ implemente, sus decisiones de arquitectura van a `docs/adr/` como siempre.
 
 ## Mejoras priorizadas
 
-**P1** — Ficha CRM nueva en el panel (multifield + campos configurables +
+**P1 — IMPLEMENTADA COMPLETA el 2026-08-28** (aprobada por el dueño; decisiones
+de arquitectura en ADR 0010; migraciones 20260828000000/100000/200000, suite de
+aislamiento en 27 tablas, smoke 23/23 por tunel y flujo del bot verificado en
+vivo) — Ficha CRM nueva en el panel (multifield + campos configurables +
 timeline unificado) · Ajustes → Campos del cliente · Bandeja de tareas (el
 "Seguimiento:" del bot crea tarea) · Dashboard con KPIs · Recordatorios de
 turnos por WhatsApp (plantillas oficiales Meta, tokens por tenant) ·
