@@ -17,6 +17,10 @@ interface BotSettings {
   enabled: boolean;
   instructionsText: string | null;
   virtualMeetingLink: string | null;
+  reminderEnabled: boolean;
+  reminderHours: number;
+  reminderTemplate: string | null;
+  reminderTemplateLang: string;
   accessCatalog: boolean;
   accessHistory: boolean;
   accessCustomerData: boolean;
@@ -393,6 +397,65 @@ export default function SettingsPage() {
               </span>
             )}
           </p>
+        </section>
+      )}
+
+      {bot && (
+        <section className="rounded-lg border border-slate-200 bg-white p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="font-medium">Recordatorios de turnos por WhatsApp</h2>
+              <p className="text-xs text-slate-500">
+                El sistema le escribe solo al cliente antes de su turno. El mensaje queda en la
+                bandeja como cualquier conversacion; si el cliente responde, se atiende normal.
+              </p>
+            </div>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={bot.reminderEnabled}
+                onChange={(e) => void patchBot({ reminder_enabled: e.target.checked })}
+              />
+              Activados
+            </label>
+          </div>
+          {bot.reminderEnabled && (
+            <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
+              <Field label="Cuanto antes del turno">
+                <select
+                  className={inputClass}
+                  value={bot.reminderHours}
+                  onChange={(e) => void patchBot({ reminder_hours: Number(e.target.value) })}
+                >
+                  <option value={2}>2 horas antes</option>
+                  <option value={6}>6 horas antes</option>
+                  <option value={12}>12 horas antes</option>
+                  <option value={24}>24 horas antes</option>
+                  <option value={48}>48 horas antes</option>
+                </select>
+              </Field>
+              <Field label="Plantilla de Meta (solo envio real)">
+                <input
+                  className={inputClass}
+                  placeholder="ej: recordatorio_turno"
+                  defaultValue={bot.reminderTemplate ?? ''}
+                  onBlur={(e) => void patchBot({ reminder_template: e.target.value.trim() || null })}
+                />
+              </Field>
+              <Field label="Idioma de la plantilla">
+                <input
+                  className={inputClass}
+                  defaultValue={bot.reminderTemplateLang}
+                  onBlur={(e) => void patchBot({ reminder_template_lang: e.target.value.trim() || 'es' })}
+                />
+              </Field>
+              <p className="col-span-2 self-end text-xs text-slate-400 md:col-span-1">
+                Con envio real de WhatsApp, Meta exige una plantilla aprobada en tu cuenta para
+                escribir primero; sin plantilla el recordatorio solo llega si el cliente escribio
+                en las ultimas 24 h.
+              </p>
+            </div>
+          )}
         </section>
       )}
 

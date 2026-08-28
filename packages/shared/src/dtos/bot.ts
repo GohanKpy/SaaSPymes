@@ -17,6 +17,12 @@ export const botSettingsPatch = z
     auto_confirm_bookings: z.boolean(),
     /** Link fijo de videollamada (Meet/Zoom); null = sin modalidad virtual. */
     virtual_meeting_link: z.url().max(500).nullable(),
+    /** Recordatorios de turno por WhatsApp (P1 2026-08-28). */
+    reminder_enabled: z.boolean(),
+    reminder_hours: z.number().int().min(1).max(72),
+    /** Nombre de la plantilla Meta aprobada del tenant; null = solo texto (lab/ventana 24h). */
+    reminder_template: z.string().min(1).max(100).nullable(),
+    reminder_template_lang: z.string().min(2).max(10),
   })
   .partial()
   .strict();

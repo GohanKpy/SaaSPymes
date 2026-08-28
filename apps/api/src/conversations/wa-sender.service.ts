@@ -13,6 +13,12 @@ interface WaPublicConfig {
   live?: boolean;
 }
 
+export interface WaTemplate {
+  name: string;
+  language: string;
+  params: string[];
+}
+
 /**
  * Salida real por WhatsApp Cloud API. Solo actua si la integracion del
  * tenant esta configurada con `live: true`: en el laboratorio (webchat)
@@ -31,8 +37,13 @@ export class WaSenderService {
     @Inject(ENV) private readonly env: Env,
   ) {}
 
-  dispatch(tenantId: string, conversationId: string, messageId: bigint): void {
-    void this.send(tenantId, conversationId, messageId).catch((error) => {
+  dispatch(
+    tenantId: string,
+    conversationId: string,
+    messageId: bigint,
+    template?: WaTemplate,
+  ): void {
+    void this.send(tenantId, conversationId, messageId, template).catch((error) => {
       this.logger.error(
         `despacho WA fallo tenant=${tenantId} msg=${messageId}`,
         error instanceof Error ? error.stack : String(error),
@@ -40,7 +51,12 @@ export class WaSenderService {
     });
   }
 
-  private async send(tenantId: string, conversationId: string, messageId: bigint): Promise<void> {
+  private async send(
+    tenantId: string,
+    conversationId: string,
+    messageId: bigint,
+    template?: WaTemplate,
+  ): Promise<void> {
     const ctx = { tenantId, actorType: 'system' as const };
     const data = await this.appDb.tx(ctx, async (tx) => {
       const credential = await tx.integrationCredential.findFirst({
@@ -74,7 +90,16 @@ export class WaSenderService {
     });
 
     try {
-      const { waMessageId } = await client.sendText(data.conversation.phoneE164, data.message.body);
+      // Fuera de la ventana de 24 h Meta solo acepta plantillas aprobadas:
+      // los recordatorios van por plantilla si el tenant configuro la suya.
+      const { waMessageId } = template
+        ? await client.sendTemplate(
+            data.conversation.phoneE164,
+            template.name,
+            template.language,
+            template.params,
+          )
+        : await client.sendText(data.conversation.phoneE164, data.message.body);
       const updated = await this.appDb.tx(ctx, (tx) =>
         tx.message.update({ where: { id: messageId }, data: { waMessageId, status: 'sent' } }),
       );

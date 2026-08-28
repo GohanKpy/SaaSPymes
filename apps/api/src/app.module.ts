@@ -11,6 +11,7 @@ import { ConversationsController } from './conversations/conversations.controlle
 import { ConversationsService } from './conversations/conversations.service';
 import { WaSenderService } from './conversations/wa-sender.service';
 import { InactivityService } from './conversations/inactivity.service';
+import { RemindersService } from './conversations/reminders.service';
 import { TenantEventsService } from './conversations/events.service';
 import { WebhooksController } from './conversations/webhooks.controller';
 import { CrmExtrasController } from './crm/crm-extras.controller';
@@ -66,6 +67,7 @@ import { UsersController } from './tenant/users.controller';
     WaSenderService,
     TenantEventsService,
     InactivityService,
+    RemindersService,
     BotService,
     InvoicesService,
     KudeService,

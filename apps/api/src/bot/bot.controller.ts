@@ -76,6 +76,10 @@ export class BotController {
           allowBooking: dto.allow_booking,
           autoConfirmBookings: dto.auto_confirm_bookings,
           virtualMeetingLink: dto.virtual_meeting_link,
+          reminderEnabled: dto.reminder_enabled,
+          reminderHours: dto.reminder_hours,
+          reminderTemplate: dto.reminder_template,
+          reminderTemplateLang: dto.reminder_template_lang,
           // monthly_token_budget se gestiona desde el portal admin (ADR 0006)
           updatedBy: ctx.userId,
         },

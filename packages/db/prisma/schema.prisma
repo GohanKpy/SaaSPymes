@@ -519,6 +519,8 @@ model Appointment {
   // Copia del evento en el calendario del empleado asignado (fase 3); solo
   // la del negocio (googleEventId) dispara cancelaciones reciprocas.
   employeeGoogleEventId String? @map("employee_google_event_id")
+  // Recordatorio WhatsApp enviado (P1 2026-08-28): no se repite.
+  reminderSentAt DateTime? @map("reminder_sent_at") @db.Timestamptz(6)
   notes         String?
   deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(6)
   createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -733,6 +735,12 @@ model BotSettings {
   instructionsOverride Boolean @default(false) @map("instructions_override")
   /// Opt-in: resumen automatico al pasar a inactiva (consume tokens).
   summariesEnabled    Boolean  @default(false) @map("summaries_enabled")
+  // Recordatorios de turno por WhatsApp (P1 2026-08-28). Con envio real
+  // fuera de la ventana de 24 h Meta exige plantilla aprobada del tenant.
+  reminderEnabled      Boolean @default(false) @map("reminder_enabled")
+  reminderHours        Int     @default(24) @map("reminder_hours") @db.SmallInt
+  reminderTemplate     String? @map("reminder_template")
+  reminderTemplateLang String  @default("es") @map("reminder_template_lang")
   monthlyTokenBudget  Int      @default(500000) @map("monthly_token_budget")
   updatedBy           String?  @map("updated_by") @db.Uuid
   updatedAt           DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)

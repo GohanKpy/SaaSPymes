@@ -48,6 +48,50 @@ export class WaCloudClient {
     const data = (await res.json()) as { messages?: { id: string }[] };
     return { waMessageId: data.messages?.[0]?.id ?? '' };
   }
+
+  /**
+   * Envia una plantilla aprobada por Meta (unica via permitida fuera de la
+   * ventana de 24 h — recordatorios de turno). Los params llenan el body
+   * {{1}}, {{2}}, ... en orden.
+   */
+  async sendTemplate(
+    toE164: string,
+    template: string,
+    language: string,
+    bodyParams: string[],
+  ): Promise<WaSendResult> {
+    const url = `${this.options.baseUrl.replace(/\/$/, '')}/${this.options.phoneNumberId}/messages`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${this.options.accessToken}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: toE164.replace(/^\+/, ''),
+        type: 'template',
+        template: {
+          name: template,
+          language: { code: language },
+          components: bodyParams.length
+            ? [
+                {
+                  type: 'body',
+                  parameters: bodyParams.map((text) => ({ type: 'text', text })),
+                },
+              ]
+            : [],
+        },
+      }),
+    });
+    if (!res.ok) {
+      throw new WaCloudError(res.status, await res.text());
+    }
+    const data = (await res.json()) as { messages?: { id: string }[] };
+    return { waMessageId: data.messages?.[0]?.id ?? '' };
+  }
 }
 
 export const WA_PACKAGE_READY = true;
