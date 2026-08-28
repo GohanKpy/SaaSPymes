@@ -559,6 +559,9 @@ export class BotService {
       listServices: wrap('list_services', handlers.listServices),
       getAvailableSlots: wrap('get_available_slots', handlers.getAvailableSlots),
       bookAppointment: wrap('book_appointment', handlers.bookAppointment),
+      listMyAppointments: wrap('list_my_appointments', handlers.listMyAppointments),
+      cancelAppointment: wrap('cancel_appointment', handlers.cancelAppointment),
+      rescheduleAppointment: wrap('reschedule_appointment', handlers.rescheduleAppointment),
       getCustomerHistory: wrap('get_customer_history', handlers.getCustomerHistory),
       saveCustomerName: wrap('save_customer_name', handlers.saveCustomerName),
       saveCustomerData: wrap('save_customer_data', handlers.saveCustomerData),
@@ -580,6 +583,31 @@ export class BotService {
         hour: '2-digit',
         minute: '2-digit',
         hour12: false,
+      });
+    const fechaLocal = (iso: string) =>
+      new Date(iso).toLocaleDateString('en-CA', { timeZone: timezone });
+    /** El turno debe ser de ESTE cliente, futuro y vigente (cancelar/cambiar). */
+    const ownFutureAppointment = async (appointmentId: string) =>
+      this.appDb.tx(ctx, async (tx) => {
+        const conversation = await tx.conversation.findFirst({ where: { id: conversationId } });
+        if (!conversation?.customerId) {
+          throw new Error('este cliente no tiene turnos registrados con su telefono');
+        }
+        const found = await tx.appointment.findFirst({
+          where: { id: appointmentId, customerId: conversation.customerId, deletedAt: null },
+        });
+        if (!found) {
+          throw new Error(
+            `appointment_id '${appointmentId}' no corresponde a un turno de este cliente: consulta list_my_appointments y usa el id exacto`,
+          );
+        }
+        if (!['pending', 'confirmed'].includes(found.status)) {
+          throw new Error('ese turno ya no esta vigente (cancelado o completado)');
+        }
+        if (found.startsAt.getTime() < Date.now()) {
+          throw new Error('ese turno ya paso: solo se cancelan o cambian turnos futuros');
+        }
+        return found;
       });
     return {
       // TODO el catalogo activo: el bot tambien informa precios de items que
@@ -792,6 +820,141 @@ export class BotService {
         // Espejo a Google en segundo plano (ADR 0007): jamas frena la reserva.
         void this.google.pushAppointment(tenantId, reserva.id);
         return reserva;
+      },
+
+      // Turnos propios del cliente (P1 2026-08-28): cancelar/cambiar por chat.
+      listMyAppointments: () =>
+        this.appDb.tx(ctx, async (tx) => {
+          const conversation = await tx.conversation.findFirst({ where: { id: conversationId } });
+          if (!conversation?.customerId) return [];
+          const rows = await tx.appointment.findMany({
+            where: {
+              customerId: conversation.customerId,
+              deletedAt: null,
+              status: { in: ['pending', 'confirmed'] },
+              startsAt: { gte: new Date() },
+            },
+            include: {
+              service: { select: { name: true } },
+              employee: { select: { firstName: true, lastName: true } },
+            },
+            orderBy: { startsAt: 'asc' },
+            take: 10,
+          });
+          return rows.map((a) => ({
+            id: a.id,
+            date: fechaLocal(a.startsAt.toISOString()),
+            horaLocal: horaLocal(a.startsAt.toISOString()),
+            serviceName: a.service?.name ?? null,
+            status: a.status === 'pending' ? 'a confirmar' : 'confirmado',
+            atendidoPor: a.employee ? `${a.employee.firstName} ${a.employee.lastName}` : null,
+          }));
+        }),
+
+      cancelAppointment: async ({ appointmentId, motivo }) => {
+        const appointment = await ownFutureAppointment(appointmentId);
+        const cancelled = await this.appointments.transition(
+          ctx,
+          appointment.id,
+          'cancel',
+          `[bot] ${motivo?.trim() || 'cancelado por el cliente via chat'}`,
+        );
+        // Limpieza del espejo en Google en segundo plano: jamas frena el chat.
+        void this.google.removeAppointment(tenantId, cancelled);
+        this.events.emit(tenantId, 'conversation.updated', {
+          id: conversationId,
+          appointment_id: appointment.id,
+        });
+        const iso = appointment.startsAt.toISOString();
+        return {
+          cancelado: true,
+          detalle: `turno del ${fechaLocal(iso)} a las ${horaLocal(iso)} cancelado`,
+        };
+      },
+
+      rescheduleAppointment: async ({ appointmentId, date, horaLocal: horaPedida, empleado }) => {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+          throw new Error(`date '${date}' invalida: usa formato YYYY-MM-DD`);
+        }
+        const horaMatch = /^(\d{1,2})[:.h](\d{2})$/.exec(horaPedida.trim());
+        if (!horaMatch?.[1] || !horaMatch[2]) {
+          throw new Error(
+            `hora_local '${horaPedida}' invalida: usa el formato HH:MM tal como lo devuelve get_available_slots`,
+          );
+        }
+        const hora = `${horaMatch[1].padStart(2, '0')}:${horaMatch[2]}`;
+        const old = await ownFutureAppointment(appointmentId);
+        if (!old.serviceId) {
+          throw new Error(
+            'ese turno no tiene un servicio del catalogo asociado: derivalo al equipo con request_human',
+          );
+        }
+        // El turno mantiene su profesional salvo pedido explicito de cambiarlo.
+        let employeeId = old.employeeId ?? undefined;
+        if (empleado?.trim()) {
+          const match = await this.resolveEmployee(tenantId, empleado);
+          if (!match) {
+            const equipo = (await this.teamNames(tenantId)).join(', ') || 'sin empleados cargados';
+            throw new Error(`empleado '${empleado}' no reconocido; el equipo es: ${equipo}`);
+          }
+          employeeId = match.id;
+        }
+        const branch = await this.mainBranch(tenantId);
+        const open = await this.appointments.availability(ctx, {
+          branch_id: branch,
+          service_id: old.serviceId,
+          date,
+          employee_id: employeeId,
+        });
+        const slot = open.find((iso) => horaLocal(iso) === hora);
+        if (!slot) {
+          const vigentes = open.map(horaLocal).join(', ') || 'ninguno';
+          throw new Error(
+            `las ${hora} del ${date} no esta disponible; horarios vigentes: ${vigentes}. Ofrece al cliente estas opciones.`,
+          );
+        }
+        const oldIso = old.startsAt.toISOString();
+        const nuevo = await this.appDb.tx(ctx, async (tx) => {
+          // Cancelar el viejo y crear el nuevo en la MISMA transaccion: si la
+          // creacion falla (p. ej. se ocupo el horario), todo se revierte y el
+          // turno original queda intacto.
+          await tx.appointment.update({
+            where: { id: old.id },
+            data: {
+              status: 'cancelled',
+              notes: `${old.notes ?? ''}\n[bot] reprogramado a ${date} ${hora}`.trim(),
+            },
+          });
+          return this.appointments.createInTx(
+            tx,
+            ctx,
+            {
+              branch_id: branch,
+              customer_id: old.customerId,
+              service_id: old.serviceId ?? undefined,
+              employee_id: employeeId,
+              starts_at: slot,
+              notes: old.notes?.trim() || undefined,
+            },
+            'bot',
+            autoConfirm,
+          );
+        });
+        void this.google.removeAppointment(tenantId, old);
+        void this.google.pushAppointment(tenantId, nuevo.id);
+        this.events.emit(tenantId, 'conversation.updated', {
+          id: conversationId,
+          appointment_id: nuevo.id,
+        });
+        return {
+          id: nuevo.id,
+          status: nuevo.status,
+          date,
+          horaLocal: horaLocal(nuevo.startsAt.toISOString()),
+          serviceName: nuevo.service?.name ?? '',
+          atendidoPor: nuevo.employee ? `${nuevo.employee.firstName} ${nuevo.employee.lastName}` : null,
+          anterior: { date: fechaLocal(oldIso), horaLocal: horaLocal(oldIso) },
+        };
       },
 
       saveCustomerName: async (fullName) => {

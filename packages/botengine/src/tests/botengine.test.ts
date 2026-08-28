@@ -20,6 +20,18 @@ const handlers: BotToolHandlers = {
       atendidoPor: null,
     }),
   getCustomerHistory: () => Promise.resolve([]),
+  listMyAppointments: () => Promise.resolve([]),
+  cancelAppointment: () => Promise.resolve({ cancelado: true, detalle: 'ok' }),
+  rescheduleAppointment: () =>
+    Promise.resolve({
+      id: 'x',
+      status: 'confirmed',
+      date: '2026-01-02',
+      horaLocal: '10:00',
+      serviceName: 's',
+      atendidoPor: null,
+      anterior: { date: '2026-01-01', horaLocal: '09:00' },
+    }),
   saveCustomerName: () => Promise.resolve({ saved: true, detail: 'ok' }),
   saveCustomerData: () => Promise.resolve({ guardados: [], ignorados: [] }),
   requestHuman: () => Promise.resolve({ marcada: true, detalle: 'ok' }),
@@ -48,13 +60,16 @@ const baseInput: BotTurnInput = {
 describe('permisos = existencia de herramientas (doc 05 §6)', () => {
   const names = (p: BotPermissions) => buildBotTools(p, handlers).map((t) => t.name);
 
-  it('todos los permisos: las 7 herramientas existen', () => {
+  it('todos los permisos: las 10 herramientas existen', () => {
     expect(names(ALL_ON).sort()).toEqual([
       'book_appointment',
+      'cancel_appointment',
       'get_available_slots',
       'get_customer_history',
+      'list_my_appointments',
       'list_services',
       'request_human',
+      'reschedule_appointment',
       'save_customer_data',
       'save_customer_name',
     ]);
@@ -63,7 +78,11 @@ describe('permisos = existencia de herramientas (doc 05 §6)', () => {
   it('un permiso apagado hace desaparecer su herramienta (no solo la deshabilita)', () => {
     expect(names({ ...ALL_ON, accessCatalog: false })).not.toContain('list_services');
     expect(names({ ...ALL_ON, accessCalendar: false })).not.toContain('get_available_slots');
-    expect(names({ ...ALL_ON, allowBooking: false })).not.toContain('book_appointment');
+    const sinAgenda = names({ ...ALL_ON, allowBooking: false });
+    expect(sinAgenda).not.toContain('book_appointment');
+    expect(sinAgenda).not.toContain('list_my_appointments');
+    expect(sinAgenda).not.toContain('cancel_appointment');
+    expect(sinAgenda).not.toContain('reschedule_appointment');
     expect(names({ ...ALL_ON, accessHistory: false })).not.toContain('get_customer_history');
     const sinDatos = names({ ...ALL_ON, accessCustomerData: false });
     expect(sinDatos).not.toContain('save_customer_name');
@@ -111,6 +130,7 @@ describe('buildSystem: reglas de seguridad inviolables', () => {
     ['horarios solo de la seccion', 'UNICAMENTE de la seccion HORARIOS DE ATENCION'],
     ['sin promos inventadas', 'No existen promociones'],
     ['links de reunion en regla de promesas', 'links de reunion'],
+    ['cancelar/cambiar con confirmacion explicita', 'CANCELAR o CAMBIAR un turno'],
   ])('la regla "%s" esta presente', (_nombre, fragmento) => {
     expect(system).toContain(fragmento);
   });

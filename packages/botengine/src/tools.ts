@@ -74,6 +74,37 @@ export interface BotToolHandlers {
   getCustomerHistory(): Promise<
     { startsAt: string; serviceName: string | null; visitStatus: string }[]
   >;
+  /** Turnos PROXIMOS del cliente de esta conversacion (para cancelar/cambiar). */
+  listMyAppointments(): Promise<
+    {
+      id: string;
+      date: string;
+      horaLocal: string;
+      serviceName: string | null;
+      status: string;
+      atendidoPor: string | null;
+    }[]
+  >;
+  /** Cancela un turno propio y futuro del cliente de esta conversacion. */
+  cancelAppointment(args: { appointmentId: string; motivo?: string }): Promise<{
+    cancelado: boolean;
+    detalle: string;
+  }>;
+  /** Mueve un turno propio y futuro a otra fecha/hora (misma logica que reservar). */
+  rescheduleAppointment(args: {
+    appointmentId: string;
+    date: string;
+    horaLocal: string;
+    empleado?: string;
+  }): Promise<{
+    id: string;
+    status: string;
+    date: string;
+    horaLocal: string;
+    serviceName: string;
+    atendidoPor: string | null;
+    anterior: { date: string; horaLocal: string };
+  }>;
   /** Registra/actualiza el nombre del cliente de la conversacion en la agenda. */
   saveCustomerName(fullName: string): Promise<{ saved: boolean; detail: string }>;
   /** Completa datos vacios de la ficha (email, nacimiento, direccion, documento). */
@@ -174,6 +205,67 @@ export function buildBotTools(permissions: BotPermissions, handlers: BotToolHand
             date: args.date ?? '',
             horaLocal: args.hora_local ?? '',
             nota: args.nota,
+            empleado: args.empleado,
+          }),
+        ),
+    });
+  }
+  if (permissions.allowBooking) {
+    tools.push({
+      name: 'list_my_appointments',
+      description:
+        'Lista los turnos PROXIMOS del cliente de esta conversacion (fecha, hora local, servicio, estado y quien lo atiende). NO requiere registro: el telefono ya lo identifica. Usala SIEMPRE antes de cancelar o cambiar un turno, para saber cual es y confirmarlo con el cliente.',
+      parameters: { type: 'object', properties: {}, additionalProperties: false },
+      run: async () => JSON.stringify(await handlers.listMyAppointments()),
+    });
+    tools.push({
+      name: 'cancel_appointment',
+      description:
+        'Cancela un turno futuro del cliente de esta conversacion. Solo turnos de ESTE cliente. Antes de cancelar: consulta list_my_appointments, deci al cliente cual turno vas a cancelar (fecha, hora y servicio) y espera su confirmacion explicita. Tras cancelar, ofrecele reagendar.',
+      parameters: {
+        type: 'object',
+        properties: {
+          appointment_id: { type: 'string', description: 'id del turno (de list_my_appointments)' },
+          motivo: { type: 'string', description: 'opcional: motivo breve que dio el cliente' },
+        },
+        required: ['appointment_id'],
+        additionalProperties: false,
+      },
+      run: async (args) =>
+        JSON.stringify(
+          await handlers.cancelAppointment({
+            appointmentId: args.appointment_id ?? '',
+            motivo: args.motivo,
+          }),
+        ),
+    });
+    tools.push({
+      name: 'reschedule_appointment',
+      description:
+        'Cambia un turno futuro del cliente de esta conversacion a otra fecha y hora. Solo turnos de ESTE cliente. Flujo: list_my_appointments para identificar el turno → get_available_slots para la nueva fecha (mismo servicio) → confirmacion explicita del cliente → esta herramienta. hora_local debe ser exactamente uno de los horarios que devolvio get_available_slots. El turno mantiene su profesional salvo que el cliente pida otro (empleado).',
+      parameters: {
+        type: 'object',
+        properties: {
+          appointment_id: { type: 'string', description: 'id del turno (de list_my_appointments)' },
+          date: { type: 'string', description: 'nueva fecha YYYY-MM-DD en la zona del negocio' },
+          hora_local: {
+            type: 'string',
+            description: 'nueva hora local HH:MM, uno de los horarios de get_available_slots',
+          },
+          empleado: {
+            type: 'string',
+            description: 'opcional: solo si el cliente pide cambiar de profesional',
+          },
+        },
+        required: ['appointment_id', 'date', 'hora_local'],
+        additionalProperties: false,
+      },
+      run: async (args) =>
+        JSON.stringify(
+          await handlers.rescheduleAppointment({
+            appointmentId: args.appointment_id ?? '',
+            date: args.date ?? '',
+            horaLocal: args.hora_local ?? '',
             empleado: args.empleado,
           }),
         ),
