@@ -71,7 +71,7 @@ export default function TenantHome() {
   }, []);
 
   function hora(iso: string): string {
-    return new Date(iso).toLocaleTimeString('es-PY', {
+    return new Date(iso).toLocaleTimeString(undefined, {
       timeZone: dash?.timezone ?? 'America/Asuncion',
       hour: '2-digit',
       minute: '2-digit',

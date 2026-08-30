@@ -30,13 +30,13 @@ const CONFIGURABLES: { key: string; label: string }[] = [
   { key: 'address', label: 'Direccion' },
   { key: 'marital_status', label: 'Estado civil' },
   { key: 'children_count', label: 'Cantidad de hijos' },
-  { key: 'emergency_contact_name', label: 'Emergencia: nombre' },
-  { key: 'emergency_contact_phone', label: 'Emergencia: telefono' },
-  { key: 'emergency_contact_relation', label: 'Emergencia: relacion' },
   { key: 'position', label: 'Cargo / puesto' },
   { key: 'hired_at', label: 'Fecha de ingreso' },
   { key: 'ips_number', label: 'Nro asegurado IPS' },
   { key: 'salary', label: 'Salario' },
+  { key: 'emergency_contact_name', label: 'Emergencia: nombre' },
+  { key: 'emergency_contact_phone', label: 'Emergencia: telefono' },
+  { key: 'emergency_contact_relation', label: 'Emergencia: relacion' },
 ];
 
 interface Franja {
@@ -401,6 +401,10 @@ export default function EmployeesPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/40 p-4">
           <form className="w-full max-w-2xl space-y-3 rounded-xl bg-white p-5 shadow-xl" onSubmit={(e) => void save(e)}>
             <h3 className="font-semibold">{editing === 'nuevo' ? 'Nuevo empleado' : 'Editar empleado'}</h3>
+            <p className="text-xs text-slate-500">
+              Solo nombres y apellidos son obligatorios; todo lo demas es opcional y se puede
+              completar despues. (Los campos con * los definiste vos en &quot;Campos obligatorios&quot;.)
+            </p>
             <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
               <GroupTitle>Datos personales</GroupTitle>
               <Field label="Nombres *">
@@ -452,7 +456,26 @@ export default function EmployeesPage() {
                 <input className={inputClass} required={req('address')} value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
               </Field>
 
-              <GroupTitle>Contacto de emergencia</GroupTitle>
+              <GroupTitle>Datos laborales</GroupTitle>
+              <Field label={lbl('position', 'Cargo / puesto')}>
+                <input className={inputClass} required={req('position')} value={form.position} onChange={(e) => setForm({ ...form, position: e.target.value })} />
+              </Field>
+              <Field label={lbl('hired_at', 'Fecha de ingreso')}>
+                <input className={inputClass} type="date" required={req('hired_at')} value={form.hired_at} onChange={(e) => setForm({ ...form, hired_at: e.target.value })} />
+              </Field>
+              <Field label={lbl('ips_number', 'Nro asegurado IPS')}>
+                <input className={inputClass} required={req('ips_number')} value={form.ips_number} onChange={(e) => setForm({ ...form, ips_number: e.target.value })} />
+              </Field>
+              <Field label={lbl('salary', 'Salario (Gs; solo lo ven root/admin)')}>
+                <input className={inputClass} required={req('salary')} value={form.salary} onChange={(e) => setForm({ ...form, salary: e.target.value })} />
+              </Field>
+              <div className="col-span-2">
+                <Field label="Notas">
+                  <textarea className={`${inputClass} h-16`} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+                </Field>
+              </div>
+
+              <GroupTitle>Contacto de emergencia (a quien llamar si le pasa algo)</GroupTitle>
               <Field label={lbl('emergency_contact_name', 'Nombre')}>
                 <input className={inputClass} required={req('emergency_contact_name')} value={form.emergency_contact_name} onChange={(e) => setForm({ ...form, emergency_contact_name: e.target.value })} />
               </Field>
@@ -474,34 +497,28 @@ export default function EmployeesPage() {
                   <option key={r} value={r} />
                 ))}
               </datalist>
-
-              <GroupTitle>Datos laborales</GroupTitle>
-              <Field label={lbl('position', 'Cargo / puesto')}>
-                <input className={inputClass} required={req('position')} value={form.position} onChange={(e) => setForm({ ...form, position: e.target.value })} />
-              </Field>
-              <Field label={lbl('hired_at', 'Fecha de ingreso')}>
-                <input className={inputClass} type="date" required={req('hired_at')} value={form.hired_at} onChange={(e) => setForm({ ...form, hired_at: e.target.value })} />
-              </Field>
-              <Field label={lbl('ips_number', 'Nro asegurado IPS')}>
-                <input className={inputClass} required={req('ips_number')} value={form.ips_number} onChange={(e) => setForm({ ...form, ips_number: e.target.value })} />
-              </Field>
-              <Field label={lbl('salary', 'Salario (Gs; solo lo ven root/admin)')}>
-                <input className={inputClass} required={req('salary')} value={form.salary} onChange={(e) => setForm({ ...form, salary: e.target.value })} />
-              </Field>
-              <div className="col-span-2">
-                <Field label="Notas">
-                  <textarea className={`${inputClass} h-16`} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
-                </Field>
-              </div>
             </div>
-            <div className="flex flex-wrap gap-4">
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={form.bookable} onChange={(e) => setForm({ ...form, bookable: e.target.checked })} />
-                Agendable (recibe turnos de la agenda)
+            <div className="space-y-2">
+              <label className="flex items-start gap-2 text-sm">
+                <input type="checkbox" className="mt-0.5" checked={form.bookable} onChange={(e) => setForm({ ...form, bookable: e.target.checked })} />
+                <span>
+                  <b>Atiende clientes con turno</b>
+                  <span className="block text-xs text-slate-500">
+                    Aparece en la agenda y el sistema le asigna turnos automaticamente (nunca dos a
+                    la misma hora). Desmarcalo para personal que no atiende clientes (ej. limpieza,
+                    administracion).
+                  </span>
+                </span>
               </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={form.is_active} onChange={(e) => setForm({ ...form, is_active: e.target.checked })} />
-                Activo
+              <label className="flex items-start gap-2 text-sm">
+                <input type="checkbox" className="mt-0.5" checked={form.is_active} onChange={(e) => setForm({ ...form, is_active: e.target.checked })} />
+                <span>
+                  <b>Trabaja actualmente</b>
+                  <span className="block text-xs text-slate-500">
+                    Desmarcalo si ya no trabaja en tu empresa: se archiva, deja de recibir turnos y
+                    de aparecer en las listas, pero su historial se conserva.
+                  </span>
+                </span>
               </label>
             </div>
             <div className="flex justify-end gap-2">

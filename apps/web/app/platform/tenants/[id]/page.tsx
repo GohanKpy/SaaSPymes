@@ -207,7 +207,7 @@ export default function TenantDetailPage() {
           </div>
           {tenant && (
             <p className="text-sm text-slate-500">
-              Cliente desde {new Date(tenant.createdAt).toLocaleDateString('es-PY')} · plan{' '}
+              Cliente desde {new Date(tenant.createdAt).toLocaleDateString()} · plan{' '}
               {tenant.currentPlan?.name ?? 'sin plan'}
             </p>
           )}
@@ -289,14 +289,14 @@ export default function TenantDetailPage() {
       </Card>
 
       <Card
-        title="Features y acuerdos a medida"
-        description={`Lo que el plan ${tenant?.currentPlan?.name ?? ''} no incluye se puede forzar por acuerdo (con motivo, queda auditado). Quitar el acuerdo vuelve a heredar del plan.`}
+        title="Funciones y acuerdos a medida"
+        description={`Lo que el plan ${tenant?.currentPlan?.name ?? ''} no incluye se puede activar igual por acuerdo (con motivo; queda registrado). Al quitar el acuerdo vuelve a regir lo del plan.`}
       >
         <div className="-mx-4 -mb-4 overflow-x-auto">
         <table className="tbl">
           <thead>
             <tr>
-              <th>Feature</th>
+              <th>Funcion</th>
               <th>Por plan</th>
               <th>Efectivo</th>
               <th>Acuerdo</th>
@@ -322,21 +322,21 @@ export default function TenantDetailPage() {
                     <Badge tone={effective ? 'emerald' : 'slate'}>{effective ? 'activa' : 'inactiva'}</Badge>
                   </td>
                   <td className="max-w-48 text-xs text-slate-500">
-                    {override ? `forzada ${override.enabled ? 'ON' : 'OFF'} — ${override.note}` : 'hereda del plan'}
+                    {override ? `acuerdo: ${override.enabled ? 'activada' : 'apagada'} — ${override.note}` : 'segun el plan'}
                   </td>
                   <td className="space-x-1 text-right">
                     {effective ? (
                       <button className={buttonGhost} onClick={() => void forceFeature(f.code, false)}>
-                        Forzar OFF
+                        Apagar por acuerdo
                       </button>
                     ) : (
                       <button className={buttonGhost} onClick={() => void forceFeature(f.code, true)}>
-                        Forzar ON
+                        Activar por acuerdo
                       </button>
                     )}
                     {override && (
                       <button className={buttonGhost} onClick={() => void inheritFeature(f.code)}>
-                        Heredar del plan
+                        Volver a lo del plan
                       </button>
                     )}
                   </td>
@@ -387,7 +387,7 @@ export default function TenantDetailPage() {
       </Card>
 
       <Card
-        title="Usuarios del tenant"
+        title="Usuarios del cliente"
         description="Reiniciar una contrasena genera una temporal que se muestra una sola vez y cierra las sesiones activas de ese usuario. Queda registrado en la auditoria."
       >
         <div className="-mx-4 -mb-4 overflow-x-auto">
@@ -413,7 +413,7 @@ export default function TenantDetailPage() {
                   </span>
                 </td>
                 <td className="text-xs text-slate-500">
-                  {u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString('es-PY') : 'nunca'}
+                  {u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : 'nunca'}
                 </td>
                 <td className="text-right">
                   <button className={buttonGhost} onClick={() => void resetPassword(u)}>

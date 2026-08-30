@@ -140,6 +140,7 @@ export default function CatalogPage() {
   const emptySvc = {
     category_id: '',
     name: '',
+    description: '',
     kind: 'servicio' as Kind,
     price: '',
     duration_min: '45',
@@ -147,6 +148,30 @@ export default function CatalogPage() {
     meeting_min: '',
   };
   const [svc, setSvc] = useState(emptySvc);
+  // Fotos elegidas ANTES de crear el producto: se suben apenas se crea
+  // (pedido 2026-08-30: que el alta permita fotos igual que la edicion).
+  const [newFotos, setNewFotos] = useState<File[]>([]);
+
+  function pickNewFoto(file: File | undefined) {
+    if (!file) return;
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+      setError('La foto debe ser PNG, JPEG o WEBP');
+      return;
+    }
+    if (file.size > 1_500_000) {
+      setError('La foto no puede superar 1.5 MB (usa una version reducida)');
+      return;
+    }
+    setNewFotos((prev) => (prev.length < 5 ? [...prev, file] : prev));
+  }
+
+  const fileToDataUrl = (file: File) =>
+    new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(new Error('No se pudo leer la foto'));
+      reader.readAsDataURL(file);
+    });
 
   // El primer render toma el tipo por defecto de la primera categoria.
   useEffect(() => {
@@ -164,11 +189,12 @@ export default function CatalogPage() {
     e.preventDefault();
     setError(null);
     try {
-      await api('/catalog/services', {
+      const created = await api<{ id: string }>('/catalog/services', {
         method: 'POST',
         json: {
           category_id: svc.category_id || categories[0]?.id,
           name: svc.name,
+          description: svc.description.trim() || undefined,
           kind: svc.kind,
           price: svc.price,
           ...(svc.kind === 'servicio'
@@ -179,7 +205,13 @@ export default function CatalogPage() {
               }),
         },
       });
-      setSvc({ ...svc, name: '', price: '' });
+      // Las fotos elegidas se suben recien ahora (el producto ya tiene id).
+      for (const file of newFotos) {
+        const data = await fileToDataUrl(file);
+        await api(`/catalog/services/${created.id}/photos`, { method: 'POST', json: { data } });
+      }
+      setSvc({ ...svc, name: '', description: '', price: '' });
+      setNewFotos([]);
       load();
     } catch (err) {
       fail(err);
@@ -508,6 +540,44 @@ export default function CatalogPage() {
               </Field>
             </div>
           )}
+          <Field label="Descripcion (el bot la usa para explicar el producto)">
+            <textarea className={`${inputClass} h-16 text-sm`} value={svc.description} onChange={(e) => setSvc({ ...svc, description: e.target.value })} />
+          </Field>
+          <div>
+            <p className="mb-1 text-sm font-medium text-slate-700">
+              Fotos <span className="font-normal text-slate-400">(opcional, max 5 de hasta 1.5 MB; se suben al crear)</span>
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {newFotos.map((f, i) => (
+                <div key={i} className="relative">
+                  {/* preview local del archivo elegido */}
+                  <img src={URL.createObjectURL(f)} alt="" className="h-16 w-16 rounded border border-slate-200 object-cover" />
+                  <button
+                    type="button"
+                    title="Quitar foto"
+                    className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-red-600 text-xs text-white"
+                    onClick={() => setNewFotos((prev) => prev.filter((_, idx) => idx !== i))}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+              {newFotos.length < 5 && (
+                <label className="flex h-16 w-16 cursor-pointer items-center justify-center rounded border border-dashed border-slate-300 text-2xl text-slate-400 hover:border-sky-400 hover:text-sky-500">
+                  +
+                  <input
+                    type="file"
+                    className="hidden"
+                    accept="image/png,image/jpeg,image/webp"
+                    onChange={(e) => {
+                      pickNewFoto(e.target.files?.[0]);
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+              )}
+            </div>
+          </div>
           <button className={buttonClass} disabled={categories.length === 0}>
             Crear producto
           </button>

@@ -458,7 +458,7 @@ export default function SchedulePage() {
             <option value="">Elegir…</option>
             {slots.map((s) => (
               <option key={s} value={s}>
-                {new Date(s).toLocaleTimeString('es-PY', { timeZone: 'America/Asuncion', hour: '2-digit', minute: '2-digit' })}
+                {new Date(s).toLocaleTimeString(undefined, { timeZone: 'America/Asuncion', hour: '2-digit', minute: '2-digit' })}
               </option>
             ))}
           </select>

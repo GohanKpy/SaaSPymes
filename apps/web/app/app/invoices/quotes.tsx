@@ -277,7 +277,7 @@ export function QuotesSection({
                     {vencido(q) && <Badge tone="red">vencido</Badge>}
                   </span>
                 </td>
-                <td>{q.validUntil ? new Date(q.validUntil).toLocaleDateString('es-PY', { timeZone: 'UTC' }) : '—'}</td>
+                <td>{q.validUntil ? new Date(q.validUntil).toLocaleDateString(undefined, { timeZone: 'UTC' }) : '—'}</td>
                 <td>{dt(q.createdAt)}</td>
                 <td className="text-right">
                   <span className="inline-flex gap-1">

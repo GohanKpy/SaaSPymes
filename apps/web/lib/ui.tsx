@@ -170,7 +170,10 @@ export function money(value: string | number | bigint): string {
 
 export function dt(value: string | null | undefined): string {
   if (!value) return '—';
-  return new Date(value).toLocaleString('es-PY', {
+  // Formato de fecha/hora segun la region de la PC del que mira (pedido
+  // 2026-08-30): dd/mm en Paraguay, mm/dd en EEUU. La HORA sigue siendo la
+  // del negocio (America/Asuncion), solo cambia como se escribe.
+  return new Date(value).toLocaleString(undefined, {
     timeZone: 'America/Asuncion',
     dateStyle: 'short',
     timeStyle: 'short',

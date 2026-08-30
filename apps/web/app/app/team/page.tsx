@@ -185,7 +185,7 @@ export default function TeamPage() {
                     </span>
                   </td>
                   <td className="text-xs text-slate-500">
-                    {u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString('es-PY') : 'nunca'}
+                    {u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : 'nunca'}
                   </td>
                   <td className="text-right">
                     <span className="inline-flex gap-1">

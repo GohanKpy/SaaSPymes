@@ -77,7 +77,7 @@ const MENU: { title: string; items: { href: string; label: string }[] }[] = [
   {
     title: 'Clientes',
     items: [
-      { href: '#tenants', label: 'Tenants' },
+      { href: '#tenants', label: 'Clientes' },
       { href: '#planes', label: 'Planes' },
     ],
   },
@@ -345,7 +345,7 @@ export default function PlatformPage() {
 
         {creds && (
           <div className="rounded-md border border-amber-300 bg-amber-50 p-4 text-sm">
-            <p className="font-medium">Tenant creado. Credenciales del root (se muestran UNA sola vez):</p>
+            <p className="font-medium">Cliente creado. Usuario y contraseña de acceso (se muestran UNA sola vez: guardalos y pasaselos):</p>
             <p className="mt-1 font-mono">
               {creds.email} / {creds.pass}
             </p>
@@ -356,7 +356,7 @@ export default function PlatformPage() {
         )}
 
         <div id="tenants" className="scroll-mt-6 space-y-6">
-          <Card title="Alta de tenant" description="Crea la empresa, su plan y la cuenta root del cliente.">
+          <Card title="Nuevo cliente" description="Da de alta la empresa de tu cliente, elegi su plan y crea su cuenta de acceso principal.">
             <form className="grid grid-cols-2 gap-3 md:grid-cols-3" onSubmit={(e) => void createTenant(e)}>
               <Field label="Razon social">
                 <input className={inputClass} value={form.legal_name} onChange={(e) => setForm({ ...form, legal_name: e.target.value })} required />
@@ -373,13 +373,13 @@ export default function PlatformPage() {
                   ))}
                 </select>
               </Field>
-              <Field label="Email del root (para login)">
+              <Field label="Email del dueño (con este entra al panel)">
                 <input className={inputClass} type="email" value={form.root_email} onChange={(e) => setForm({ ...form, root_email: e.target.value })} required />
               </Field>
-              <Field label="Nombre del root">
+              <Field label="Nombre del dueño">
                 <input className={inputClass} value={form.root_full_name} onChange={(e) => setForm({ ...form, root_full_name: e.target.value })} required />
               </Field>
-              <Field label="Contacto (CRM)">
+              <Field label="Persona de contacto">
                 <input className={inputClass} placeholder="nombre de tu cliente" value={form.contact_name} onChange={(e) => setForm({ ...form, contact_name: e.target.value })} />
               </Field>
               <Field label="Email de contacto">
@@ -389,14 +389,14 @@ export default function PlatformPage() {
                 <input className={inputClass} value={form.contact_phone} onChange={(e) => setForm({ ...form, contact_phone: e.target.value })} />
               </Field>
               <div className="flex items-end">
-                <button className={buttonClass}>Crear tenant</button>
+                <button className={buttonClass}>Crear cliente</button>
               </div>
             </form>
           </Card>
 
           <div className={tableCard}>
             <div className="border-b border-slate-100 p-3">
-              <h2 className="font-medium text-slate-900">Tenants</h2>
+              <h2 className="font-medium text-slate-900">Clientes</h2>
             </div>
             <table className="tbl">
               <thead>
@@ -511,7 +511,7 @@ export default function PlatformPage() {
                   </Field>
                 </div>
                 <div className="col-span-2 md:col-span-3">
-                  <Field label="Features incluidas">
+                  <Field label="Funciones incluidas">
                     <div className="flex flex-wrap gap-3">
                       {features.map((f) => (
                         <label key={f.code} className="flex items-center gap-1.5 text-sm">
@@ -565,8 +565,8 @@ export default function PlatformPage() {
               ))}
             </div>
             <p className="mt-3 text-xs text-slate-400">
-              Los acuerdos a medida por cliente (forzar una feature con o sin cargo extra) se gestionan
-              en la ficha de cada tenant.
+              Los acuerdos a medida (darle a un cliente una función suelta, con o sin cargo extra) se
+              gestionan en la ficha de cada cliente.
             </p>
           </Card>
         </div>
@@ -687,7 +687,7 @@ export default function PlatformPage() {
                 </Field>
               </div>
               <div className="col-span-1 sm:col-span-2 lg:col-span-5">
-                <Field label="Guia de atencion estandar (prompt base para TODOS los tenants; vacio = default del sistema)">
+                <Field label="Guia de atencion estandar (rige para el bot de TODOS los clientes; vacio = la del sistema)">
                   <textarea
                     className={`${inputClass} h-40 font-mono text-xs`}
                     placeholder="Vacio: rige la guia por defecto del sistema (personalidad, identificacion del cliente, estilo WhatsApp, datos del negocio). Variables: {{nombre_negocio}}, {{razon_social}}, {{rubro}}, {{direccion}}, {{telefono}}, {{email}}. Las reglas de seguridad no viven aca y no son editables."
@@ -696,7 +696,7 @@ export default function PlatformPage() {
                   />
                 </Field>
                 <p className="mt-1 text-xs text-slate-400">
-                  Cada tenant puede complementarla con sus instrucciones; con su consentimiento explicito
+                  Cada cliente puede complementarla con sus instrucciones; con su consentimiento explicito
                   pueden priorizarse sobre esta guia, nunca sobre las reglas de seguridad (ADR 0008).
                 </p>
               </div>

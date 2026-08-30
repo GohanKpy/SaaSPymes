@@ -410,11 +410,15 @@ export default function SettingsPage() {
             </label>
           </div>
           <p className="mt-3 text-xs text-slate-500">
-            Consumo IA de {bot.usage.period}: {(bot.usage.input_tokens + bot.usage.output_tokens).toLocaleString('es-PY')}{' '}
-            de {bot.usage.budget.toLocaleString('es-PY')} tokens ({bot.usage.turns} respuestas).
+            Uso del bot en {bot.usage.period}:{' '}
+            {bot.usage.budget > 0
+              ? `${Math.min(100, Math.round(((bot.usage.input_tokens + bot.usage.output_tokens) / bot.usage.budget) * 100))}% del limite mensual`
+              : 'sin limite configurado'}{' '}
+            ({bot.usage.turns} respuestas dadas).
             {bot.usage.exhausted && (
               <span className="font-medium text-red-600">
-                {' '}Presupuesto del mes agotado: el bot deriva a tu equipo. El limite lo ajusta el administrador del sistema.
+                {' '}Limite del mes agotado: el bot deja de responder solo y deriva los chats a tu
+                equipo hasta el mes que viene. El limite lo ajusta el administrador del sistema.
               </span>
             )}
           </p>
