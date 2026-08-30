@@ -51,6 +51,21 @@ export const DEFAULT_MAX_PHOTO_BYTES = 1_500_000;
 /** Tope de fotos por producto. */
 export const DEFAULT_MAX_PHOTOS_PER_SERVICE = 5;
 
+// ---------------- carga masiva por CSV (pedido 2026-08-30) ----------------
+
+/** Piso tecnico: filas maximas por importacion. */
+export const DEFAULT_MAX_IMPORT_ROWS = 500;
+
+export const catalogImport = z
+  .object({
+    /** Texto crudo del CSV (el server parsea y valida TODO). */
+    csv: z.string().min(1).max(1_000_000),
+    /** true = solo vista previa: valida y reporta sin crear nada. */
+    dry_run: z.boolean().default(false),
+  })
+  .strict();
+export type CatalogImport = z.infer<typeof catalogImport>;
+
 export const servicePhotoCreate = z
   .object({
     /** data URL (data:image/png|jpeg|webp;base64,...) — mismo camino que el logo. */

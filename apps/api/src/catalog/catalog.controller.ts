@@ -16,12 +16,14 @@ import {
 import {
   DEFAULT_MAX_PHOTOS_PER_SERVICE,
   DEFAULT_MAX_PHOTO_BYTES,
+  catalogImport,
   categoryCreate,
   categoryUpdate,
   serviceCreate,
   servicePhotoCreate,
   serviceUpdate,
   uuid,
+  type CatalogImport,
   type CategoryCreate,
   type CategoryUpdate,
   type ServiceCreate,
@@ -34,11 +36,36 @@ import { RequireFeature, type AuthRequest } from '../auth/decorators';
 import { tenantCtx } from '../common/tenant-ctx';
 import { ZodPipe } from '../common/zod.pipe';
 import { AppPrisma } from '../prisma/app-prisma.service';
+import { CatalogImportService } from './catalog-import.service';
 
 @Controller('catalog')
 @RequireFeature('catalog')
 export class CatalogController {
-  constructor(private readonly appDb: AppPrisma) {}
+  constructor(
+    private readonly appDb: AppPrisma,
+    private readonly importer: CatalogImportService,
+  ) {}
+
+  // ------------------- carga masiva por CSV (2026-08-30) -------------------
+
+  /** Plantilla CSV armada con las categorias del negocio (crearlas primero). */
+  @Get('import/template')
+  async importTemplate(@Req() req: FastifyRequest & AuthRequest, @Res() reply: FastifyReply) {
+    const { csv, filename } = await this.importer.template(tenantCtx(req));
+    await reply
+      .header('content-type', 'text/csv; charset=utf-8')
+      .header('content-disposition', `attachment; filename="${filename}"`)
+      .send(csv);
+  }
+
+  /** Importacion masiva: dry_run = vista previa con errores por fila. */
+  @Post('import')
+  importCsv(
+    @Body(new ZodPipe(catalogImport)) dto: CatalogImport,
+    @Req() req: FastifyRequest & AuthRequest,
+  ) {
+    return this.importer.import(tenantCtx(req), dto);
+  }
 
   // ------------------------------ categorias -------------------------------
 

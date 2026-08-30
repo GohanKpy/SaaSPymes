@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 
-import { ApiError, api, apiImageUrl } from '../../../lib/api';
+import { API_URL, ApiError, api, apiImageUrl, getToken } from '../../../lib/api';
 import {
   Badge,
   Card,
@@ -215,6 +215,85 @@ export default function CatalogPage() {
       load();
     } catch (err) {
       fail(err);
+    }
+  }
+
+  // ---------------- carga masiva por CSV (2026-08-30) ----------------
+
+  interface ImportReport {
+    ok: boolean;
+    total_filas: number;
+    a_crear: { linea: number; categoria: string; nombre: string; tipo: string; precio: string; detalle: string }[];
+    errores: { linea: number; error: string }[];
+    creados: number;
+  }
+  const [importPreview, setImportPreview] = useState<ImportReport | null>(null);
+  const [importCsv, setImportCsv] = useState('');
+  const [importBusy, setImportBusy] = useState(false);
+  const [importMsg, setImportMsg] = useState<string | null>(null);
+
+  async function downloadTemplate() {
+    setError(null);
+    setImportMsg(null);
+    try {
+      const res = await fetch(`${API_URL}/api/v1/catalog/import/template`, {
+        headers: { Authorization: `Bearer ${getToken() ?? ''}` },
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { title?: string };
+        throw new Error(body.title ?? 'No se pudo generar la plantilla');
+      }
+      const url = URL.createObjectURL(await res.blob());
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'plantilla-catalogo.csv';
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error');
+    }
+  }
+
+  function onCsvFile(file: File | undefined) {
+    if (!file) return;
+    setError(null);
+    setImportMsg(null);
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const csv = String(reader.result ?? '');
+      setImportCsv(csv);
+      setImportBusy(true);
+      try {
+        const report = await api<ImportReport>('/catalog/import', {
+          method: 'POST',
+          json: { csv, dry_run: true },
+        });
+        setImportPreview(report);
+      } catch (e) {
+        fail(e);
+      } finally {
+        setImportBusy(false);
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  async function confirmImport() {
+    if (!importPreview?.ok) return;
+    setImportBusy(true);
+    try {
+      const report = await api<ImportReport>('/catalog/import', {
+        method: 'POST',
+        json: { csv: importCsv, dry_run: false },
+      });
+      setImportPreview(null);
+      setImportCsv('');
+      setImportMsg(`✓ ${report.creados} producto${report.creados === 1 ? '' : 's'} importado${report.creados === 1 ? '' : 's'} al catalogo.`);
+      load();
+    } catch (e) {
+      fail(e);
+    } finally {
+      setImportBusy(false);
     }
   }
 
@@ -584,6 +663,109 @@ export default function CatalogPage() {
         </form>
         </Card>
       </div>
+
+      {importPreview && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/40 p-4">
+          <div className="w-full max-w-2xl space-y-3 rounded-xl bg-white p-5 shadow-xl">
+            <h3 className="font-semibold">Vista previa de la importacion</h3>
+            {importPreview.errores.length > 0 && (
+              <div className="max-h-48 space-y-1 overflow-y-auto rounded-md bg-red-50 p-3">
+                <p className="text-sm font-medium text-red-700">
+                  {importPreview.errores.length} problema{importPreview.errores.length === 1 ? '' : 's'} en el
+                  archivo — corregilo en Excel y volvelo a subir (no se importo nada):
+                </p>
+                <ul className="space-y-0.5 text-sm text-red-700">
+                  {importPreview.errores.map((e, i) => (
+                    <li key={i}>
+                      {e.linea > 0 ? `Fila ${e.linea}: ` : ''}
+                      {e.error}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {importPreview.a_crear.length > 0 && (
+              <>
+                <p className="text-sm text-slate-600">
+                  {importPreview.errores.length === 0
+                    ? `Se van a crear ${importPreview.a_crear.length} producto${importPreview.a_crear.length === 1 ? '' : 's'}:`
+                    : `Filas correctas (se importan recien cuando el archivo no tenga errores):`}
+                </p>
+                <div className="max-h-64 overflow-y-auto rounded-md border border-slate-200">
+                  <table className="tbl">
+                    <thead>
+                      <tr>
+                        <th>Producto</th>
+                        <th>Categoria</th>
+                        <th>Tipo</th>
+                        <th className="text-right">Precio</th>
+                        <th>Detalle</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {importPreview.a_crear.map((r) => (
+                        <tr key={r.linea}>
+                          <td>{r.nombre}</td>
+                          <td>{r.categoria}</td>
+                          <td>
+                            <KindBadge kind={r.tipo as Kind} />
+                          </td>
+                          <td className="text-right tabular-nums">{money(r.precio)}</td>
+                          <td className="text-xs text-slate-500">{r.detalle}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+            <div className="flex justify-end gap-2">
+              <button type="button" className={buttonGhost} onClick={() => setImportPreview(null)}>
+                {importPreview.ok ? 'Cancelar' : 'Cerrar'}
+              </button>
+              {importPreview.ok && (
+                <button className={buttonClass} disabled={importBusy} onClick={() => void confirmImport()}>
+                  {importBusy ? 'Importando…' : `Importar ${importPreview.a_crear.length} producto${importPreview.a_crear.length === 1 ? '' : 's'}`}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <Card
+        title="Carga masiva desde Excel (CSV)"
+        description="Para cargar muchos productos de una sola vez: descarga la plantilla, completala en Excel y subila. Antes de importar te mostramos exactamente que se va a crear."
+      >
+        {importMsg && <p className="mb-2 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{importMsg}</p>}
+        <div className="flex flex-wrap items-center gap-3">
+          <button type="button" className={buttonGhost} onClick={() => void downloadTemplate()} disabled={categories.length === 0}>
+            1· Descargar plantilla CSV
+          </button>
+          <label
+            className={`${buttonClass} cursor-pointer ${categories.length === 0 || importBusy ? 'pointer-events-none opacity-50' : ''}`}
+          >
+            {importBusy ? 'Revisando archivo…' : '2· Subir archivo completado'}
+            <input
+              type="file"
+              className="hidden"
+              accept=".csv,text/csv"
+              onChange={(e) => {
+                onCsvFile(e.target.files?.[0]);
+                e.target.value = '';
+              }}
+            />
+          </label>
+        </div>
+        <p className="mt-2 text-xs text-slate-500">
+          La plantilla se arma con TUS categorias ({categories.length === 0
+            ? 'todavia no tenes ninguna: crea primero tus categorias aca arriba'
+            : categories.map((c) => c.name).join(', ')}). Si te falta una categoria, creala arriba y
+          descarga la plantilla de nuevo. Las filas de EJEMPLO se ignoran al importar; el precio va
+          en guaranies sin decimales (150000 o 150.000) y el tipo puede quedar vacio (toma el de la
+          categoria).
+        </p>
+      </Card>
 
       <div className={tableCard}>
         <table className="tbl">

@@ -4,6 +4,7 @@ import type { Env } from '@pymes/shared';
 
 import { AuthModule } from './auth/auth.module';
 import { BotController } from './bot/bot.controller';
+import { CatalogImportService } from './catalog/catalog-import.service';
 import { CatalogController } from './catalog/catalog.controller';
 import { CryptoService } from './common/crypto.service';
 import { BotService } from './conversations/bot.service';
@@ -59,6 +60,7 @@ import { UsersController } from './tenant/users.controller';
   ],
   providers: [
     CryptoService,
+    CatalogImportService,
     GoogleCalendarService,
     CustomersService,
     AppointmentsService,
