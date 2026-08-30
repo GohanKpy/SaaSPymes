@@ -3,7 +3,22 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { ApiError, api } from '../../../lib/api';
-import { ErrorNote, Field, buttonClass, buttonGhost, dt, inputClass } from '../../../lib/ui';
+import {
+  Badge,
+  Card,
+  EmptyRow,
+  ErrorNote,
+  Field,
+  PageHeader,
+  buttonClass,
+  buttonDanger,
+  buttonGhost,
+  buttonSoft,
+  dt,
+  inputClass,
+  tableCard,
+  type BadgeTone,
+} from '../../../lib/ui';
 
 interface Franja {
   from: string;
@@ -142,14 +157,13 @@ export default function SchedulePage() {
     }
   }
 
-  const badge = (s: string) =>
-    s === 'confirmed'
-      ? 'bg-emerald-100 text-emerald-700'
-      : s === 'pending'
-        ? 'bg-amber-100 text-amber-700'
-        : s === 'completed'
-          ? 'bg-sky-100 text-sky-700'
-          : 'bg-slate-100 text-slate-500';
+  const STATUS: Record<string, { label: string; tone: BadgeTone }> = {
+    pending: { label: 'a confirmar', tone: 'amber' },
+    confirmed: { label: 'confirmado', tone: 'emerald' },
+    completed: { label: 'atendido', tone: 'sky' },
+    cancelled: { label: 'cancelado', tone: 'slate' },
+    no_show: { label: 'no vino', tone: 'red' },
+  };
 
   async function openSchedule() {
     if (!branch) return;
@@ -217,17 +231,21 @@ export default function SchedulePage() {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-center gap-4">
-        <h1 className="text-xl font-semibold">Agenda</h1>
-        <input type="date" className={dateInput} value={date} onChange={(e) => setDate(e.target.value)} />
-        <button className={`${buttonGhost} ml-auto`} onClick={() => (showSchedule ? setShowSchedule(false) : void openSchedule())}>
-          {showSchedule ? 'Cerrar horarios' : 'Horarios de atencion'}
-        </button>
-      </div>
+      <PageHeader
+        title="Agenda"
+        actions={
+          <>
+            <input type="date" className={dateInput} value={date} onChange={(e) => setDate(e.target.value)} />
+            <button className={buttonGhost} onClick={() => (showSchedule ? setShowSchedule(false) : void openSchedule())}>
+              {showSchedule ? 'Cerrar horarios' : 'Horarios de atención'}
+            </button>
+          </>
+        }
+      />
       <ErrorNote error={error} />
 
       {showSchedule && (
-        <section className="rounded-lg border border-amber-200 bg-white p-4">
+        <section className="rounded-xl border border-amber-200 bg-white p-4 shadow-sm">
           {/* Encabezado con la accion primaria SIEMPRE visible: nada de
               scrollear hasta el fondo para guardar. */}
           <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
@@ -361,7 +379,7 @@ export default function SchedulePage() {
 
       {conflicts && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-lg space-y-3 rounded-lg bg-white p-5 shadow-xl">
+          <div className="w-full max-w-lg space-y-3 rounded-xl bg-white p-5 shadow-xl">
             <h3 className="font-semibold text-amber-700">
               ⚠ Hay {conflicts.length} turno(s) agendados en el horario que queres cerrar
             </h3>
@@ -413,7 +431,8 @@ export default function SchedulePage() {
         </div>
       )}
 
-      <form className="grid grid-cols-2 gap-3 rounded-lg border border-slate-200 bg-white p-4 md:grid-cols-4" onSubmit={(e) => void create(e)}>
+      <Card title="Nuevo turno">
+      <form className="grid grid-cols-2 gap-3 md:grid-cols-4" onSubmit={(e) => void create(e)}>
         <Field label="Cliente">
           <select className={inputClass} value={form.customer_id} onChange={(e) => setForm({ ...form, customer_id: e.target.value })} required>
             <option value="">Elegir…</option>
@@ -460,12 +479,13 @@ export default function SchedulePage() {
           <button className={buttonClass}>Agendar</button>
         </div>
       </form>
+      </Card>
 
-      <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-        <table className="w-full text-sm">
-          <thead className="text-left text-slate-500">
+      <div className={tableCard}>
+        <table className="tbl">
+          <thead>
             <tr>
-              <th className="p-2">Hora</th>
+              <th>Hora</th>
               <th>Cliente</th>
               <th>Servicio</th>
               <th>Atiende</th>
@@ -476,43 +496,39 @@ export default function SchedulePage() {
           </thead>
           <tbody>
             {rows.map((a) => (
-              <tr key={a.id} className="border-t border-slate-100">
-                <td className="p-2">{dt(a.startsAt)}</td>
+              <tr key={a.id} className="hover:bg-slate-50">
+                <td className="whitespace-nowrap tabular-nums">{dt(a.startsAt)}</td>
                 <td>
                   {a.customer.firstName} {a.customer.lastName}
                 </td>
                 <td>{a.service?.name ?? '—'}</td>
                 <td>{a.employee ? `${a.employee.firstName} ${a.employee.lastName}` : '—'}</td>
                 <td>
-                  <span className={`rounded px-2 py-0.5 text-xs ${badge(a.status)}`}>{a.status}</span>
+                  <Badge tone={STATUS[a.status]?.tone ?? 'slate'}>{STATUS[a.status]?.label ?? a.status}</Badge>
                 </td>
                 <td className="text-xs text-slate-500">{a.source}</td>
-                <td className="space-x-1 p-2 text-right">
-                  {a.status === 'pending' && (
-                    <button className={buttonGhost} onClick={() => void action(a.id, 'confirm')}>
-                      Confirmar
-                    </button>
-                  )}
-                  {['pending', 'confirmed'].includes(a.status) && (
-                    <>
-                      <button className={buttonGhost} onClick={() => void action(a.id, 'complete')}>
-                        Atendido
+                <td className="text-right">
+                  <span className="inline-flex gap-1">
+                    {a.status === 'pending' && (
+                      <button className={buttonSoft} onClick={() => void action(a.id, 'confirm')}>
+                        Confirmar
                       </button>
-                      <button className={buttonGhost} onClick={() => void action(a.id, 'cancel')}>
-                        Cancelar
-                      </button>
-                    </>
-                  )}
+                    )}
+                    {['pending', 'confirmed'].includes(a.status) && (
+                      <>
+                        <button className={buttonGhost} onClick={() => void action(a.id, 'complete')}>
+                          Atendido
+                        </button>
+                        <button className={buttonDanger} onClick={() => void action(a.id, 'cancel')}>
+                          Cancelar
+                        </button>
+                      </>
+                    )}
+                  </span>
                 </td>
               </tr>
             ))}
-            {rows.length === 0 && (
-              <tr>
-                <td colSpan={6} className="p-4 text-center text-slate-400">
-                  Sin turnos para este dia
-                </td>
-              </tr>
-            )}
+            {rows.length === 0 && <EmptyRow colSpan={7}>Sin turnos para este día</EmptyRow>}
           </tbody>
         </table>
       </div>

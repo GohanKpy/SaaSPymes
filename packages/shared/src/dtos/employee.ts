@@ -20,6 +20,10 @@ export const employeeSchedule = z
   .strict();
 export type EmployeeSchedule = z.infer<typeof employeeSchedule>;
 
+/** Estado civil (dato que pide el Ministerio de Trabajo). */
+export const MARITAL_STATUSES = ['soltero', 'casado', 'divorciado', 'viudo', 'union_de_hecho'] as const;
+export type MaritalStatus = (typeof MARITAL_STATUSES)[number];
+
 /**
  * Planilla de RRHH del empleado (ADR 0009). Empleado != usuario del panel:
  * el vinculo a un login es opcional y llega en fase posterior. `bookable`
@@ -38,7 +42,13 @@ export const employeeCreate = z
     position: z.string().max(120).optional(),
     hired_at: fecha.optional(),
     ips_number: z.string().max(30).optional(),
-    emergency_contact: z.string().max(300).optional(),
+    // Contacto de emergencia desglosado (2026-08-28): nombre, telefono y
+    // relacion con el empleado (padre, madre, esposo/a...).
+    emergency_contact_name: z.string().max(150).optional(),
+    emergency_contact_phone: z.string().max(30).optional(),
+    emergency_contact_relation: z.string().max(60).optional(),
+    marital_status: z.enum(MARITAL_STATUSES).optional(),
+    children_count: z.coerce.number().int().min(0).max(30).optional(),
     salary: montoGs(z.coerce.bigint().min(0n)).optional(),
     notes: z.string().max(2000).optional(),
     bookable: z.boolean().default(true),
@@ -50,3 +60,35 @@ export type EmployeeCreate = z.infer<typeof employeeCreate>;
 
 export const employeeUpdate = employeeCreate.partial().strict();
 export type EmployeeUpdate = z.infer<typeof employeeUpdate>;
+
+/**
+ * Campos de la planilla que cada tenant puede marcar como obligatorios en su
+ * empresa (nombre y apellido son SIEMPRE obligatorios y no aparecen aca).
+ * El server valida contra esta lista al crear/editar empleados.
+ */
+export const EMPLOYEE_REQUIRABLE_FIELDS = [
+  'ci_number',
+  'birth_date',
+  'phone',
+  'email',
+  'address',
+  'position',
+  'hired_at',
+  'ips_number',
+  'emergency_contact_name',
+  'emergency_contact_phone',
+  'emergency_contact_relation',
+  'marital_status',
+  'children_count',
+  'salary',
+] as const;
+export type EmployeeRequirableField = (typeof EMPLOYEE_REQUIRABLE_FIELDS)[number];
+
+export const employeeFormSettingsPut = z
+  .object({
+    required_fields: z
+      .array(z.enum(EMPLOYEE_REQUIRABLE_FIELDS))
+      .max(EMPLOYEE_REQUIRABLE_FIELDS.length),
+  })
+  .strict();
+export type EmployeeFormSettingsPut = z.infer<typeof employeeFormSettingsPut>;

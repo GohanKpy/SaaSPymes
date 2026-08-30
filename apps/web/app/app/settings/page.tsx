@@ -4,7 +4,17 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { api } from '../../../lib/api';
 import { formatRucConDv } from '../../../lib/ruc';
-import { ErrorNote, Field, buttonClass, inputClass, useSession } from '../../../lib/ui';
+import {
+  Badge,
+  Card,
+  ErrorNote,
+  Field,
+  PageHeader,
+  buttonClass,
+  buttonDanger,
+  inputClass,
+  useSession,
+} from '../../../lib/ui';
 
 import { CustomFieldsSection } from './custom-fields';
 
@@ -223,15 +233,17 @@ export default function SettingsPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-semibold">Ajustes e integraciones</h1>
+      <PageHeader
+        title="Ajustes e integraciones"
+        description="Datos de tu empresa, el bot de atención y las conexiones con WhatsApp, Google Calendar y SIFEN."
+      />
       <ErrorNote error={error} />
-      {saved && <p className="rounded bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{saved}</p>}
+      {saved && <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{saved}</p>}
 
-      <section className="rounded-lg border border-slate-200 bg-white p-4">
-        <h2 className="font-medium">Datos de la empresa y marca</h2>
-        <p className="mb-3 text-xs text-slate-500">
-          Todo lo que se imprime en el encabezado del KuDE (PDF de tus facturas) se edita aca.
-        </p>
+      <Card
+        title="Datos de la empresa y marca"
+        description="Todo lo que se imprime en el encabezado del KuDE (PDF de tus facturas) se edita acá."
+      >
         <form className="grid grid-cols-1 items-start gap-4 md:grid-cols-3" onSubmit={(e) => void saveMarca(e)}>
           <Field label="Razon social">
             <input className={inputClass} value={empresa.legal_name} onChange={(e) => setEmpresa({ ...empresa, legal_name: e.target.value })} required />
@@ -303,21 +315,29 @@ export default function SettingsPage() {
             <button className={buttonClass}>Guardar marca</button>
           </div>
         </form>
-      </section>
+      </Card>
 
       {user && ['root', 'admin'].includes(user.role) && <CustomFieldsSection onError={setError} />}
 
       {bot && (
-        <section className="rounded-lg border border-violet-200 bg-white p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="font-medium">Bot de atencion y agendamiento</h2>
-              <p className="text-xs text-slate-500">
-                Delega la atencion inmediata: el bot responde y agenda segun los permisos tildados.
-                {!bot.engine_available &&
-                  ' (El motor de IA aun no esta configurado por el administrador del sistema: el bot esta apagado.)'}
-              </p>
-            </div>
+        <Card
+          tone="violet"
+          title={
+            <span className="inline-flex items-center gap-2">
+              Bot de atención y agendamiento
+              <Badge tone={bot.enabled && bot.engine_available ? 'violet' : 'slate'}>
+                {bot.enabled && bot.engine_available ? 'encendido' : 'apagado'}
+              </Badge>
+            </span>
+          }
+          description={
+            <>
+              Delegá la atención inmediata: el bot responde y agenda según los permisos tildados.
+              {!bot.engine_available &&
+                ' (El motor de IA aún no está configurado por el administrador del sistema: el bot está apagado.)'}
+            </>
+          }
+          actions={
             <label className="flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
@@ -326,8 +346,9 @@ export default function SettingsPage() {
               />
               Encendido
             </label>
-          </div>
-          <div className="mt-3 grid gap-2 md:grid-cols-2">
+          }
+        >
+          <div className="grid gap-2 md:grid-cols-2">
             {PERMISOS.map((p) => (
               <label key={p.key} className="flex items-center gap-2 text-sm">
                 <input
@@ -397,19 +418,21 @@ export default function SettingsPage() {
               </span>
             )}
           </p>
-        </section>
+        </Card>
       )}
 
       {bot && (
-        <section className="rounded-lg border border-slate-200 bg-white p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="font-medium">Recordatorios de turnos por WhatsApp</h2>
-              <p className="text-xs text-slate-500">
-                El sistema le escribe solo al cliente antes de su turno. El mensaje queda en la
-                bandeja como cualquier conversacion; si el cliente responde, se atiende normal.
-              </p>
-            </div>
+        <Card
+          title={
+            <span className="inline-flex items-center gap-2">
+              Recordatorios de turnos por WhatsApp
+              <Badge tone={bot.reminderEnabled ? 'emerald' : 'slate'}>
+                {bot.reminderEnabled ? 'activados' : 'desactivados'}
+              </Badge>
+            </span>
+          }
+          description="El sistema le escribe solo al cliente antes de su turno. El mensaje queda en la bandeja como cualquier conversación; si el cliente responde, se atiende normal."
+          actions={
             <label className="flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
@@ -418,9 +441,10 @@ export default function SettingsPage() {
               />
               Activados
             </label>
-          </div>
+          }
+        >
           {bot.reminderEnabled && (
-            <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
               <Field label="Cuanto antes del turno">
                 <select
                   className={inputClass}
@@ -456,19 +480,19 @@ export default function SettingsPage() {
               </p>
             </div>
           )}
-        </section>
+        </Card>
       )}
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <section className="rounded-lg border border-slate-200 bg-white p-4">
-          <h2 className="font-medium">
-            WhatsApp {waConf?.configured && <span className="text-xs text-emerald-600">(configurado: {String(waConf.public_config.phone_number_id)})</span>}
-          </h2>
-          <p className="mb-3 text-xs text-slate-500">
-            En el laboratorio usa cualquier identificador (ej. dev-tucano-001) y proba desde /chat.
-            Cuando tengas la cuenta de Meta, carga el phone_number_id y token reales y el mismo
-            pipeline queda productivo.
-          </p>
+      <div className="grid items-start gap-4 md:grid-cols-2">
+        <Card
+          title={
+            <span className="inline-flex items-center gap-2">
+              WhatsApp
+              {waConf?.configured && <Badge tone="emerald">configurado: {String(waConf.public_config.phone_number_id)}</Badge>}
+            </span>
+          }
+          description="En el laboratorio usá cualquier identificador (ej. dev-tucano-001) y probá desde /chat. Cuando tengas la cuenta de Meta, cargá el phone_number_id y token reales y el mismo pipeline queda productivo."
+        >
           <form className="space-y-3" onSubmit={(e) => void saveWa(e)}>
             <Field label="phone_number_id">
               <input className={inputClass} value={wa.phone_number_id} onChange={(e) => setWa({ ...wa, phone_number_id: e.target.value })} required />
@@ -489,47 +513,45 @@ export default function SettingsPage() {
             </label>
             <button className={buttonClass}>Guardar WhatsApp</button>
           </form>
-        </section>
+        </Card>
 
-        <section className="rounded-lg border border-slate-200 bg-white p-4">
-          <h2 className="font-medium">
-            Google Calendar{' '}
-            {gcalConnected ? (
-              <span className="text-xs text-emerald-600">
-                (conectado{gcalConf?.public_config.connected_email ? `: ${String(gcalConf.public_config.connected_email)}` : ''})
-              </span>
-            ) : gcalConf?.configured ? (
-              <span className="text-xs text-red-600">(desconectado: reconecta)</span>
-            ) : null}
-          </h2>
-          <p className="mb-3 text-xs text-slate-500">
-            Conecta el calendario de Google de tu negocio: cada turno agendado aparece como evento,
-            las cancelaciones lo quitan, y los eventos que cargues a mano en Google bloquean esos
-            horarios en la agenda (nadie te agenda encima). Se conecta UNA vez con tu cuenta de
-            Google; podes desconectarla cuando quieras.
-          </p>
+        <Card
+          title={
+            <span className="inline-flex items-center gap-2">
+              Google Calendar
+              {gcalConnected ? (
+                <Badge tone="emerald">
+                  conectado
+                  {gcalConf?.public_config.connected_email ? `: ${String(gcalConf.public_config.connected_email)}` : ''}
+                </Badge>
+              ) : gcalConf?.configured ? (
+                <Badge tone="red">desconectado: reconectá</Badge>
+              ) : null}
+            </span>
+          }
+          description="Conectá el calendario de Google de tu negocio: cada turno agendado aparece como evento, las cancelaciones lo quitan, y los eventos que cargues a mano en Google bloquean esos horarios en la agenda (nadie te agenda encima). Se conecta UNA vez con tu cuenta de Google; podés desconectarla cuando quieras."
+        >
           <div className="flex items-center gap-2">
             <button className={buttonClass} onClick={() => void connectGoogle()}>
               {gcalConf?.configured ? 'Reconectar' : 'Conectar Google Calendar'}
             </button>
             {gcalConf?.configured && (
-              <button
-                className="rounded border border-red-200 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50"
-                onClick={() => void disconnectGoogle()}
-              >
+              <button className={buttonDanger} onClick={() => void disconnectGoogle()}>
                 Desconectar
               </button>
             )}
           </div>
-        </section>
+        </Card>
 
-        <section className="rounded-lg border border-slate-200 bg-white p-4">
-          <h2 className="font-medium">
-            SIFEN {sifenConf?.configured && <span className="text-xs text-emerald-600">(timbrado {String(sifenConf.public_config.timbrado)})</span>}
-          </h2>
-          <p className="mb-3 text-xs text-slate-500">
-            Datos fiscales para numerar y emitir. El certificado .p12 llega con la integracion real.
-          </p>
+        <Card
+          title={
+            <span className="inline-flex items-center gap-2">
+              SIFEN
+              {sifenConf?.configured && <Badge tone="emerald">timbrado {String(sifenConf.public_config.timbrado)}</Badge>}
+            </span>
+          }
+          description="Datos fiscales para numerar y emitir. El certificado .p12 llega con la integración real."
+        >
           <form className="space-y-3" onSubmit={(e) => void saveSifen(e)}>
             <Field label="Timbrado (8 digitos)">
               <input className={inputClass} value={sifen.timbrado} onChange={(e) => setSifen({ ...sifen, timbrado: e.target.value })} required />
@@ -547,7 +569,7 @@ export default function SettingsPage() {
             </Field>
             <button className={buttonClass}>Guardar SIFEN</button>
           </form>
-        </section>
+        </Card>
       </div>
     </div>
   );

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { api, sseUrl } from '../../../lib/api';
-import { ErrorNote, buttonClass, buttonGhost, dt, inputClass } from '../../../lib/ui';
+import { Badge, ErrorNote, PageHeader, buttonClass, buttonGhost, dt, inputClass } from '../../../lib/ui';
 
 interface Conversation {
   id: string;
@@ -132,9 +132,9 @@ export default function InboxPage() {
 
   return (
     <div className="space-y-3">
-      <h1 className="text-xl font-semibold">Bandeja de chat</h1>
+      <PageHeader title="Bandeja de chat" />
       <ErrorNote error={error} />
-      <div className="grid h-[calc(100vh-180px)] min-h-[420px] grid-cols-3 overflow-hidden rounded-lg border border-slate-200 bg-white">
+      <div className="grid h-[calc(100vh-180px)] min-h-[420px] grid-cols-3 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         <aside className="flex min-h-0 flex-col border-r border-slate-100">
           <div className="border-b border-slate-100 p-2">
             <input
@@ -152,14 +152,14 @@ export default function InboxPage() {
                   setSelected(c.id);
                   loadMessages(c.id);
                 }}
-                className={`block w-full border-b border-slate-50 px-3 py-2 text-left text-sm hover:bg-slate-50 ${selected === c.id ? 'bg-sky-50' : ''}`}
+                className={`block w-full border-b border-l-2 border-slate-50 px-3 py-2 text-left text-sm transition-colors hover:bg-slate-50 ${selected === c.id ? 'border-l-sky-600 bg-sky-50' : 'border-l-transparent'}`}
               >
                 <p className="font-medium">
                   {c.customer ? `${c.customer.firstName} ${c.customer.lastName ?? ''}` : c.phoneE164}
                   {c.needsHuman && (
-                    <span className="ml-2 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-700">
+                    <Badge tone="red" className="ml-2">
                       Necesita humano
-                    </span>
+                    </Badge>
                   )}
                 </p>
                 <p className="text-xs text-slate-500">
@@ -180,16 +180,17 @@ export default function InboxPage() {
         <section className="col-span-2 flex min-h-0 flex-col">
           {current ? (
             <>
-              <header className="flex items-center justify-between border-b border-slate-100 px-4 py-2 text-sm">
-                <span>
-                  {current.customer
-                    ? `${current.customer.firstName} ${current.customer.lastName ?? ''}`
-                    : current.phoneE164}
-                  {current.needsHuman && (
-                    <span className="ml-2 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-700">
-                      El bot no pudo responder: atender manualmente
-                    </span>
-                  )}
+              <header className="flex items-center justify-between gap-2 border-b border-slate-100 px-4 py-2 text-sm">
+                <span className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium">
+                    {current.customer
+                      ? `${current.customer.firstName} ${current.customer.lastName ?? ''}`
+                      : current.phoneE164}
+                  </span>
+                  <Badge tone={current.status === 'bot_active' ? 'violet' : 'slate'}>
+                    {STATUS_LABEL[current.status] ?? current.status}
+                  </Badge>
+                  {current.needsHuman && <Badge tone="red">El bot no pudo responder: atender manualmente</Badge>}
                 </span>
                 <button className={buttonGhost} onClick={() => void toggleBot(current)}>
                   {current.status === 'bot_active' ? 'Pausar bot' : 'Reactivar bot'}

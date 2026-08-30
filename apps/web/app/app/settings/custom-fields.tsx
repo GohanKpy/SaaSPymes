@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { api } from '../../../lib/api';
 import type { CustomFieldDef } from '../../../lib/crm';
-import { Field, buttonClass, buttonGhost, inputClass } from '../../../lib/ui';
+import { Card, Field, buttonClass, buttonGhost, inputClass } from '../../../lib/ui';
 
 const TYPES: { value: CustomFieldDef['fieldType']; label: string }[] = [
   { value: 'text', label: 'Texto' },
@@ -88,13 +88,10 @@ export function CustomFieldsSection({ onError }: { onError: (msg: string) => voi
   }
 
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-4">
-      <h2 className="font-medium">Campos del cliente</h2>
-      <p className="mb-3 text-xs text-slate-500">
-        Agrega campos propios a la ficha de tus clientes (ej: tipo de cabello, talle, obra social).
-        Aparecen en la ficha de cada cliente. Desactivar un campo lo oculta sin borrar lo ya cargado.
-      </p>
-
+    <Card
+      title="Campos del cliente"
+      description="Agregá campos propios a la ficha de tus clientes (ej: tipo de cabello, talle, obra social). Aparecen en la ficha de cada cliente. Desactivar un campo lo oculta sin borrar lo ya cargado."
+    >
       <ul className="space-y-1">
         {defs.map((def) => (
           <li key={def.id} className={`flex flex-wrap items-center gap-2 rounded border border-slate-100 p-2 text-sm ${def.isActive ? '' : 'opacity-50'}`}>
@@ -162,6 +159,6 @@ export function CustomFieldsSection({ onError }: { onError: (msg: string) => voi
         </label>
         <button className={buttonClass}>Agregar campo</button>
       </form>
-    </section>
+    </Card>
   );
 }

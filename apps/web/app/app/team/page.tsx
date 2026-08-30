@@ -3,7 +3,18 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { api } from '../../../lib/api';
-import { ErrorNote, Field, buttonClass, buttonGhost, inputClass, useSession } from '../../../lib/ui';
+import {
+  Badge,
+  Card,
+  ErrorNote,
+  Field,
+  PageHeader,
+  buttonClass,
+  buttonDanger,
+  buttonGhost,
+  inputClass,
+  useSession,
+} from '../../../lib/ui';
 
 interface Branch {
   id: string;
@@ -87,11 +98,14 @@ export default function TeamPage() {
   if (!user) return null;
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-semibold">Equipo</h1>
+      <PageHeader
+        title="Equipo"
+        description="Cuentas de acceso al panel para tu personal: alta, roles, contraseñas y desactivación."
+      />
       <ErrorNote error={error} />
 
       {creds && (
-        <div className="rounded border border-amber-300 bg-amber-50 p-4 text-sm">
+        <div className="rounded-md border border-amber-300 bg-amber-50 p-4 text-sm">
           <p className="font-medium">Credenciales (se muestran UNA sola vez, pasalas a la persona):</p>
           <p className="mt-1 font-mono">
             {creds.email} / {creds.pass}
@@ -102,8 +116,7 @@ export default function TeamPage() {
         </div>
       )}
 
-      <section className="rounded-lg border border-slate-200 bg-white p-4">
-        <h2 className="mb-3 font-medium">Nueva cuenta para tu personal</h2>
+      <Card title="Nueva cuenta para tu personal">
         <form className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4" onSubmit={(e) => void createUser(e)}>
           <Field label="Email">
             <input className={inputClass} type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required />
@@ -146,52 +159,57 @@ export default function TeamPage() {
             </div>
           )}
         </form>
-      </section>
+      </Card>
 
-      <section className="rounded-lg border border-slate-200 bg-white p-4">
-        <h2 className="mb-3 font-medium">Cuentas del negocio</h2>
-        <table className="w-full text-sm">
-          <thead className="text-left text-slate-500">
-            <tr>
-              <th className="py-1">Email</th>
-              <th>Nombre</th>
-              <th>Rol</th>
-              <th>Ultimo acceso</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {users.map((u) => (
-              <tr key={u.id} className={`border-t border-slate-100 ${u.isActive ? '' : 'opacity-50'}`}>
-                <td className="py-2 font-mono text-xs">{u.email}</td>
-                <td>{u.fullName}</td>
-                <td>
-                  <span className="rounded bg-slate-100 px-2 py-0.5 text-xs">{u.role}</span>
-                  {!u.isActive && <span className="ml-1 text-xs text-red-600">inactivo</span>}
-                </td>
-                <td className="text-xs text-slate-500">
-                  {u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString('es-PY') : 'nunca'}
-                </td>
-                <td className="space-x-1 text-right">
-                  <button className={buttonGhost} onClick={() => void resetPassword(u)}>
-                    Reiniciar contrasena
-                  </button>
-                  {u.role !== 'root' && (
-                    <>
-                      <button className={buttonGhost} onClick={() => void toggleActive(u)}>
-                        {u.isActive ? 'Desactivar' : 'Reactivar'}
-                      </button>
-                      <button className={buttonGhost} onClick={() => void removeUser(u)}>
-                        Eliminar
-                      </button>
-                    </>
-                  )}
-                </td>
+      <Card title="Cuentas del negocio">
+        <div className="-mx-4 -mb-4 overflow-x-auto">
+          <table className="tbl">
+            <thead>
+              <tr>
+                <th>Email</th>
+                <th>Nombre</th>
+                <th>Rol</th>
+                <th>Ultimo acceso</th>
+                <th></th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
+            </thead>
+            <tbody>
+              {users.map((u) => (
+                <tr key={u.id} className={u.isActive ? 'hover:bg-slate-50' : 'opacity-50'}>
+                  <td className="font-mono text-xs">{u.email}</td>
+                  <td>{u.fullName}</td>
+                  <td>
+                    <span className="inline-flex items-center gap-1.5">
+                      <Badge tone={u.role === 'root' ? 'violet' : u.role === 'admin' ? 'sky' : 'slate'}>{u.role}</Badge>
+                      {!u.isActive && <Badge tone="red">inactivo</Badge>}
+                    </span>
+                  </td>
+                  <td className="text-xs text-slate-500">
+                    {u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString('es-PY') : 'nunca'}
+                  </td>
+                  <td className="text-right">
+                    <span className="inline-flex gap-1">
+                      <button className={buttonGhost} onClick={() => void resetPassword(u)}>
+                        Reiniciar contrasena
+                      </button>
+                      {u.role !== 'root' && (
+                        <>
+                          <button className={buttonGhost} onClick={() => void toggleActive(u)}>
+                            {u.isActive ? 'Desactivar' : 'Reactivar'}
+                          </button>
+                          <button className={buttonDanger} onClick={() => void removeUser(u)}>
+                            Eliminar
+                          </button>
+                        </>
+                      )}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
     </div>
   );
 }

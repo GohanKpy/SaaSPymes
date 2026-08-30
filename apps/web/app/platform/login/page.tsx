@@ -47,9 +47,16 @@ export default function PlatformLoginPage() {
     <main className="flex min-h-screen items-center justify-center bg-slate-900 p-4">
       {/* Tarjeta clara sobre fondo oscuro: los componentes compartidos (Field,
           inputs, ErrorNote) estan diseñados para tema claro. */}
-      <div className="w-full max-w-sm space-y-4 rounded-lg border border-slate-200 bg-white p-6 shadow-lg">
-        <h1 className="text-xl font-semibold text-slate-900">Administracion de la plataforma</h1>
-        <p className="text-xs text-slate-500">Acceso exclusivo del operador del sistema.</p>
+      <div className="w-full max-w-sm space-y-4 rounded-xl border border-slate-200 bg-white p-6 shadow-lg">
+        <div className="flex items-center gap-3">
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-900 text-lg font-bold text-white">
+            P
+          </span>
+          <div>
+            <h1 className="text-lg font-semibold leading-tight text-slate-900">Administración de la plataforma</h1>
+            <p className="text-xs text-slate-500">Acceso exclusivo del operador del sistema</p>
+          </div>
+        </div>
         <form className="space-y-3" onSubmit={(e) => void submit(e)}>
           <Field label="Email">
             <input className={inputClass} type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />

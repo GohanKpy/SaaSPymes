@@ -6,7 +6,19 @@ import { useRouter } from 'next/navigation';
 
 import { ApiError, api } from '../../../lib/api';
 import { SOURCES, sourceLabel } from '../../../lib/crm';
-import { ErrorNote, Field, buttonClass, buttonGhost, inputClass } from '../../../lib/ui';
+import {
+  Badge,
+  Card,
+  EmptyRow,
+  ErrorNote,
+  Field,
+  PageHeader,
+  buttonClass,
+  buttonDanger,
+  buttonGhost,
+  inputClass,
+  tableCard,
+} from '../../../lib/ui';
 
 interface Customer {
   id: string;
@@ -84,87 +96,80 @@ export default function CustomersPage() {
 
   return (
     <div className="space-y-5">
-      <h1 className="text-xl font-semibold">Clientes</h1>
+      <PageHeader title="Clientes" description="Tu cartera completa: buscá, filtrá y entrá a la ficha de cada uno." />
       <ErrorNote error={error} />
       {duplicateId && (
-        <p className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-800">
-          Ya existe un cliente con ese telefono, email o documento.{' '}
+        <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          Ya existe un cliente con ese teléfono, email o documento.{' '}
           <Link className="font-medium underline" href={`/app/customers/${duplicateId}`}>
             Abrir su ficha
           </Link>
         </p>
       )}
 
-      <form
-        className="grid grid-cols-2 gap-3 rounded-lg border border-slate-200 bg-white p-4 md:grid-cols-5"
-        onSubmit={(e) => void create(e)}
+      <Card
+        title="Nuevo cliente"
+        description="Solo el nombre es obligatorio; al guardar se abre la ficha completa."
       >
-        <div className="col-span-2 md:col-span-5">
-          <h2 className="text-sm font-medium">
-            Nuevo cliente{' '}
-            <span className="font-normal text-slate-400">
-              (solo el nombre es obligatorio; al guardar se abre la ficha completa)
-            </span>
-          </h2>
-        </div>
-        <Field label="Nombre *">
-          <input className={inputClass} value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} required />
-        </Field>
-        <Field label="Apellido">
-          <input className={inputClass} value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} />
-        </Field>
-        <Field label="Celular / WhatsApp">
-          <input className={inputClass} placeholder="+595971234567" value={form.phone_e164} onChange={(e) => setForm({ ...form, phone_e164: e.target.value })} />
-        </Field>
-        <Field label="Email">
-          <input className={inputClass} type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-        </Field>
-        <div className="flex items-end">
-          <button className={buttonClass}>Agregar y abrir ficha</button>
-        </div>
-      </form>
+        <form className="grid grid-cols-2 gap-3 md:grid-cols-5" onSubmit={(e) => void create(e)}>
+          <Field label="Nombre *">
+            <input className={inputClass} value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} required />
+          </Field>
+          <Field label="Apellido">
+            <input className={inputClass} value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} />
+          </Field>
+          <Field label="Celular / WhatsApp">
+            <input className={inputClass} placeholder="+595971234567" value={form.phone_e164} onChange={(e) => setForm({ ...form, phone_e164: e.target.value })} />
+          </Field>
+          <Field label="Email">
+            <input className={inputClass} type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+          </Field>
+          <div className="flex items-end">
+            <button className={buttonClass}>Agregar y abrir ficha</button>
+          </div>
+        </form>
+      </Card>
 
-      <div className="flex flex-wrap gap-2">
-        <input
-          className={`${inputClass} max-w-xs`}
-          placeholder="Buscar por nombre, telefono, documento, empresa…"
-          value={q}
-          onChange={(e) => {
-            setQ(e.target.value);
-            load(e.target.value, source, tag);
-          }}
-        />
-        <select
-          className={`${inputClass} max-w-[180px]`}
-          value={source}
-          onChange={(e) => {
-            setSource(e.target.value);
-            load(q, e.target.value, tag);
-          }}
-        >
-          <option value="">Origen: todos</option>
-          {SOURCES.map((s) => (
-            <option key={s.value} value={s.value}>
-              {s.label}
-            </option>
-          ))}
-        </select>
-        <input
-          className={`${inputClass} max-w-[180px]`}
-          placeholder="Etiqueta exacta"
-          value={tag}
-          onChange={(e) => {
-            setTag(e.target.value);
-            load(q, source, e.target.value.trim());
-          }}
-        />
-      </div>
-
-      <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-        <table className="w-full text-sm">
-          <thead className="text-left text-slate-500">
+      <div className={tableCard}>
+        <div className="flex flex-wrap gap-2 border-b border-slate-100 p-3">
+          <input
+            className={`${inputClass} max-w-xs`}
+            placeholder="Buscar por nombre, teléfono, documento, empresa…"
+            value={q}
+            onChange={(e) => {
+              setQ(e.target.value);
+              load(e.target.value, source, tag);
+            }}
+          />
+          <select
+            className={`${inputClass} max-w-[180px]`}
+            value={source}
+            onChange={(e) => {
+              setSource(e.target.value);
+              load(q, e.target.value, tag);
+            }}
+          >
+            <option value="">Origen: todos</option>
+            {SOURCES.map((s) => (
+              <option key={s.value} value={s.value}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+          <input
+            className={`${inputClass} max-w-[180px]`}
+            placeholder="Etiqueta exacta"
+            value={tag}
+            onChange={(e) => {
+              setTag(e.target.value);
+              load(q, source, e.target.value.trim());
+            }}
+          />
+        </div>
+        <table className="tbl">
+          <thead>
             <tr>
-              <th className="p-2">Nombre</th>
+              <th>Nombre</th>
               <th>WhatsApp</th>
               <th>Email</th>
               <th>Origen</th>
@@ -175,8 +180,8 @@ export default function CustomersPage() {
           </thead>
           <tbody>
             {rows.map((c) => (
-              <tr key={c.id} className="border-t border-slate-100 hover:bg-slate-50">
-                <td className="p-2">
+              <tr key={c.id} className="hover:bg-slate-50">
+                <td>
                   <Link className="font-medium text-sky-700 hover:underline" href={`/app/customers/${c.id}`}>
                     {c.firstName} {c.lastName}
                   </Link>
@@ -188,30 +193,26 @@ export default function CustomersPage() {
                 <td>
                   <span className="flex flex-wrap gap-1">
                     {(c.tags ?? []).map((t) => (
-                      <span key={t} className="rounded bg-sky-50 px-1.5 py-0.5 text-xs text-sky-700">
+                      <Badge key={t} tone="sky">
                         {t}
-                      </span>
+                      </Badge>
                     ))}
                   </span>
                 </td>
-                <td className="text-amber-500">{c.rating ? '★'.repeat(c.rating) : '—'}</td>
-                <td className="space-x-1 p-2 text-right">
-                  <Link className={buttonGhost} href={`/app/customers/${c.id}`}>
-                    Ficha
-                  </Link>
-                  <button className={buttonGhost} onClick={() => void remove(c.id)}>
-                    Desactivar
-                  </button>
+                <td className="whitespace-nowrap text-amber-500">{c.rating ? '★'.repeat(c.rating) : '—'}</td>
+                <td className="text-right">
+                  <span className="inline-flex gap-1">
+                    <Link className={buttonGhost} href={`/app/customers/${c.id}`}>
+                      Ficha
+                    </Link>
+                    <button className={buttonDanger} onClick={() => void remove(c.id)}>
+                      Desactivar
+                    </button>
+                  </span>
                 </td>
               </tr>
             ))}
-            {rows.length === 0 && (
-              <tr>
-                <td colSpan={7} className="p-4 text-center text-slate-400">
-                  Sin clientes todavia
-                </td>
-              </tr>
-            )}
+            {rows.length === 0 && <EmptyRow colSpan={7}>Sin clientes todavía</EmptyRow>}
           </tbody>
         </table>
       </div>

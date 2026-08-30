@@ -47,6 +47,11 @@ export class ProblemFilter implements ExceptionFilter {
         status,
         detail: typeof body.detail === 'string' ? body.detail : undefined,
         ...(Array.isArray(body.conflicts) ? { conflicts: body.conflicts } : {}),
+        // Errores por campo lanzados desde un controller (ej. campos
+        // obligatorios de la planilla): mismo formato que ZodValidationException.
+        ...(body.errors && typeof body.errors === 'object' && !Array.isArray(body.errors)
+          ? { errors: body.errors as Record<string, string[]> }
+          : {}),
         trace_id: traceId,
       };
     } else if (exception instanceof Prisma.PrismaClientKnownRequestError) {

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 
 import { api } from '../../lib/api';
-import { money } from '../../lib/ui';
+import { Badge, Card, money, type BadgeTone } from '../../lib/ui';
 
 interface TenantInfo {
   legalName: string;
@@ -50,10 +50,10 @@ function Kpi({ title, value, note, href, alert }: { title: string; value: string
   return (
     <Link
       href={href}
-      className={`rounded-lg border p-4 transition hover:shadow-sm ${alert ? 'border-red-200 bg-red-50/50' : 'border-slate-200 bg-white'}`}
+      className={`rounded-xl border p-4 shadow-sm transition hover:shadow-md ${alert ? 'border-red-200 bg-red-50/50' : 'border-slate-200 bg-white'}`}
     >
       <p className="text-xs text-slate-500">{title}</p>
-      <p className={`mt-1 text-2xl font-semibold ${alert ? 'text-red-700' : ''}`}>{value}</p>
+      <p className={`mt-1 text-2xl font-semibold tabular-nums ${alert ? 'text-red-700' : 'text-slate-900'}`}>{value}</p>
       {note && <p className={`mt-1 text-xs ${alert ? 'text-red-600' : 'text-slate-400'}`}>{note}</p>}
     </Link>
   );
@@ -78,17 +78,19 @@ export default function TenantHome() {
     });
   }
 
+  const statusTone = (s: string): BadgeTone => (s === 'confirmed' ? 'emerald' : s === 'pending' ? 'amber' : 'slate');
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">{tenant?.tradeName ?? tenant?.legalName ?? '…'}</h1>
-        <p className="text-sm text-slate-500">Plan: {tenant?.currentPlan?.name ?? '—'}</p>
+      <div className="flex flex-wrap items-center gap-3">
+        <h1 className="text-2xl font-semibold text-slate-900">{tenant?.tradeName ?? tenant?.legalName ?? '…'}</h1>
+        {tenant?.currentPlan && <Badge tone="sky">Plan {tenant.currentPlan.name}</Badge>}
       </div>
 
       {dash && (
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
           <Kpi title="Turnos hoy" value={String(dash.today.count)} href="/app/schedule" />
-          <Kpi title="Turnos proximos 7 dias" value={String(dash.week_appointments)} href="/app/schedule" />
+          <Kpi title="Turnos próximos 7 días" value={String(dash.week_appointments)} href="/app/schedule" />
           <Kpi
             title="Tareas pendientes"
             value={String(dash.tasks.pending)}
@@ -118,57 +120,56 @@ export default function TenantHome() {
       )}
 
       {dash && (
-        <section className="rounded-lg border border-slate-200 bg-white p-4">
-          <div className="mb-2 flex items-center justify-between">
-            <h2 className="text-sm font-medium">Agenda de hoy</h2>
-            <Link className="text-xs text-sky-700 hover:underline" href="/app/schedule">
+        <Card
+          title="Agenda de hoy"
+          actions={
+            <Link className="text-xs font-medium text-sky-700 hover:underline" href="/app/schedule">
               Ver agenda completa →
             </Link>
-          </div>
+          }
+        >
           {dash.today.appointments.length === 0 ? (
-            <p className="text-sm text-slate-400">Sin turnos para hoy</p>
+            <p className="py-2 text-sm text-slate-400">Sin turnos para hoy</p>
           ) : (
             <ul className="divide-y divide-slate-100">
               {dash.today.appointments.map((a) => (
                 <li key={a.id} className="flex flex-wrap items-center gap-2 py-2 text-sm">
-                  <span className="w-14 font-medium">{hora(a.starts_at)}</span>
+                  <span className="w-14 font-medium tabular-nums">{hora(a.starts_at)}</span>
                   <Link className="text-sky-700 hover:underline" href={`/app/customers/${a.customer_id}`}>
                     {a.customer}
                   </Link>
                   {a.service && <span className="text-slate-500">· {a.service}</span>}
                   {a.employee && <span className="text-xs text-slate-400">atiende {a.employee}</span>}
-                  <span
-                    className={`ml-auto rounded px-2 py-0.5 text-xs ${
-                      a.status === 'confirmed'
-                        ? 'bg-emerald-50 text-emerald-700'
-                        : a.status === 'pending'
-                          ? 'bg-amber-50 text-amber-700'
-                          : 'bg-slate-100 text-slate-500'
-                    }`}
-                  >
+                  <Badge tone={statusTone(a.status)} className="ml-auto">
                     {STATUS_LABEL[a.status] ?? a.status}
-                  </span>
+                  </Badge>
                 </li>
               ))}
             </ul>
           )}
-        </section>
+        </Card>
       )}
 
-      <div className="grid gap-3 md:grid-cols-4">
-        {features.map((f) => (
-          <div
-            key={f.code}
-            className={`rounded-lg border p-3 text-sm ${f.enabled ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-white opacity-60'}`}
-          >
-            <p className="font-medium">{f.name}</p>
-            <p className="text-xs text-slate-500">
-              {f.enabled ? 'Habilitada' : 'No incluida en tu plan'}
-              {f.source === 'override' ? ' (acuerdo)' : ''}
-            </p>
-          </div>
-        ))}
-      </div>
+      <Card
+        title="Funciones de tu plan"
+        description="Lo que tu plan incluye hoy; los acuerdos a medida aparecen marcados."
+      >
+        <div className="flex flex-wrap gap-2">
+          {features.map((f) => (
+            <span
+              key={f.code}
+              className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs ${
+                f.enabled
+                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                  : 'border-slate-200 bg-white text-slate-400'
+              }`}
+            >
+              {f.enabled ? '✓' : '—'} {f.name}
+              {f.source === 'override' && <span className="text-[10px] text-emerald-600">(acuerdo)</span>}
+            </span>
+          ))}
+        </div>
+      </Card>
     </div>
   );
 }

@@ -3,7 +3,41 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { ApiError, api } from '../../../lib/api';
-import { ErrorNote, Field, buttonClass, buttonGhost, inputClass, money } from '../../../lib/ui';
+import {
+  Badge,
+  EmptyRow,
+  ErrorNote,
+  Field,
+  GroupTitle,
+  PageHeader,
+  buttonClass,
+  buttonDanger,
+  buttonGhost,
+  inputClass,
+  money,
+  tableCard,
+  useSession,
+} from '../../../lib/ui';
+
+// Campos configurables como obligatorios (espejo de EMPLOYEE_REQUIRABLE_FIELDS
+// en packages/shared/src/dtos/employee.ts; nombre y apellido son siempre
+// obligatorios y no se configuran).
+const CONFIGURABLES: { key: string; label: string }[] = [
+  { key: 'ci_number', label: 'CI' },
+  { key: 'birth_date', label: 'Fecha de nacimiento' },
+  { key: 'phone', label: 'Telefono' },
+  { key: 'email', label: 'Email' },
+  { key: 'address', label: 'Direccion' },
+  { key: 'marital_status', label: 'Estado civil' },
+  { key: 'children_count', label: 'Cantidad de hijos' },
+  { key: 'emergency_contact_name', label: 'Emergencia: nombre' },
+  { key: 'emergency_contact_phone', label: 'Emergencia: telefono' },
+  { key: 'emergency_contact_relation', label: 'Emergencia: relacion' },
+  { key: 'position', label: 'Cargo / puesto' },
+  { key: 'hired_at', label: 'Fecha de ingreso' },
+  { key: 'ips_number', label: 'Nro asegurado IPS' },
+  { key: 'salary', label: 'Salario' },
+];
 
 interface Franja {
   from: string;
@@ -26,7 +60,11 @@ interface Employee {
   position: string | null;
   hiredAt: string | null;
   ipsNumber: string | null;
-  emergencyContact: string | null;
+  emergencyContactName: string | null;
+  emergencyContactPhone: string | null;
+  emergencyContactRelation: string | null;
+  maritalStatus: string | null;
+  childrenCount: number | null;
   salary: string | null;
   notes: string | null;
   bookable: boolean;
@@ -43,10 +81,14 @@ const VACIO = {
   phone: '',
   email: '',
   address: '',
+  marital_status: '',
+  children_count: '',
+  emergency_contact_name: '',
+  emergency_contact_phone: '',
+  emergency_contact_relation: '',
   position: '',
   hired_at: '',
   ips_number: '',
-  emergency_contact: '',
   salary: '',
   notes: '',
   bookable: true,
@@ -97,16 +139,43 @@ function buildWeek(days: Record<string, DayForm>): Record<string, Franja[]> {
  *  participan de la agenda: los turnos se les asignan sin solaparse. Fase 3:
  *  horario propio (o el del negocio) y Google Calendar personal. */
 export default function EmployeesPage() {
+  const user = useSession('tenant');
   const [rows, setRows] = useState<Employee[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [editing, setEditing] = useState<Employee | 'nuevo' | null>(null);
   const [form, setForm] = useState(VACIO);
 
+  // Campos obligatorios definidos por el admin del tenant: pintan el * y el
+  // required del formulario; el server los valida ademas por su cuenta.
+  const [required, setRequired] = useState<string[]>([]);
+  const [showCfg, setShowCfg] = useState(false);
+  const [cfg, setCfg] = useState<string[]>([]);
+  const req = (f: string) => required.includes(f);
+  const lbl = (f: string, base: string) => (req(f) ? `${base} *` : base);
+  const isAdmin = user ? ['root', 'admin'].includes(user.role) : false;
+
   const load = useCallback(() => {
     void api<Employee[]>('/employees').then(setRows).catch((e) => setError(String(e.message)));
+    void api<{ required_fields: string[] }>('/employees/form-settings')
+      .then((r) => setRequired(r.required_fields))
+      .catch(() => undefined);
   }, []);
   useEffect(() => load(), [load]);
+
+  async function saveCfg(e: React.FormEvent) {
+    e.preventDefault();
+    try {
+      const res = await api<{ required_fields: string[] }>('/employees/form-settings', {
+        method: 'PUT',
+        json: { required_fields: cfg },
+      });
+      setRequired(res.required_fields);
+      setShowCfg(false);
+    } catch (err) {
+      fail(err);
+    }
+  }
 
   // Retorno del OAuth de Google del empleado (?google=connected|error).
   useEffect(() => {
@@ -136,10 +205,14 @@ export default function EmployeesPage() {
       phone: e.phone ?? '',
       email: e.email ?? '',
       address: e.address ?? '',
+      marital_status: e.maritalStatus ?? '',
+      children_count: e.childrenCount === null ? '' : String(e.childrenCount),
+      emergency_contact_name: e.emergencyContactName ?? '',
+      emergency_contact_phone: e.emergencyContactPhone ?? '',
+      emergency_contact_relation: e.emergencyContactRelation ?? '',
       position: e.position ?? '',
       hired_at: soloFecha(e.hiredAt),
       ips_number: e.ipsNumber ?? '',
-      emergency_contact: e.emergencyContact ?? '',
       salary: e.salary ?? '',
       notes: e.notes ?? '',
       bookable: e.bookable,
@@ -250,7 +323,7 @@ export default function EmployeesPage() {
     <div className="space-y-5">
       {schedEmployee && (
         <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/40 p-4">
-          <form className="w-full max-w-lg space-y-3 rounded-lg bg-white p-5 shadow-xl" onSubmit={(e) => void saveSchedule(e)}>
+          <form className="w-full max-w-lg space-y-3 rounded-xl bg-white p-5 shadow-xl" onSubmit={(e) => void saveSchedule(e)}>
             <h3 className="font-semibold">
               Horario de {schedEmployee.firstName} {schedEmployee.lastName}
             </h3>
@@ -326,50 +399,96 @@ export default function EmployeesPage() {
 
       {editing && (
         <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/40 p-4">
-          <form className="w-full max-w-2xl space-y-3 rounded-lg bg-white p-5 shadow-xl" onSubmit={(e) => void save(e)}>
+          <form className="w-full max-w-2xl space-y-3 rounded-xl bg-white p-5 shadow-xl" onSubmit={(e) => void save(e)}>
             <h3 className="font-semibold">{editing === 'nuevo' ? 'Nuevo empleado' : 'Editar empleado'}</h3>
             <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-              <Field label="Nombres">
+              <GroupTitle>Datos personales</GroupTitle>
+              <Field label="Nombres *">
                 <input className={inputClass} value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} required />
               </Field>
-              <Field label="Apellidos">
+              <Field label="Apellidos *">
                 <input className={inputClass} value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} required />
               </Field>
-              <Field label="CI">
-                <input className={inputClass} value={form.ci_number} onChange={(e) => setForm({ ...form, ci_number: e.target.value })} />
+              <Field label={lbl('ci_number', 'CI')}>
+                <input className={inputClass} required={req('ci_number')} value={form.ci_number} onChange={(e) => setForm({ ...form, ci_number: e.target.value })} />
               </Field>
-              <Field label="Fecha de nacimiento">
-                <input className={inputClass} type="date" value={form.birth_date} onChange={(e) => setForm({ ...form, birth_date: e.target.value })} />
+              <Field label={lbl('birth_date', 'Fecha de nacimiento')}>
+                <input className={inputClass} type="date" required={req('birth_date')} value={form.birth_date} onChange={(e) => setForm({ ...form, birth_date: e.target.value })} />
               </Field>
-              <Field label="Telefono">
-                <input className={inputClass} value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+              <Field label={lbl('phone', 'Telefono')}>
+                <input className={inputClass} required={req('phone')} value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
               </Field>
-              <Field label="Email">
-                <input className={inputClass} type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+              <Field label={lbl('email', 'Email')}>
+                <input className={inputClass} type="email" required={req('email')} value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
               </Field>
-              <Field label="Cargo / puesto">
-                <input className={inputClass} value={form.position} onChange={(e) => setForm({ ...form, position: e.target.value })} />
+              <Field label={lbl('marital_status', 'Estado civil')}>
+                <select
+                  className={inputClass}
+                  required={req('marital_status')}
+                  value={form.marital_status}
+                  onChange={(e) => setForm({ ...form, marital_status: e.target.value })}
+                >
+                  <option value="">—</option>
+                  <option value="soltero">Soltero/a</option>
+                  <option value="casado">Casado/a</option>
+                  <option value="divorciado">Divorciado/a</option>
+                  <option value="viudo">Viudo/a</option>
+                  <option value="union_de_hecho">Unión de hecho</option>
+                </select>
               </Field>
-              <Field label="Fecha de ingreso">
-                <input className={inputClass} type="date" value={form.hired_at} onChange={(e) => setForm({ ...form, hired_at: e.target.value })} />
+              <Field label={lbl('children_count', 'Cantidad de hijos')}>
+                <input
+                  className={inputClass}
+                  type="number"
+                  min="0"
+                  max="30"
+                  placeholder="0 = no tiene"
+                  required={req('children_count')}
+                  value={form.children_count}
+                  onChange={(e) => setForm({ ...form, children_count: e.target.value })}
+                />
               </Field>
-              <Field label="Nro asegurado IPS">
-                <input className={inputClass} value={form.ips_number} onChange={(e) => setForm({ ...form, ips_number: e.target.value })} />
+              <Field label={lbl('address', 'Direccion')}>
+                <input className={inputClass} required={req('address')} value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
               </Field>
-              <Field label="Salario (Gs; solo lo ven root/admin)">
-                <input className={inputClass} value={form.salary} onChange={(e) => setForm({ ...form, salary: e.target.value })} />
+
+              <GroupTitle>Contacto de emergencia</GroupTitle>
+              <Field label={lbl('emergency_contact_name', 'Nombre')}>
+                <input className={inputClass} required={req('emergency_contact_name')} value={form.emergency_contact_name} onChange={(e) => setForm({ ...form, emergency_contact_name: e.target.value })} />
+              </Field>
+              <Field label={lbl('emergency_contact_phone', 'Telefono')}>
+                <input className={inputClass} required={req('emergency_contact_phone')} value={form.emergency_contact_phone} onChange={(e) => setForm({ ...form, emergency_contact_phone: e.target.value })} />
+              </Field>
+              <Field label={lbl('emergency_contact_relation', 'Relacion con el empleado')}>
+                <input
+                  className={inputClass}
+                  list="relaciones-emergencia"
+                  placeholder="padre, madre, esposo/a…"
+                  required={req('emergency_contact_relation')}
+                  value={form.emergency_contact_relation}
+                  onChange={(e) => setForm({ ...form, emergency_contact_relation: e.target.value })}
+                />
+              </Field>
+              <datalist id="relaciones-emergencia">
+                {['padre', 'madre', 'esposo/a', 'hijo/a', 'hermano/a', 'abuelo/a', 'tio/a', 'amigo/a', 'otro'].map((r) => (
+                  <option key={r} value={r} />
+                ))}
+              </datalist>
+
+              <GroupTitle>Datos laborales</GroupTitle>
+              <Field label={lbl('position', 'Cargo / puesto')}>
+                <input className={inputClass} required={req('position')} value={form.position} onChange={(e) => setForm({ ...form, position: e.target.value })} />
+              </Field>
+              <Field label={lbl('hired_at', 'Fecha de ingreso')}>
+                <input className={inputClass} type="date" required={req('hired_at')} value={form.hired_at} onChange={(e) => setForm({ ...form, hired_at: e.target.value })} />
+              </Field>
+              <Field label={lbl('ips_number', 'Nro asegurado IPS')}>
+                <input className={inputClass} required={req('ips_number')} value={form.ips_number} onChange={(e) => setForm({ ...form, ips_number: e.target.value })} />
+              </Field>
+              <Field label={lbl('salary', 'Salario (Gs; solo lo ven root/admin)')}>
+                <input className={inputClass} required={req('salary')} value={form.salary} onChange={(e) => setForm({ ...form, salary: e.target.value })} />
               </Field>
               <div className="col-span-2">
-                <Field label="Direccion">
-                  <input className={inputClass} value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
-                </Field>
-              </div>
-              <div className="col-span-2 md:col-span-3">
-                <Field label="Contacto de emergencia (nombre y telefono)">
-                  <input className={inputClass} value={form.emergency_contact} onChange={(e) => setForm({ ...form, emergency_contact: e.target.value })} />
-                </Field>
-              </div>
-              <div className="col-span-2 md:col-span-3">
                 <Field label="Notas">
                   <textarea className={`${inputClass} h-16`} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
                 </Field>
@@ -395,41 +514,91 @@ export default function EmployeesPage() {
         </div>
       )}
 
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Empleados</h1>
-        <button className={buttonClass} onClick={openNew}>
-          Nuevo empleado
-        </button>
-      </div>
-      <p className="text-xs text-slate-500">
-        Ficha de RRHH del equipo. Los marcados como agendables reciben los turnos de la agenda: el
-        sistema los asigna automaticamente y nunca superpone dos turnos de la misma persona. Cada
-        uno puede tener horario propio y conectar su Google Calendar personal (sus eventos lo sacan
-        de la agenda solo a el).
-      </p>
-      {notice && <p className="rounded bg-emerald-50 p-2 text-sm text-emerald-700">{notice}</p>}
+      <PageHeader
+        title="Empleados"
+        description="Ficha de RRHH del equipo. Los marcados como agendables reciben los turnos de la agenda: el sistema los asigna automáticamente y nunca superpone dos turnos de la misma persona. Cada uno puede tener horario propio y conectar su Google Calendar personal (sus eventos lo sacan de la agenda solo a él)."
+        actions={
+          <>
+            {isAdmin && (
+              <button
+                className={buttonGhost}
+                onClick={() => {
+                  setCfg(required);
+                  setShowCfg(true);
+                }}
+              >
+                Campos obligatorios
+              </button>
+            )}
+            <button className={buttonClass} onClick={openNew}>
+              Nuevo empleado
+            </button>
+          </>
+        }
+      />
+
+      {showCfg && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/40 p-4">
+          <form className="w-full max-w-md space-y-3 rounded-xl bg-white p-5 shadow-xl" onSubmit={(e) => void saveCfg(e)}>
+            <h3 className="font-semibold">Campos obligatorios de la planilla</h3>
+            <p className="text-xs text-slate-500">
+              Definí qué datos son obligatorios al cargar un empleado en TU empresa. Se marcan con *
+              en el formulario y el sistema no deja guardar un empleado nuevo sin completarlos.
+            </p>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
+              <label className="flex items-center gap-2 text-slate-400">
+                <input type="checkbox" checked disabled /> Nombres (siempre)
+              </label>
+              <label className="flex items-center gap-2 text-slate-400">
+                <input type="checkbox" checked disabled /> Apellidos (siempre)
+              </label>
+              {CONFIGURABLES.map((f) => (
+                <label key={f.key} className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={cfg.includes(f.key)}
+                    onChange={(e) =>
+                      setCfg(e.target.checked ? [...cfg, f.key] : cfg.filter((k) => k !== f.key))
+                    }
+                  />
+                  {f.label}
+                </label>
+              ))}
+            </div>
+            <div className="flex justify-end gap-2">
+              <button type="button" className={buttonGhost} onClick={() => setShowCfg(false)}>
+                Cancelar
+              </button>
+              <button className={buttonClass}>Guardar</button>
+            </div>
+          </form>
+        </div>
+      )}
+      {notice && <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{notice}</p>}
       <ErrorNote error={error} />
 
-      <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-        <table className="w-full text-sm">
-          <thead className="text-left text-slate-500">
+      <div className={tableCard}>
+        <table className="tbl">
+          <thead>
             <tr>
-              <th className="p-2">Nombre</th>
+              <th>Nombre</th>
               <th>Cargo</th>
               <th>Horario</th>
               <th>Google</th>
-              <th>Salario</th>
+              <th className="text-right">Salario</th>
               <th>Estado</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
             {rows.map((e) => (
-              <tr key={e.id} className="border-t border-slate-100">
-                <td className="p-2">
+              <tr key={e.id} className="hover:bg-slate-50">
+                <td>
                   {e.firstName} {e.lastName}
                   {e.bookable && (
-                    <span className="ml-2 rounded bg-sky-100 px-1.5 py-0.5 text-[10px] text-sky-700">agendable</span>
+                    <Badge tone="sky" className="ml-2">
+                      agendable
+                    </Badge>
                   )}
                 </td>
                 <td>{e.position ?? '—'}</td>
@@ -441,16 +610,14 @@ export default function EmployeesPage() {
                 <td>
                   {e.googleCalendar === 'connected' ? (
                     <span className="space-x-1">
-                      <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] text-emerald-700">conectado</span>
+                      <Badge tone="emerald">conectado</Badge>
                       <button className="text-xs text-red-600 hover:underline" onClick={() => void googleDisconnect(e)}>
                         desconectar
                       </button>
                     </span>
                   ) : (
                     <span className="space-x-1 whitespace-nowrap">
-                      {e.googleCalendar === 'disconnected' && (
-                        <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-700">revocado</span>
-                      )}
+                      {e.googleCalendar === 'disconnected' && <Badge tone="amber">revocado</Badge>}
                       <button className="text-xs text-sky-700 hover:underline" onClick={() => void googleConnect(e, false)}>
                         conectar
                       </button>
@@ -460,32 +627,27 @@ export default function EmployeesPage() {
                     </span>
                   )}
                 </td>
-                <td>{e.salary ? money(e.salary) : '—'}</td>
+                <td className="text-right tabular-nums">{e.salary ? money(e.salary) : '—'}</td>
                 <td>
-                  <span className={`rounded px-2 py-0.5 text-xs ${e.isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
-                    {e.isActive ? 'activo' : 'inactivo'}
-                  </span>
+                  <Badge tone={e.isActive ? 'emerald' : 'slate'}>{e.isActive ? 'activo' : 'inactivo'}</Badge>
                 </td>
-                <td className="space-x-1 p-2 text-right">
-                  <button className={buttonGhost} onClick={() => openEdit(e)}>
-                    Editar
-                  </button>
-                  <button
-                    className="rounded border border-red-200 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50"
-                    onClick={() => void remove(e)}
-                  >
-                    Dar de baja
-                  </button>
+                <td className="text-right">
+                  <span className="inline-flex gap-1">
+                    <button className={buttonGhost} onClick={() => openEdit(e)}>
+                      Editar
+                    </button>
+                    <button className={buttonDanger} onClick={() => void remove(e)}>
+                      Dar de baja
+                    </button>
+                  </span>
                 </td>
               </tr>
             ))}
             {rows.length === 0 && (
-              <tr>
-                <td colSpan={7} className="p-4 text-center text-sm text-slate-400">
-                  Sin empleados cargados. Sin empleados, la agenda funciona con capacidad simple;
-                  al cargar el primero, cada turno queda asignado a una persona.
-                </td>
-              </tr>
+              <EmptyRow colSpan={7}>
+                Sin empleados cargados. Sin empleados, la agenda funciona con capacidad simple; al cargar el primero,
+                cada turno queda asignado a una persona.
+              </EmptyRow>
             )}
           </tbody>
         </table>

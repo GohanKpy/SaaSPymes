@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { ApiError, api } from '../../lib/api';
-import { Field, buttonClass, buttonGhost, dt, inputClass } from '../../lib/ui';
+import { Badge, Card, Field, buttonClass, buttonGhost, dt, inputClass } from '../../lib/ui';
 
 interface Operator {
   id: string;
@@ -80,11 +80,7 @@ export function ProfileSection() {
   }
 
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-4">
-      <h2 className="mb-1 font-medium">Mi perfil</h2>
-      <p className="mb-3 text-xs text-slate-500">
-        Tus datos de operador del portal. El email es tu usuario de login.
-      </p>
+    <Card title="Mi perfil" description="Tus datos de operador del portal. El email es tu usuario de login.">
       <form className="grid grid-cols-1 items-end gap-3 sm:grid-cols-3" onSubmit={(e) => void saveProfile(e)}>
         <Field label="Nombre completo">
           <input className={inputClass} value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} required />
@@ -114,7 +110,7 @@ export function ProfileSection() {
         </div>
       </form>
       {pwMsg && <p className={`mt-2 text-sm ${pwMsg.ok ? 'text-emerald-600' : 'text-red-600'}`}>{pwMsg.text}</p>}
-    </section>
+    </Card>
   );
 }
 
@@ -171,16 +167,12 @@ export function OperatorsSection() {
   }
 
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-4">
-      <h2 className="mb-1 font-medium">Usuarios del portal</h2>
-      <p className="mb-3 text-xs text-slate-500">
-        Operadores de ESTE panel (no confundir con los usuarios de cada tenant). El administrador
-        gestiona todo; el agente solo lee y da soporte. El alta genera una contrasena temporal que
-        se muestra una unica vez.
-      </p>
-
+    <Card
+      title="Usuarios del portal"
+      description="Operadores de ESTE panel (no confundir con los usuarios de cada tenant). El administrador gestiona todo; el agente solo lee y da soporte. El alta genera una contrasena temporal que se muestra una unica vez."
+    >
       {creds && (
-        <div className="mb-3 rounded border border-amber-300 bg-amber-50 p-4 text-sm">
+        <div className="mb-3 rounded-md border border-amber-300 bg-amber-50 p-4 text-sm">
           <p className="font-medium">Credenciales (se muestran UNA sola vez):</p>
           <p className="mt-1 font-mono">
             {creds.email} / {creds.pass}
@@ -210,11 +202,11 @@ export function OperatorsSection() {
         </div>
       </form>
 
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="text-left text-slate-500">
+      <div className="-mx-4 overflow-x-auto">
+        <table className="tbl">
+          <thead>
             <tr>
-              <th className="p-2">Nombre</th>
+              <th>Nombre</th>
               <th>Email</th>
               <th>Rol</th>
               <th>Estado</th>
@@ -224,12 +216,12 @@ export function OperatorsSection() {
           </thead>
           <tbody>
             {rows.map((u) => (
-              <tr key={u.id} className="border-t border-slate-100">
-                <td className="p-2">{u.fullName}</td>
+              <tr key={u.id} className="hover:bg-slate-50">
+                <td>{u.fullName}</td>
                 <td>{u.email}</td>
                 <td>
                   <select
-                    className="rounded border border-slate-200 px-2 py-1 text-xs"
+                    className="rounded-md border border-slate-200 px-2 py-1 text-xs"
                     value={u.role}
                     onChange={(e) => void patch(u.id, { role: e.target.value })}
                   >
@@ -238,28 +230,28 @@ export function OperatorsSection() {
                   </select>
                 </td>
                 <td>
-                  <span className={`rounded px-2 py-0.5 text-xs ${u.isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
-                    {u.isActive ? 'activo' : 'inactivo'}
-                  </span>
+                  <Badge tone={u.isActive ? 'emerald' : 'red'}>{u.isActive ? 'activo' : 'inactivo'}</Badge>
                 </td>
                 <td>{u.lastLoginAt ? dt(u.lastLoginAt) : 'nunca'}</td>
-                <td className="space-x-1 p-2 text-right">
-                  <button className={buttonGhost} onClick={() => void resetPassword(u)}>
-                    Reiniciar contrasena
-                  </button>
-                  <button className={buttonGhost} onClick={() => void patch(u.id, { is_active: !u.isActive })}>
-                    {u.isActive ? 'Desactivar' : 'Activar'}
-                  </button>
+                <td className="text-right">
+                  <span className="inline-flex gap-1">
+                    <button className={buttonGhost} onClick={() => void resetPassword(u)}>
+                      Reiniciar contrasena
+                    </button>
+                    <button className={buttonGhost} onClick={() => void patch(u.id, { is_active: !u.isActive })}>
+                      {u.isActive ? 'Desactivar' : 'Activar'}
+                    </button>
+                  </span>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
-        <p className="mt-2 text-xs text-slate-400">
-          Tu propio usuario se edita desde &quot;Mi perfil&quot; (rol {ROLE_LABEL.admin}: no podes
-          desactivarte a vos mismo).
-        </p>
       </div>
-    </section>
+      <p className="mt-2 text-xs text-slate-400">
+        Tu propio usuario se edita desde &quot;Mi perfil&quot; (rol {ROLE_LABEL.admin}: no podes
+        desactivarte a vos mismo).
+      </p>
+    </Card>
   );
 }

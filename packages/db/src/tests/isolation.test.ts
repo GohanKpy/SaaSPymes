@@ -38,6 +38,7 @@ const APP_TABLES = [
   'invoice_items',
   'payments',
   'employees',
+  'employee_form_settings',
   'bot_settings',
   'bot_usage_monthly',
   'bot_tool_calls',
@@ -110,6 +111,10 @@ async function seedTenant(name: string, phone: string): Promise<SeededTenant> {
     });
     await tx.employee.create({
       data: { tenantId: tenant.id, firstName: 'Empleado', lastName: name, bookable: true },
+    });
+    // Planilla de empleados (2026-08-28): campos obligatorios por tenant.
+    await tx.employeeFormSettings.create({
+      data: { tenantId: tenant.id, requiredFields: ['phone'] },
     });
     await tx.calendarBlock.create({
       data: {
@@ -235,6 +240,7 @@ async function wipeTenant(tenantId: string): Promise<void> {
       'refresh_tokens',
       'notification_emails',
       'employees',
+      'employee_form_settings',
       'bot_settings',
       'integration_credentials',
       'customer_contact_points',

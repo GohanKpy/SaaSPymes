@@ -4,7 +4,17 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 
 import { api } from '../../../lib/api';
-import { ErrorNote, buttonGhost, dt, inputClass, useSession } from '../../../lib/ui';
+import {
+  Badge,
+  EmptyRow,
+  ErrorNote,
+  PageHeader,
+  buttonGhost,
+  dt,
+  inputClass,
+  tableCard,
+  useSession,
+} from '../../../lib/ui';
 
 interface TaskRow {
   id: string;
@@ -62,53 +72,53 @@ export default function TasksPage() {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-center gap-3">
-        <h1 className="text-xl font-semibold">Tareas y seguimientos</h1>
-        {status === 'pending' && vencidas > 0 && (
-          <span className="rounded bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
-            {vencidas} vencida{vencidas === 1 ? '' : 's'}
+      <PageHeader
+        title={
+          <span className="flex items-center gap-3">
+            Tareas y seguimientos
+            {status === 'pending' && vencidas > 0 && (
+              <Badge tone="red">
+                {vencidas} vencida{vencidas === 1 ? '' : 's'}
+              </Badge>
+            )}
           </span>
-        )}
-      </div>
-      <p className="text-sm text-slate-500">
-        Todo lo pendiente con tus clientes en un solo lugar: las tareas que carga tu equipo en cada
-        ficha y los seguimientos que el bot sugiere al cerrar una conversacion.
-      </p>
+        }
+        description="Todo lo pendiente con tus clientes en un solo lugar: las tareas que carga tu equipo en cada ficha y los seguimientos que el bot sugiere al cerrar una conversación."
+      />
       <ErrorNote error={error} />
 
-      <div className="flex flex-wrap items-center gap-3">
-        <select
-          className={`${inputClass} max-w-[180px]`}
-          value={status}
-          onChange={(e) => {
-            const st = e.target.value as 'pending' | 'done';
-            setStatus(st);
-            load(st, onlyMine);
-          }}
-        >
-          <option value="pending">Pendientes</option>
-          <option value="done">Hechas</option>
-        </select>
-        {users.length > 0 && (
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={onlyMine}
-              onChange={(e) => {
-                setOnlyMine(e.target.checked);
-                load(status, e.target.checked);
-              }}
-            />
-            Solo las mias
-          </label>
-        )}
-      </div>
-
-      <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-        <table className="w-full text-sm">
-          <thead className="text-left text-slate-500">
+      <div className={tableCard}>
+        <div className="flex flex-wrap items-center gap-3 border-b border-slate-100 p-3">
+          <select
+            className={`${inputClass} max-w-[180px]`}
+            value={status}
+            onChange={(e) => {
+              const st = e.target.value as 'pending' | 'done';
+              setStatus(st);
+              load(st, onlyMine);
+            }}
+          >
+            <option value="pending">Pendientes</option>
+            <option value="done">Hechas</option>
+          </select>
+          {users.length > 0 && (
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={onlyMine}
+                onChange={(e) => {
+                  setOnlyMine(e.target.checked);
+                  load(status, e.target.checked);
+                }}
+              />
+              Solo las mías
+            </label>
+          )}
+        </div>
+        <table className="tbl">
+          <thead>
             <tr>
-              <th className="w-8 p-2"></th>
+              <th className="w-8"></th>
               <th>Tarea</th>
               <th>Cliente</th>
               <th>Vence</th>
@@ -118,8 +128,8 @@ export default function TasksPage() {
           </thead>
           <tbody>
             {rows.map((t) => (
-              <tr key={t.id} className={`border-t border-slate-100 ${overdue(t) ? 'bg-red-50/50' : ''}`}>
-                <td className="p-2">
+              <tr key={t.id} className={overdue(t) ? 'bg-red-50/50' : 'hover:bg-slate-50'}>
+                <td>
                   <input
                     type="checkbox"
                     title={t.doneAt ? 'Reabrir' : 'Marcar hecha'}
@@ -128,9 +138,9 @@ export default function TasksPage() {
                   />
                 </td>
                 <td className={t.doneAt ? 'text-slate-400 line-through' : ''}>
-                  <span className="mr-2 rounded bg-slate-100 px-1.5 py-0.5 text-xs uppercase text-slate-500">
+                  <Badge tone="slate" className="mr-2 uppercase">
                     {t.activityType}
-                  </span>
+                  </Badge>
                   {t.body}
                 </td>
                 <td>
@@ -141,7 +151,7 @@ export default function TasksPage() {
                 </td>
                 <td className={overdue(t) ? 'font-medium text-red-600' : ''}>{t.dueAt ? dt(t.dueAt) : '—'}</td>
                 <td>{users.find((u) => u.id === t.assignedUserId)?.fullName ?? '—'}</td>
-                <td className="p-2 text-right">
+                <td className="text-right">
                   <Link className={buttonGhost} href={`/app/customers/${t.customer.id}`}>
                     Ficha
                   </Link>
@@ -149,11 +159,7 @@ export default function TasksPage() {
               </tr>
             ))}
             {rows.length === 0 && (
-              <tr>
-                <td colSpan={6} className="p-4 text-center text-slate-400">
-                  {status === 'pending' ? 'Nada pendiente 🎉' : 'Sin tareas hechas todavia'}
-                </td>
-              </tr>
+              <EmptyRow colSpan={6}>{status === 'pending' ? 'Nada pendiente 🎉' : 'Sin tareas hechas todavía'}</EmptyRow>
             )}
           </tbody>
         </table>

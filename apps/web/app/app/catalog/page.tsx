@@ -3,7 +3,20 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { ApiError, api, apiImageUrl } from '../../../lib/api';
-import { ErrorNote, Field, buttonClass, buttonGhost, inputClass, money } from '../../../lib/ui';
+import {
+  Badge,
+  Card,
+  EmptyRow,
+  ErrorNote,
+  Field,
+  PageHeader,
+  buttonClass,
+  buttonDanger,
+  buttonGhost,
+  inputClass,
+  money,
+  tableCard,
+} from '../../../lib/ui';
 
 type Kind = 'servicio' | 'item';
 
@@ -31,8 +44,6 @@ interface Service {
 
 const KIND_LABEL: Record<Kind, string> = { servicio: 'Servicio', item: 'Ítem' };
 
-const deleteBtn = 'rounded border border-red-200 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50';
-
 // Los ids de foto son inmutables: el object URL se cachea por id y se
 // reutiliza entre renders (evita re-descargar en cada carga de la tabla).
 const photoCache = new Map<string, string>();
@@ -58,15 +69,7 @@ function PhotoThumb({ serviceId, photoId, className }: { serviceId: string; phot
 }
 
 function KindBadge({ kind }: { kind: Kind }) {
-  return (
-    <span
-      className={`rounded px-1.5 py-0.5 text-[11px] ${
-        kind === 'servicio' ? 'bg-sky-100 text-sky-700' : 'bg-amber-100 text-amber-700'
-      }`}
-    >
-      {KIND_LABEL[kind]}
-    </span>
-  );
+  return <Badge tone={kind === 'servicio' ? 'sky' : 'amber'}>{KIND_LABEL[kind]}</Badge>;
 }
 
 /** Catalogo tipado (ADR 0009 fase 2): el tipo vive en cada producto.
@@ -293,7 +296,7 @@ export default function CatalogPage() {
     <div className="space-y-5">
       {editingCat && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <form className="w-full max-w-sm space-y-3 rounded-lg bg-white p-5 shadow-xl" onSubmit={(e) => void saveCategory(e)}>
+          <form className="w-full max-w-sm space-y-3 rounded-xl bg-white p-5 shadow-xl" onSubmit={(e) => void saveCategory(e)}>
             <h3 className="font-semibold">Editar categoria</h3>
             <Field label="Nombre">
               <input className={inputClass} value={catForm.name} onChange={(e) => setCatForm({ ...catForm, name: e.target.value })} required />
@@ -317,7 +320,7 @@ export default function CatalogPage() {
 
       {editing && (
         <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/40 p-4">
-          <form className="w-full max-w-md space-y-3 rounded-lg bg-white p-5 shadow-xl" onSubmit={(e) => void saveEdit(e)}>
+          <form className="w-full max-w-md space-y-3 rounded-xl bg-white p-5 shadow-xl" onSubmit={(e) => void saveEdit(e)}>
             <h3 className="font-semibold">Editar producto</h3>
             <div className="grid grid-cols-2 gap-3">
               <Field label="Nombre">
@@ -405,14 +408,16 @@ export default function CatalogPage() {
         </div>
       )}
 
-      <h1 className="text-xl font-semibold">Catalogo</h1>
+      <PageHeader
+        title="Catálogo"
+        description="Servicios e ítems que ofrecés: el bot los consulta en vivo para responder precios y agendar."
+      />
       <ErrorNote error={error} />
 
       <div className="grid gap-4 md:grid-cols-2">
-        <div className="space-y-3 rounded-lg border border-slate-200 bg-white p-4">
-          <h2 className="font-medium">Categorias</h2>
+        <Card title="Categorías" className="space-y-3">
           <table className="w-full text-sm">
-            <thead className="text-left text-slate-500">
+            <thead className="text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400">
               <tr>
                 <th className="py-1">Nombre</th>
                 <th>Tipo por defecto</th>
@@ -438,7 +443,7 @@ export default function CatalogPage() {
                     >
                       Editar
                     </button>
-                    <button className={deleteBtn} onClick={() => void removeCategory(c)}>
+                    <button className={buttonDanger} onClick={() => void removeCategory(c)}>
                       Eliminar
                     </button>
                   </td>
@@ -466,10 +471,10 @@ export default function CatalogPage() {
             </div>
             <button className={buttonClass}>Crear</button>
           </form>
-        </div>
+        </Card>
 
-        <form className="space-y-3 rounded-lg border border-slate-200 bg-white p-4" onSubmit={(e) => void createService(e)}>
-          <h2 className="font-medium">Nuevo producto</h2>
+        <Card title="Nuevo producto">
+        <form className="space-y-3" onSubmit={(e) => void createService(e)}>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Categoria">
               <select className={inputClass} value={svc.category_id || categories[0]?.id || ''} onChange={(e) => pickCategory(e.target.value)}>
@@ -507,16 +512,17 @@ export default function CatalogPage() {
             Crear producto
           </button>
         </form>
+        </Card>
       </div>
 
-      <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-        <table className="w-full text-sm">
-          <thead className="text-left text-slate-500">
+      <div className={tableCard}>
+        <table className="tbl">
+          <thead>
             <tr>
-              <th className="p-2">Producto</th>
+              <th>Producto</th>
               <th>Categoria</th>
               <th>Tipo</th>
-              <th>Precio</th>
+              <th className="text-right">Precio</th>
               <th>Duracion</th>
               <th>Estado</th>
               <th></th>
@@ -524,8 +530,8 @@ export default function CatalogPage() {
           </thead>
           <tbody>
             {services.map((s) => (
-              <tr key={s.id} className="border-t border-slate-100">
-                <td className="p-2">
+              <tr key={s.id} className="hover:bg-slate-50">
+                <td>
                   <span className="flex items-center gap-2">
                     {s.photos?.[0] ? (
                       <PhotoThumb serviceId={s.id} photoId={s.photos[0].id} className="h-8 w-8 rounded" />
@@ -542,7 +548,7 @@ export default function CatalogPage() {
                 <td>
                   <KindBadge kind={s.kind} />
                 </td>
-                <td>{money(s.price)}</td>
+                <td className="text-right tabular-nums">{money(s.price)}</td>
                 <td>
                   {s.kind === 'servicio'
                     ? `${s.durationMin ?? 30} min`
@@ -551,34 +557,28 @@ export default function CatalogPage() {
                       : 'venta directa'}
                 </td>
                 <td>
-                  <span className={`rounded px-2 py-0.5 text-xs ${s.isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
-                    {s.isActive ? 'activo' : 'inactivo'}
-                  </span>
+                  <Badge tone={s.isActive ? 'emerald' : 'slate'}>{s.isActive ? 'activo' : 'inactivo'}</Badge>
                 </td>
-                <td className="space-x-1 p-2 text-right">
-                  <button className={buttonGhost} onClick={() => openEdit(s)}>
-                    Editar
-                  </button>
-                  <button
-                    className={deleteBtn}
-                    onClick={() => {
-                      if (confirm(`¿Eliminar "${s.name}" del catalogo?`)) {
-                        void api(`/catalog/services/${s.id}`, { method: 'DELETE' }).then(load, fail);
-                      }
-                    }}
-                  >
-                    Eliminar
-                  </button>
+                <td className="text-right">
+                  <span className="inline-flex gap-1">
+                    <button className={buttonGhost} onClick={() => openEdit(s)}>
+                      Editar
+                    </button>
+                    <button
+                      className={buttonDanger}
+                      onClick={() => {
+                        if (confirm(`¿Eliminar "${s.name}" del catalogo?`)) {
+                          void api(`/catalog/services/${s.id}`, { method: 'DELETE' }).then(load, fail);
+                        }
+                      }}
+                    >
+                      Eliminar
+                    </button>
+                  </span>
                 </td>
               </tr>
             ))}
-            {services.length === 0 && (
-              <tr>
-                <td colSpan={7} className="p-4 text-center text-slate-400">
-                  Sin productos cargados.
-                </td>
-              </tr>
-            )}
+            {services.length === 0 && <EmptyRow colSpan={7}>Sin productos cargados.</EmptyRow>}
           </tbody>
         </table>
       </div>

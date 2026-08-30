@@ -5,7 +5,16 @@ import { useParams } from 'next/navigation';
 
 import { api } from '../../../../lib/api';
 import { formatRucConDv } from '../../../../lib/ruc';
-import { ErrorNote, Field, buttonClass, buttonGhost, inputClass, useSession } from '../../../../lib/ui';
+import {
+  Badge,
+  Card,
+  ErrorNote,
+  Field,
+  buttonClass,
+  buttonGhost,
+  inputClass,
+  useSession,
+} from '../../../../lib/ui';
 
 interface TenantUser {
   id: string;
@@ -176,13 +185,30 @@ export default function TenantDetailPage() {
           <a className="text-sm text-sky-700 hover:underline" href="/platform">
             ← Panel de plataforma
           </a>
-          <h1 className="text-2xl font-semibold">
-            {tenant ? (tenant.tradeName ?? tenant.legalName) : 'Ficha del tenant'}
-          </h1>
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-2xl font-semibold text-slate-900">
+              {tenant ? (tenant.tradeName ?? tenant.legalName) : 'Ficha del tenant'}
+            </h1>
+            {tenant && (
+              <Badge
+                tone={
+                  tenant.status === 'active'
+                    ? 'emerald'
+                    : tenant.status === 'suspended'
+                      ? 'red'
+                      : tenant.status === 'closed'
+                        ? 'slate'
+                        : 'amber'
+                }
+              >
+                {tenant.status}
+              </Badge>
+            )}
+          </div>
           {tenant && (
             <p className="text-sm text-slate-500">
               Cliente desde {new Date(tenant.createdAt).toLocaleDateString('es-PY')} · plan{' '}
-              {tenant.currentPlan?.name ?? 'sin plan'} · estado {tenant.status}
+              {tenant.currentPlan?.name ?? 'sin plan'}
             </p>
           )}
         </div>
@@ -190,7 +216,7 @@ export default function TenantDetailPage() {
       <ErrorNote error={error} />
 
       {resetCreds && (
-        <div className="rounded border border-amber-300 bg-amber-50 p-4 text-sm">
+        <div className="rounded-md border border-amber-300 bg-amber-50 p-4 text-sm">
           <p className="font-medium">Contrasena reiniciada (se muestra UNA sola vez):</p>
           <p className="mt-1 font-mono">
             {resetCreds.email} / {resetCreds.pass}
@@ -201,8 +227,7 @@ export default function TenantDetailPage() {
         </div>
       )}
 
-      <section className="rounded-lg border border-slate-200 bg-white p-4">
-        <h2 className="mb-3 font-medium">Ficha del cliente (CRM)</h2>
+      <Card title="Ficha del cliente (CRM)">
         <form className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3" onSubmit={(e) => void save(e)}>
           <Field label="Razon social">
             <input className={inputClass} value={form.legal_name} onChange={(e) => setForm({ ...form, legal_name: e.target.value })} required />
@@ -261,18 +286,17 @@ export default function TenantDetailPage() {
             {saved && <span className="text-sm text-emerald-600">✓ guardado</span>}
           </div>
         </form>
-      </section>
+      </Card>
 
-      <section className="rounded-lg border border-slate-200 bg-white p-4">
-        <h2 className="mb-1 font-medium">Features y acuerdos a medida</h2>
-        <p className="mb-3 text-xs text-slate-500">
-          Lo que el plan {tenant?.currentPlan?.name ?? ''} no incluye se puede forzar por acuerdo
-          (con motivo, queda auditado). Quitar el acuerdo vuelve a heredar del plan.
-        </p>
-        <table className="w-full text-sm">
-          <thead className="text-left text-slate-500">
+      <Card
+        title="Features y acuerdos a medida"
+        description={`Lo que el plan ${tenant?.currentPlan?.name ?? ''} no incluye se puede forzar por acuerdo (con motivo, queda auditado). Quitar el acuerdo vuelve a heredar del plan.`}
+      >
+        <div className="-mx-4 -mb-4 overflow-x-auto">
+        <table className="tbl">
+          <thead>
             <tr>
-              <th className="py-1">Feature</th>
+              <th>Feature</th>
               <th>Por plan</th>
               <th>Efectivo</th>
               <th>Acuerdo</th>
@@ -289,15 +313,13 @@ export default function TenantDetailPage() {
               const override = tenant?.featureOverrides.find((o) => o.feature.code === f.code);
               const effective = override ? override.enabled : planHasIt;
               return (
-                <tr key={f.code} className="border-t border-slate-100">
-                  <td className="py-2">
+                <tr key={f.code} className="hover:bg-slate-50">
+                  <td>
                     {f.name} <span className="text-xs text-slate-400">({f.code})</span>
                   </td>
                   <td>{planHasIt ? '✓' : '—'}</td>
                   <td>
-                    <span className={`rounded px-2 py-0.5 text-xs ${effective ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
-                      {effective ? 'activa' : 'inactiva'}
-                    </span>
+                    <Badge tone={effective ? 'emerald' : 'slate'}>{effective ? 'activa' : 'inactiva'}</Badge>
                   </td>
                   <td className="max-w-48 text-xs text-slate-500">
                     {override ? `forzada ${override.enabled ? 'ON' : 'OFF'} — ${override.note}` : 'hereda del plan'}
@@ -323,16 +345,16 @@ export default function TenantDetailPage() {
             })}
           </tbody>
         </table>
-      </section>
+        </div>
+      </Card>
 
-      <section className="rounded-lg border border-violet-200 bg-white p-4">
-        <h2 className="mb-1 font-medium">Bot de IA: consumo y presupuesto</h2>
-        <p className="mb-3 text-xs text-slate-500">
-          Consumo de {tenant?.bot_usage.period ?? '—'}:{' '}
-          {((tenant?.bot_usage.input_tokens ?? 0) + (tenant?.bot_usage.output_tokens ?? 0)).toLocaleString('es-PY')}{' '}
-          tokens en {tenant?.bot_usage.turns ?? 0} respuestas. Al agotar el presupuesto el bot deriva
-          a un humano hasta el mes siguiente (ADR 0006).
-        </p>
+      <Card
+        tone="violet"
+        title="Bot de IA: consumo y presupuesto"
+        description={`Consumo de ${tenant?.bot_usage.period ?? '—'}: ${(
+          (tenant?.bot_usage.input_tokens ?? 0) + (tenant?.bot_usage.output_tokens ?? 0)
+        ).toLocaleString('es-PY')} tokens en ${tenant?.bot_usage.turns ?? 0} respuestas. Al agotar el presupuesto el bot deriva a un humano hasta el mes siguiente (ADR 0006).`}
+      >
         <form
           className="flex items-end gap-3"
           onSubmit={(e) => {
@@ -362,18 +384,17 @@ export default function TenantDetailPage() {
           <button className={buttonClass}>Guardar presupuesto</button>
           {budgetMsg && <span className="pb-2 text-sm text-emerald-600">{budgetMsg}</span>}
         </form>
-      </section>
+      </Card>
 
-      <section className="rounded-lg border border-slate-200 bg-white p-4">
-        <h2 className="mb-1 font-medium">Usuarios del tenant</h2>
-        <p className="mb-3 text-xs text-slate-500">
-          Reiniciar una contrasena genera una temporal que se muestra una sola vez y cierra las
-          sesiones activas de ese usuario. Queda registrado en la auditoria.
-        </p>
-        <table className="w-full text-sm">
-          <thead className="text-left text-slate-500">
+      <Card
+        title="Usuarios del tenant"
+        description="Reiniciar una contrasena genera una temporal que se muestra una sola vez y cierra las sesiones activas de ese usuario. Queda registrado en la auditoria."
+      >
+        <div className="-mx-4 -mb-4 overflow-x-auto">
+        <table className="tbl">
+          <thead>
             <tr>
-              <th className="py-1">Email</th>
+              <th>Email</th>
               <th>Nombre</th>
               <th>Rol</th>
               <th>Ultimo acceso</th>
@@ -382,12 +403,14 @@ export default function TenantDetailPage() {
           </thead>
           <tbody>
             {(tenant?.users ?? []).map((u) => (
-              <tr key={u.id} className="border-t border-slate-100">
-                <td className="py-2 font-mono text-xs">{u.email}</td>
+              <tr key={u.id} className="hover:bg-slate-50">
+                <td className="font-mono text-xs">{u.email}</td>
                 <td>{u.fullName}</td>
                 <td>
-                  <span className="rounded bg-slate-100 px-2 py-0.5 text-xs">{u.role}</span>
-                  {!u.isActive && <span className="ml-1 text-xs text-red-600">inactivo</span>}
+                  <span className="inline-flex items-center gap-1.5">
+                    <Badge tone={u.role === 'root' ? 'violet' : u.role === 'admin' ? 'sky' : 'slate'}>{u.role}</Badge>
+                    {!u.isActive && <Badge tone="red">inactivo</Badge>}
+                  </span>
                 </td>
                 <td className="text-xs text-slate-500">
                   {u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString('es-PY') : 'nunca'}
@@ -401,7 +424,8 @@ export default function TenantDetailPage() {
             ))}
           </tbody>
         </table>
-      </section>
+        </div>
+      </Card>
     </main>
   );
 }

@@ -3,3 +3,17 @@
 body {
   @apply bg-slate-50 text-slate-900;
 }
+
+/* Tabla estandar de los paneles: cabecera gris uniforme y celdas con el mismo
+   padding en todo el producto (antes cada tabla traia sus propios paddings). */
+@layer components {
+  .tbl {
+    @apply w-full text-sm;
+  }
+  .tbl thead th {
+    @apply bg-slate-50 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500;
+  }
+  .tbl tbody td {
+    @apply border-t border-slate-100 px-3 py-2 align-middle;
+  }
+}

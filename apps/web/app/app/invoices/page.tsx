@@ -3,7 +3,23 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { API_URL, api, getToken } from '../../../lib/api';
-import { ErrorNote, Field, buttonClass, buttonGhost, dt, inputClass, money } from '../../../lib/ui';
+import {
+  Badge,
+  Card,
+  EmptyRow,
+  ErrorNote,
+  Field,
+  PageHeader,
+  buttonClass,
+  buttonDanger,
+  buttonGhost,
+  buttonSoft,
+  dt,
+  inputClass,
+  money,
+  tableCard,
+  type BadgeTone,
+} from '../../../lib/ui';
 
 import { QuotesSection } from './quotes';
 
@@ -130,14 +146,13 @@ export default function InvoicesPage() {
     }
   }
 
-  const badge = (s: string) =>
-    s === 'approved'
-      ? 'bg-emerald-100 text-emerald-700'
-      : s === 'draft'
-        ? 'bg-slate-100 text-slate-600'
-        : s === 'cancelled' || s === 'rejected'
-          ? 'bg-red-100 text-red-700'
-          : 'bg-amber-100 text-amber-700';
+  const STATUS: Record<string, { label: string; tone: BadgeTone }> = {
+    draft: { label: 'borrador', tone: 'slate' },
+    approved: { label: 'aprobada', tone: 'emerald' },
+    cancelled: { label: 'anulada', tone: 'red' },
+    rejected: { label: 'rechazada', tone: 'red' },
+    credited: { label: 'acreditada', tone: 'sky' },
+  };
 
   const vuelto = paying ? Math.max(0, Number(payForm.recibido || 0) - saldo(paying)) : 0;
   const parcial = paying ? Math.max(0, saldo(paying) - Number(payForm.recibido || 0)) : 0;
@@ -146,7 +161,7 @@ export default function InvoicesPage() {
     <div className="space-y-5">
       {paying && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-sm space-y-3 rounded-lg bg-white p-5 shadow-xl">
+          <div className="w-full max-w-sm space-y-3 rounded-xl bg-white p-5 shadow-xl">
             <h3 className="font-semibold">Registrar pago</h3>
             <p className="text-sm text-slate-600">
               Factura {paying.establishment}-{paying.expeditionPoint}-{paying.docNumber} ·{' '}
@@ -194,14 +209,14 @@ export default function InvoicesPage() {
           </div>
         </div>
       )}
-      <h1 className="text-xl font-semibold">Facturas</h1>
-      <p className="text-xs text-slate-500">
-        Emision con proveedor SIFEN de laboratorio (fake): aprueba al instante con CDC sintetico.
-        Configura timbrado/establecimiento/punto en Ajustes antes de emitir.
-      </p>
+      <PageHeader
+        title="Facturas"
+        description="Emisión con proveedor SIFEN de laboratorio (fake): aprueba al instante con CDC sintético. Configurá timbrado/establecimiento/punto en Ajustes antes de emitir."
+      />
       <ErrorNote error={error} />
 
-      <form className="grid grid-cols-2 gap-3 rounded-lg border border-slate-200 bg-white p-4 md:grid-cols-3" onSubmit={(e) => void createDraft(e)}>
+      <Card title="Nueva factura">
+      <form className="grid grid-cols-2 gap-3 md:grid-cols-3" onSubmit={(e) => void createDraft(e)}>
         <Field label="Cliente">
           <select className={inputClass} value={form.customer_id} onChange={(e) => setForm({ ...form, customer_id: e.target.value })} required>
             <option value="">Elegir…</option>
@@ -226,14 +241,15 @@ export default function InvoicesPage() {
           <button className={buttonClass}>Crear borrador</button>
         </div>
       </form>
+      </Card>
 
-      <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-        <table className="w-full text-sm">
-          <thead className="text-left text-slate-500">
+      <div className={tableCard}>
+        <table className="tbl">
+          <thead>
             <tr>
-              <th className="p-2">Numero</th>
+              <th>Numero</th>
               <th>Cliente</th>
-              <th>Total</th>
+              <th className="text-right">Total</th>
               <th>Estado</th>
               <th>Fecha</th>
               <th></th>
@@ -241,42 +257,48 @@ export default function InvoicesPage() {
           </thead>
           <tbody>
             {rows.map((i) => (
-              <tr key={i.id} className="border-t border-slate-100">
-                <td className="p-2 font-mono text-xs">
+              <tr key={i.id} className="hover:bg-slate-50">
+                <td className="font-mono text-xs">
                   {i.docNumber ? `${i.establishment}-${i.expeditionPoint}-${i.docNumber}` : 'borrador'}
                 </td>
                 <td>
                   {i.customer.firstName} {i.customer.lastName}
                 </td>
-                <td>{money(i.total)}</td>
+                <td className="text-right tabular-nums">{money(i.total)}</td>
                 <td>
-                  <span className={`rounded px-2 py-0.5 text-xs ${badge(i.status)}`}>{i.status}</span>
+                  <span className="inline-flex items-center gap-1.5">
+                    <Badge tone={STATUS[i.status]?.tone ?? 'amber'}>{STATUS[i.status]?.label ?? i.status}</Badge>
+                    {i.status === 'approved' && saldo(i) > 0 && <Badge tone="amber">saldo {money(saldo(i))}</Badge>}
+                  </span>
                 </td>
                 <td>{dt(i.createdAt)}</td>
-                <td className="space-x-1 p-2 text-right">
-                  {i.status === 'draft' && (
-                    <button className={buttonGhost} onClick={() => void issue(i.id)}>
-                      Emitir
-                    </button>
-                  )}
-                  {i.status === 'approved' && saldo(i) > 0 && (
-                    <button className={buttonGhost} onClick={() => openPay(i)}>
-                      Registrar pago
-                    </button>
-                  )}
-                  {i.status === 'approved' && (
-                    <button className={buttonGhost} onClick={() => void cancel(i.id)}>
-                      Anular
-                    </button>
-                  )}
-                  {(i.status === 'approved' ? saldo(i) <= 0 : ['cancelled', 'credited'].includes(i.status)) && (
-                    <button className={buttonGhost} onClick={() => void openKude(i.id)}>
-                      KuDE (PDF)
-                    </button>
-                  )}
+                <td className="text-right">
+                  <span className="inline-flex gap-1">
+                    {i.status === 'draft' && (
+                      <button className={buttonSoft} onClick={() => void issue(i.id)}>
+                        Emitir
+                      </button>
+                    )}
+                    {i.status === 'approved' && saldo(i) > 0 && (
+                      <button className={buttonSoft} onClick={() => openPay(i)}>
+                        Registrar pago
+                      </button>
+                    )}
+                    {(i.status === 'approved' ? saldo(i) <= 0 : ['cancelled', 'credited'].includes(i.status)) && (
+                      <button className={buttonGhost} onClick={() => void openKude(i.id)}>
+                        KuDE (PDF)
+                      </button>
+                    )}
+                    {i.status === 'approved' && (
+                      <button className={buttonDanger} onClick={() => void cancel(i.id)}>
+                        Anular
+                      </button>
+                    )}
+                  </span>
                 </td>
               </tr>
             ))}
+            {rows.length === 0 && <EmptyRow colSpan={6}>Sin facturas todavía: creá el primer borrador arriba.</EmptyRow>}
           </tbody>
         </table>
       </div>

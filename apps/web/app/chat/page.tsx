@@ -92,7 +92,7 @@ export default function WebchatTester() {
 
       {!started ? (
         <form
-          className="space-y-3 rounded-lg border border-slate-200 bg-white p-4"
+          className="space-y-3 rounded-xl border border-slate-200 bg-white shadow-sm p-4"
           onSubmit={(e) => {
             e.preventDefault();
             setStarted(true);
@@ -110,7 +110,7 @@ export default function WebchatTester() {
           <button className={`${buttonClass} w-full`}>Empezar a chatear</button>
         </form>
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col rounded-lg border border-slate-200 bg-white">
+        <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-slate-200 bg-white shadow-sm">
           <header className="border-b border-slate-100 px-4 py-2 text-xs text-slate-500">
             {config.from_name} → negocio {config.phone_number_id}
             {status ? ` · conversacion: ${status === 'bot_active' ? 'bot activo' : status}` : ''}

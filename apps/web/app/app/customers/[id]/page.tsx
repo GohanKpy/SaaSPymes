@@ -7,7 +7,17 @@ import { useParams } from 'next/navigation';
 import { api } from '../../../../lib/api';
 import { ACTIVITY_TYPES, CONTACT_KINDS, SOURCES, type CustomFieldDef } from '../../../../lib/crm';
 import { dvRuc } from '../../../../lib/ruc';
-import { ErrorNote, Field, buttonClass, dt, inputClass, money } from '../../../../lib/ui';
+import {
+  Badge,
+  Card,
+  ErrorNote,
+  Field,
+  GroupTitle,
+  buttonClass,
+  dt,
+  inputClass,
+  money,
+} from '../../../../lib/ui';
 
 interface ContactPoint {
   id: string;
@@ -308,7 +318,7 @@ export default function CustomerFichaPage() {
         <Link className="text-sm text-sky-700 hover:underline" href="/app/customers">
           ← Clientes
         </Link>
-        <h1 className="text-xl font-semibold">
+        <h1 className="text-xl font-semibold text-slate-900">
           {customer.firstName} {customer.lastName}
         </h1>
         {/* Rating editable: clic en la estrella fija el valor; clic en la misma lo quita */}
@@ -326,9 +336,9 @@ export default function CustomerFichaPage() {
           ))}
         </span>
         {(customer.tags ?? []).map((t) => (
-          <span key={t} className="rounded bg-sky-50 px-2 py-0.5 text-xs text-sky-700">
+          <Badge key={t} tone="sky">
             {t}
-          </span>
+          </Badge>
         ))}
         {saved && <span className="text-sm text-emerald-600">✓ guardado</span>}
       </div>
@@ -336,169 +346,177 @@ export default function CustomerFichaPage() {
 
       <div className="grid gap-5 lg:grid-cols-3">
         <div className="space-y-5 lg:col-span-2">
-          <form className="grid grid-cols-2 gap-3 rounded-lg border border-slate-200 bg-white p-4 md:grid-cols-4" onSubmit={(e) => void save(e)}>
-            <h2 className="col-span-2 text-sm font-medium md:col-span-4">Datos del cliente</h2>
-            <Field label="Nombre *">
-              <input className={inputClass} value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} required />
-            </Field>
-            <Field label="Apellido">
-              <input className={inputClass} value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} />
-            </Field>
-            <Field label="Celular / WhatsApp">
-              <input className={inputClass} placeholder="+595971234567" value={form.phone_e164} onChange={(e) => setForm({ ...form, phone_e164: e.target.value })} />
-            </Field>
-            <Field label="Email">
-              <input className={inputClass} type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-            </Field>
-            <Field label="Tipo de documento">
-              <select
-                className={inputClass}
-                value={form.doc_type}
-                onChange={(e) => {
-                  const doc_type = e.target.value;
-                  setForm({ ...form, doc_type, ruc_dv: doc_type === 'ruc' ? (dvRuc(form.doc_number) ?? '') : '' });
-                }}
-              >
-                <option value="">—</option>
-                <option value="ci">Cedula (CI)</option>
-                <option value="ruc">RUC</option>
-                <option value="pasaporte">Pasaporte</option>
-              </select>
-            </Field>
-            <Field label="Numero de documento">
-              <input
-                className={inputClass}
-                value={form.doc_number}
-                onChange={(e) => {
-                  const doc_number = e.target.value;
-                  const ruc_dv = form.doc_type === 'ruc' ? (dvRuc(doc_number) ?? '') : form.ruc_dv;
-                  setForm({ ...form, doc_number, ruc_dv });
-                }}
-              />
-            </Field>
-            {form.doc_type === 'ruc' && (
-              <Field label="DV (automatico)">
-                <input className={`${inputClass} bg-slate-50`} readOnly value={form.ruc_dv} />
+          <Card title="Datos del cliente">
+            <form className="grid grid-cols-2 gap-3 md:grid-cols-4" onSubmit={(e) => void save(e)}>
+              <GroupTitle>Contacto</GroupTitle>
+              <Field label="Nombre *">
+                <input className={inputClass} value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} required />
               </Field>
-            )}
-            <Field label="Fecha de nacimiento">
-              <input className={inputClass} type="date" value={form.birth_date} onChange={(e) => setForm({ ...form, birth_date: e.target.value })} />
-            </Field>
-            <Field label="Ciudad">
-              <input className={inputClass} value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} />
-            </Field>
-            <div className="col-span-2">
-              <Field label="Direccion">
-                <input className={inputClass} value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
+              <Field label="Apellido">
+                <input className={inputClass} value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} />
               </Field>
-            </div>
-            <Field label="Empresa">
-              <input className={inputClass} value={form.company_name} onChange={(e) => setForm({ ...form, company_name: e.target.value })} />
-            </Field>
-            <Field label="Cargo">
-              <input className={inputClass} value={form.job_title} onChange={(e) => setForm({ ...form, job_title: e.target.value })} />
-            </Field>
-            <Field label="Origen (de donde llego)">
-              <select className={inputClass} value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value })}>
-                <option value="">—</option>
-                {SOURCES.map((s) => (
-                  <option key={s.value} value={s.value}>
-                    {s.label}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Detalle del origen">
-              <input className={inputClass} placeholder="Ej: campaña agosto, cliente Maria" value={form.source_detail} onChange={(e) => setForm({ ...form, source_detail: e.target.value })} />
-            </Field>
-            <div className="col-span-2">
-              <Field label="Etiquetas (separadas por coma)">
-                <input className={inputClass} placeholder="vip, color, novia2026" value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} />
+              <Field label="Celular / WhatsApp">
+                <input className={inputClass} placeholder="+595971234567" value={form.phone_e164} onChange={(e) => setForm({ ...form, phone_e164: e.target.value })} />
               </Field>
-            </div>
-            {users.length > 0 && (
-              <Field label="Responsable">
-                <select className={inputClass} value={form.assigned_user_id} onChange={(e) => setForm({ ...form, assigned_user_id: e.target.value })}>
+              <Field label="Email">
+                <input className={inputClass} type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+              </Field>
+
+              <GroupTitle>Documento y datos personales</GroupTitle>
+              <Field label="Tipo de documento">
+                <select
+                  className={inputClass}
+                  value={form.doc_type}
+                  onChange={(e) => {
+                    const doc_type = e.target.value;
+                    setForm({ ...form, doc_type, ruc_dv: doc_type === 'ruc' ? (dvRuc(form.doc_number) ?? '') : '' });
+                  }}
+                >
                   <option value="">—</option>
-                  {users.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.fullName}
+                  <option value="ci">Cedula (CI)</option>
+                  <option value="ruc">RUC</option>
+                  <option value="pasaporte">Pasaporte</option>
+                </select>
+              </Field>
+              <Field label="Numero de documento">
+                <input
+                  className={inputClass}
+                  value={form.doc_number}
+                  onChange={(e) => {
+                    const doc_number = e.target.value;
+                    const ruc_dv = form.doc_type === 'ruc' ? (dvRuc(doc_number) ?? '') : form.ruc_dv;
+                    setForm({ ...form, doc_number, ruc_dv });
+                  }}
+                />
+              </Field>
+              {form.doc_type === 'ruc' && (
+                <Field label="DV (automatico)">
+                  <input className={`${inputClass} bg-slate-50`} readOnly value={form.ruc_dv} />
+                </Field>
+              )}
+              <Field label="Fecha de nacimiento">
+                <input className={inputClass} type="date" value={form.birth_date} onChange={(e) => setForm({ ...form, birth_date: e.target.value })} />
+              </Field>
+              <Field label="Ciudad">
+                <input className={inputClass} value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} />
+              </Field>
+              <div className="col-span-2">
+                <Field label="Direccion">
+                  <input className={inputClass} value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
+                </Field>
+              </div>
+              <Field label="Empresa">
+                <input className={inputClass} value={form.company_name} onChange={(e) => setForm({ ...form, company_name: e.target.value })} />
+              </Field>
+              <Field label="Cargo">
+                <input className={inputClass} value={form.job_title} onChange={(e) => setForm({ ...form, job_title: e.target.value })} />
+              </Field>
+
+              <GroupTitle>Seguimiento comercial</GroupTitle>
+              <Field label="Origen (de donde llego)">
+                <select className={inputClass} value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value })}>
+                  <option value="">—</option>
+                  {SOURCES.map((s) => (
+                    <option key={s.value} value={s.value}>
+                      {s.label}
                     </option>
                   ))}
                 </select>
               </Field>
-            )}
-            <div className="col-span-2 md:col-span-4">
-              <Field label="Notas internas (alergias, preferencias, historial...)">
-                <textarea className={`${inputClass} h-20`} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+              <Field label="Detalle del origen">
+                <input className={inputClass} placeholder="Ej: campaña agosto, cliente Maria" value={form.source_detail} onChange={(e) => setForm({ ...form, source_detail: e.target.value })} />
               </Field>
-            </div>
+              <div className="col-span-2">
+                <Field label="Etiquetas (separadas por coma)">
+                  <input className={inputClass} placeholder="vip, color, novia2026" value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} />
+                </Field>
+              </div>
+              {users.length > 0 && (
+                <Field label="Responsable">
+                  <select className={inputClass} value={form.assigned_user_id} onChange={(e) => setForm({ ...form, assigned_user_id: e.target.value })}>
+                    <option value="">—</option>
+                    {users.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.fullName}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              )}
+              <div className="col-span-2 md:col-span-4">
+                <Field label="Notas internas (alergias, preferencias, historial...)">
+                  <textarea className={`${inputClass} h-20`} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+                </Field>
+              </div>
 
-            {defs.length > 0 && (
-              <>
-                <h3 className="col-span-2 mt-1 text-sm font-medium md:col-span-4">
-                  Campos propios del negocio{' '}
-                  <span className="font-normal text-slate-400">(se definen en Ajustes → Campos del cliente)</span>
-                </h3>
-                {defs.map((def) => (
-                  <Field key={def.code} label={`${def.label}${def.required ? ' *' : ''}`}>
-                    {def.fieldType === 'boolean' ? (
-                      <input
-                        type="checkbox"
-                        className="mt-2 h-4 w-4"
-                        checked={form.custom[def.code] === true}
-                        onChange={(e) => setForm({ ...form, custom: { ...form.custom, [def.code]: e.target.checked } })}
-                      />
-                    ) : def.fieldType === 'list' ? (
-                      <select
-                        className={inputClass}
-                        required={def.required}
-                        value={String(form.custom[def.code] ?? '')}
-                        onChange={(e) => setForm({ ...form, custom: { ...form.custom, [def.code]: e.target.value } })}
-                      >
-                        <option value="">—</option>
-                        {def.options.map((o) => (
-                          <option key={o} value={o}>
-                            {o}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <input
-                        className={inputClass}
-                        required={def.required}
-                        type={def.fieldType === 'number' || def.fieldType === 'money' ? 'number' : def.fieldType === 'date' ? 'date' : def.fieldType === 'url' ? 'url' : 'text'}
-                        value={String(form.custom[def.code] ?? '')}
-                        onChange={(e) => setForm({ ...form, custom: { ...form.custom, [def.code]: e.target.value } })}
-                      />
-                    )}
-                  </Field>
-                ))}
-              </>
-            )}
+              {defs.length > 0 && (
+                <>
+                  <GroupTitle>
+                    Campos propios del negocio{' '}
+                    <span className="font-normal normal-case tracking-normal text-slate-400">
+                      (se definen en Ajustes → Campos del cliente)
+                    </span>
+                  </GroupTitle>
+                  {defs.map((def) => (
+                    <Field key={def.code} label={`${def.label}${def.required ? ' *' : ''}`}>
+                      {def.fieldType === 'boolean' ? (
+                        <input
+                          type="checkbox"
+                          className="mt-2 h-4 w-4"
+                          checked={form.custom[def.code] === true}
+                          onChange={(e) => setForm({ ...form, custom: { ...form.custom, [def.code]: e.target.checked } })}
+                        />
+                      ) : def.fieldType === 'list' ? (
+                        <select
+                          className={inputClass}
+                          required={def.required}
+                          value={String(form.custom[def.code] ?? '')}
+                          onChange={(e) => setForm({ ...form, custom: { ...form.custom, [def.code]: e.target.value } })}
+                        >
+                          <option value="">—</option>
+                          {def.options.map((o) => (
+                            <option key={o} value={o}>
+                              {o}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          className={inputClass}
+                          required={def.required}
+                          type={def.fieldType === 'number' || def.fieldType === 'money' ? 'number' : def.fieldType === 'date' ? 'date' : def.fieldType === 'url' ? 'url' : 'text'}
+                          value={String(form.custom[def.code] ?? '')}
+                          onChange={(e) => setForm({ ...form, custom: { ...form.custom, [def.code]: e.target.value } })}
+                        />
+                      )}
+                    </Field>
+                  ))}
+                </>
+              )}
 
-            <div className="col-span-2 flex flex-wrap items-center gap-4 md:col-span-4">
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={form.notify_whatsapp} onChange={(e) => setForm({ ...form, notify_whatsapp: e.target.checked })} />
-                Acepta avisos por WhatsApp
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={form.notify_email} onChange={(e) => setForm({ ...form, notify_email: e.target.checked })} />
-                Acepta avisos por email
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={form.marketing_opt_in} onChange={(e) => setForm({ ...form, marketing_opt_in: e.target.checked })} />
-                Acepta promociones
-              </label>
-              <button className={`${buttonClass} ml-auto`}>Guardar cambios</button>
-            </div>
-          </form>
+              <GroupTitle>Preferencias de contacto</GroupTitle>
+              <div className="col-span-2 flex flex-wrap items-center gap-4 md:col-span-4">
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={form.notify_whatsapp} onChange={(e) => setForm({ ...form, notify_whatsapp: e.target.checked })} />
+                  Acepta avisos por WhatsApp
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={form.notify_email} onChange={(e) => setForm({ ...form, notify_email: e.target.checked })} />
+                  Acepta avisos por email
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={form.marketing_opt_in} onChange={(e) => setForm({ ...form, marketing_opt_in: e.target.checked })} />
+                  Acepta promociones
+                </label>
+                <button className={`${buttonClass} ml-auto`}>Guardar cambios</button>
+              </div>
+            </form>
+          </Card>
 
-          <section className="rounded-lg border border-slate-200 bg-white p-4">
-            <h2 className="text-sm font-medium">Otros contactos</h2>
-            <p className="mb-3 text-xs text-slate-500">
-              Telefonos, emails o redes adicionales al celular y email principales de arriba.
-            </p>
+          <Card
+            title="Otros contactos"
+            description="Telefonos, emails o redes adicionales al celular y email principales de arriba."
+          >
             <ul className="space-y-1">
               {customer.contactPoints.map((point) => (
                 <li key={point.id} className="flex items-center gap-2 text-sm">
@@ -522,7 +540,7 @@ export default function CustomerFichaPage() {
               ))}
               {customer.contactPoints.length === 0 && <li className="text-sm text-slate-400">Sin contactos adicionales</li>}
             </ul>
-            <form className="mt-3 flex flex-wrap items-end gap-2" onSubmit={(e) => void addContactPoint(e)}>
+            <form className="mt-3 flex flex-wrap items-end gap-2 border-t border-slate-100 pt-3" onSubmit={(e) => void addContactPoint(e)}>
               <Field label="Tipo">
                 <select className={inputClass} value={cp.kind} onChange={(e) => setCp({ ...cp, kind: e.target.value })}>
                   {CONTACT_KINDS.map((k) => (
@@ -547,15 +565,14 @@ export default function CustomerFichaPage() {
               </div>
               <button className={buttonClass}>Agregar</button>
             </form>
-          </section>
+          </Card>
 
-          <section className="rounded-lg border border-slate-200 bg-white p-4">
-            <h2 className="mb-2 text-sm font-medium">Historial de visitas y facturas</h2>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="text-left text-slate-500">
+          <Card title="Historial de visitas y facturas">
+            <div className="-mx-4 -mb-4 overflow-x-auto">
+              <table className="tbl">
+                <thead>
                   <tr>
-                    <th className="p-1">Fecha</th>
+                    <th>Fecha</th>
                     <th>Servicio</th>
                     <th>Visita</th>
                     <th>Factura</th>
@@ -563,8 +580,8 @@ export default function CustomerFichaPage() {
                 </thead>
                 <tbody>
                   {history.map((h, i) => (
-                    <tr key={i} className="border-t border-slate-100">
-                      <td className="p-1">{dt(h.starts_at)}</td>
+                    <tr key={i}>
+                      <td>{dt(h.starts_at)}</td>
                       <td>{h.service_name ?? '—'}</td>
                       <td>{h.visit_status ?? '—'}</td>
                       <td>{h.invoice_id ? `${money(h.total ?? 0)} (${h.invoice_status})` : '—'}</td>
@@ -572,7 +589,7 @@ export default function CustomerFichaPage() {
                   ))}
                   {history.length === 0 && (
                     <tr>
-                      <td colSpan={4} className="p-2 text-center text-slate-400">
+                      <td colSpan={4} className="py-4 text-center text-slate-400">
                         Sin visitas ni facturas todavia
                       </td>
                     </tr>
@@ -580,12 +597,12 @@ export default function CustomerFichaPage() {
                 </tbody>
               </table>
             </div>
-          </section>
+          </Card>
         </div>
 
         <div className="space-y-5">
           {customer.lastConversationSummary && (
-            <section className="rounded-lg border border-violet-200 bg-violet-50/50 p-3">
+            <section className="rounded-xl border border-violet-200 bg-violet-50/50 p-3 shadow-sm">
               <p className="text-xs font-medium text-violet-800">
                 Resumen de la ultima conversacion
                 {customer.lastSummaryAt ? ` (${dt(customer.lastSummaryAt)})` : ''}
@@ -594,8 +611,7 @@ export default function CustomerFichaPage() {
             </section>
           )}
 
-          <section className="rounded-lg border border-slate-200 bg-white p-4">
-            <h2 className="mb-2 text-sm font-medium">Notas y tareas</h2>
+          <Card title="Notas y tareas">
             <form className="space-y-2" onSubmit={(e) => void addActivity(e)}>
               <div className="flex gap-2">
                 <select className={inputClass} value={act.activity_type} onChange={(e) => setAct({ ...act, activity_type: e.target.value })}>
@@ -629,7 +645,7 @@ export default function CustomerFichaPage() {
                 const isTask = ACTIVITY_TYPES.find((t) => t.value === a.activityType)?.task;
                 const overdue = isTask && !a.doneAt && a.dueAt && new Date(a.dueAt) < new Date();
                 return (
-                  <li key={a.id} className={`rounded border p-2 text-sm ${overdue ? 'border-red-200 bg-red-50/50' : 'border-slate-100 bg-slate-50/50'}`}>
+                  <li key={a.id} className={`rounded-md border p-2 text-sm ${overdue ? 'border-red-200 bg-red-50/50' : 'border-slate-100 bg-slate-50/50'}`}>
                     <div className="flex items-center gap-2">
                       {isTask && (
                         <input type="checkbox" title={a.doneAt ? 'Reabrir' : 'Marcar hecha'} checked={Boolean(a.doneAt)} onChange={() => void toggleDone(a)} />
@@ -654,7 +670,7 @@ export default function CustomerFichaPage() {
               })}
               {activities.length === 0 && <li className="text-sm text-slate-400">Sin notas todavia</li>}
             </ul>
-          </section>
+          </Card>
         </div>
       </div>
     </div>

@@ -3,7 +3,21 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { API_URL, api, getToken } from '../../../lib/api';
-import { Field, buttonClass, buttonGhost, dt, inputClass, money } from '../../../lib/ui';
+import {
+  Badge,
+  Card,
+  EmptyRow,
+  Field,
+  buttonClass,
+  buttonDanger,
+  buttonGhost,
+  buttonSoft,
+  dt,
+  inputClass,
+  money,
+  tableCard,
+  type BadgeTone,
+} from '../../../lib/ui';
 
 interface Quote {
   id: string;
@@ -151,27 +165,24 @@ export function QuotesSection({
     }
   }
 
-  const badge = (s: string) =>
-    s === 'accepted' || s === 'invoiced'
-      ? 'bg-emerald-100 text-emerald-700'
-      : s === 'rejected'
-        ? 'bg-red-100 text-red-700'
-        : s === 'sent'
-          ? 'bg-amber-100 text-amber-700'
-          : 'bg-slate-100 text-slate-600';
+  const tone = (s: string): BadgeTone =>
+    s === 'accepted' || s === 'invoiced' ? 'emerald' : s === 'rejected' ? 'red' : s === 'sent' ? 'amber' : 'slate';
 
   const vencido = (q: Quote) =>
     q.validUntil && !['invoiced', 'rejected'].includes(q.status) && new Date(q.validUntil) < new Date();
 
   return (
-    <section className="space-y-4">
-      <h2 className="text-lg font-semibold">Presupuestos</h2>
-      <p className="text-xs text-slate-500">
-        Cotiza sin compromiso fiscal: arma el presupuesto, descargalo en PDF para mandarlo al
-        cliente y, si lo acepta, convertilo en factura con un clic.
-      </p>
+    <section className="space-y-4 border-t border-slate-200 pt-5">
+      <div>
+        <h2 className="text-lg font-semibold text-slate-900">Presupuestos</h2>
+        <p className="mt-0.5 text-sm text-slate-500">
+          Cotizá sin compromiso fiscal: armá el presupuesto, descargalo en PDF para mandarlo al
+          cliente y, si lo acepta, convertilo en factura con un clic.
+        </p>
+      </div>
 
-      <form className="space-y-3 rounded-lg border border-slate-200 bg-white p-4" onSubmit={(e) => void create(e)}>
+      <Card title="Nuevo presupuesto">
+      <form className="space-y-3" onSubmit={(e) => void create(e)}>
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <Field label="Cliente">
             <select className={inputClass} value={customerId} onChange={(e) => setCustomerId(e.target.value)} required>
@@ -237,14 +248,15 @@ export function QuotesSection({
 
         <button className={buttonClass}>Crear presupuesto</button>
       </form>
+      </Card>
 
-      <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-        <table className="w-full text-sm">
-          <thead className="text-left text-slate-500">
+      <div className={tableCard}>
+        <table className="tbl">
+          <thead>
             <tr>
-              <th className="p-2">Numero</th>
+              <th>Numero</th>
               <th>Cliente</th>
-              <th>Total</th>
+              <th className="text-right">Total</th>
               <th>Estado</th>
               <th>Valido hasta</th>
               <th>Fecha</th>
@@ -253,62 +265,55 @@ export function QuotesSection({
           </thead>
           <tbody>
             {rows.map((q) => (
-              <tr key={q.id} className="border-t border-slate-100">
-                <td className="p-2 font-mono text-xs">P-{String(q.number).padStart(4, '0')}</td>
+              <tr key={q.id} className="hover:bg-slate-50">
+                <td className="font-mono text-xs">P-{String(q.number).padStart(4, '0')}</td>
                 <td>
                   {q.customer.firstName} {q.customer.lastName}
                 </td>
-                <td>{money(q.total)}</td>
+                <td className="text-right tabular-nums">{money(q.total)}</td>
                 <td>
-                  <span className={`rounded px-2 py-0.5 text-xs ${badge(q.status)}`}>
-                    {STATUS_LABEL[q.status] ?? q.status}
+                  <span className="inline-flex items-center gap-1.5">
+                    <Badge tone={tone(q.status)}>{STATUS_LABEL[q.status] ?? q.status}</Badge>
+                    {vencido(q) && <Badge tone="red">vencido</Badge>}
                   </span>
-                  {vencido(q) && <span className="ml-1 text-xs font-medium text-red-600">vencido</span>}
                 </td>
                 <td>{q.validUntil ? new Date(q.validUntil).toLocaleDateString('es-PY', { timeZone: 'UTC' }) : '—'}</td>
                 <td>{dt(q.createdAt)}</td>
-                <td className="space-x-1 p-2 text-right">
-                  <button className={buttonGhost} onClick={() => void openPdf(q)}>
-                    PDF
-                  </button>
-                  {q.status === 'draft' && (
-                    <button className={buttonGhost} onClick={() => void setStatus(q, 'sent')}>
-                      Marcar enviado
+                <td className="text-right">
+                  <span className="inline-flex gap-1">
+                    <button className={buttonGhost} onClick={() => void openPdf(q)}>
+                      PDF
                     </button>
-                  )}
-                  {q.status === 'sent' && (
-                    <>
-                      <button className={buttonGhost} onClick={() => void setStatus(q, 'accepted')}>
-                        Aceptado
+                    {q.status === 'draft' && (
+                      <button className={buttonGhost} onClick={() => void setStatus(q, 'sent')}>
+                        Marcar enviado
                       </button>
-                      <button className={buttonGhost} onClick={() => void setStatus(q, 'rejected')}>
-                        Rechazado
+                    )}
+                    {q.status === 'sent' && (
+                      <>
+                        <button className={buttonGhost} onClick={() => void setStatus(q, 'accepted')}>
+                          Aceptado
+                        </button>
+                        <button className={buttonGhost} onClick={() => void setStatus(q, 'rejected')}>
+                          Rechazado
+                        </button>
+                      </>
+                    )}
+                    {['draft', 'sent', 'accepted'].includes(q.status) && (
+                      <button className={buttonSoft} onClick={() => void convert(q)}>
+                        Facturar
                       </button>
-                    </>
-                  )}
-                  {['draft', 'sent', 'accepted'].includes(q.status) && (
-                    <button className={buttonClass} onClick={() => void convert(q)}>
-                      Facturar
-                    </button>
-                  )}
-                  {q.status === 'draft' && (
-                    <button
-                      className="rounded border border-red-200 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50"
-                      onClick={() => void remove(q)}
-                    >
-                      Borrar
-                    </button>
-                  )}
+                    )}
+                    {q.status === 'draft' && (
+                      <button className={buttonDanger} onClick={() => void remove(q)}>
+                        Borrar
+                      </button>
+                    )}
+                  </span>
                 </td>
               </tr>
             ))}
-            {rows.length === 0 && (
-              <tr>
-                <td colSpan={7} className="p-4 text-center text-slate-400">
-                  Sin presupuestos todavia
-                </td>
-              </tr>
-            )}
+            {rows.length === 0 && <EmptyRow colSpan={7}>Sin presupuestos todavía</EmptyRow>}
           </tbody>
         </table>
       </div>
