@@ -5,18 +5,49 @@
 // intenta un refresh silencioso.
 // La URL del API se deriva del host desde el que se abrio el panel, asi
 // funciona sin reconstruir desde localhost, la LAN y el tunel:
-// - http (localhost / 192.168.x.x): mismo host, puerto del API.
-// - https (dominio con tunel/proxy): subdominio hermano api.<dominio>, por
-//   convencion de DNS (client.X y admin.X comparten el api.X de su dominio).
+// - laboratorio (localhost / IP privada): mismo host, puerto del API.
+// - dominio publico (tunel/proxy): subdominio hermano api.<dominio> SIEMPRE
+//   por https, aunque el navegador haya entrado por http (2026-08-31: un
+//   socio escribio la direccion sin "https://", la pagina cargo igual y el
+//   panel buscaba el API en client.<dominio>:4301 — que no existe afuera —
+//   dando "No se pudo conectar con la API").
 // NEXT_PUBLIC_API_URL la fija explicitamente si un ambiente rompe la regla.
 const API_PORT = process.env.NEXT_PUBLIC_API_PORT ?? '4301';
-const API_URL =
-  process.env.NEXT_PUBLIC_API_URL ??
-  (typeof window !== 'undefined'
-    ? window.location.protocol === 'https:'
-      ? `https://api.${window.location.hostname.split('.').slice(1).join('.')}`
-      : `${window.location.protocol}//${window.location.hostname}:${API_PORT}`
-    : 'http://localhost:4301');
+
+/** Host del laboratorio: localhost o IP de red privada (RFC 1918). */
+function esHostLocal(hostname: string): boolean {
+  return (
+    hostname === 'localhost' ||
+    hostname.endsWith('.local') ||
+    /^127\./.test(hostname) ||
+    /^10\./.test(hostname) ||
+    /^192\.168\./.test(hostname) ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(hostname)
+  );
+}
+
+function derivarApiUrl(): string {
+  if (typeof window === 'undefined') return 'http://localhost:4301';
+  const { hostname, protocol } = window.location;
+  if (esHostLocal(hostname)) return `${protocol}//${hostname}:${API_PORT}`;
+  // Dominio publico: api.<dominio padre>. Con un host de una sola etiqueta
+  // (sin punto) no hay dominio padre: se usa api.<host> como ultimo recurso.
+  const partes = hostname.split('.');
+  const padre = partes.length > 2 ? partes.slice(1).join('.') : hostname;
+  return `https://api.${padre}`;
+}
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? derivarApiUrl();
+
+// El panel en un dominio publico solo debe viajar por https: entrar por http
+// manda la contrasena en claro. Se corrige solo con una redireccion.
+if (
+  typeof window !== 'undefined' &&
+  window.location.protocol === 'http:' &&
+  !esHostLocal(window.location.hostname)
+) {
+  window.location.replace(window.location.href.replace(/^http:/, 'https:'));
+}
 
 export interface SessionUser {
   id: string;
