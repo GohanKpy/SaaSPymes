@@ -17,6 +17,7 @@ import {
 } from '../../../lib/ui';
 
 import { CustomFieldsSection } from './custom-fields';
+import { PasswordSection } from './password';
 
 interface Integration {
   type: string;
@@ -239,6 +240,8 @@ export default function SettingsPage() {
       />
       <ErrorNote error={error} />
       {saved && <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{saved}</p>}
+
+      {user && <PasswordSection email={user.email} />}
 
       <Card
         title="Datos de la empresa y marca"

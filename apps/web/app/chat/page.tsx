@@ -18,7 +18,16 @@ interface ChatMessage {
 // o del bot. Cuando WhatsApp este conectado, este mismo flujo corre con
 // mensajes reales de Meta.
 export default function WebchatTester() {
-  const [config, setConfig] = useState({ phone_number_id: 'dev-tucano-001', from_phone: '+595971234567', from_name: 'Cliente de prueba' });
+  // El identificador puede venir precargado por link desde la bandeja
+  // (?negocio=dev-tucano-001), asi el dueño no tiene que copiarlo a mano.
+  const [config, setConfig] = useState(() => {
+    const q = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+    return {
+      phone_number_id: q?.get('negocio') ?? '',
+      from_phone: q?.get('telefono') ?? '+595971234567',
+      from_name: 'Cliente de prueba',
+    };
+  });
   const [started, setStarted] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [status, setStatus] = useState<string | null>(null);

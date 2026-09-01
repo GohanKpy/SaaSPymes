@@ -90,6 +90,19 @@ export const userUpdate = z
   .strict();
 export type UserUpdate = z.infer<typeof userUpdate>;
 
+/**
+ * Cambio de la propia contrasena en el panel del cliente (2026-09-01).
+ * Mismo contrato que el portal admin: exige la actual (aunque haya sesion
+ * abierta) y cierra las demas sesiones al cambiarla.
+ */
+export const passwordChange = z
+  .object({
+    current_password: z.string().min(1),
+    new_password: z.string().min(8).max(200),
+  })
+  .strict();
+export type PasswordChange = z.infer<typeof passwordChange>;
+
 export interface EffectiveFeature {
   code: string;
   name: string;

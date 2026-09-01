@@ -12,9 +12,18 @@ import {
   Patch,
   Post,
   Req,
+  UnprocessableEntityException,
 } from '@nestjs/common';
-import { hash } from '@node-rs/argon2';
-import { userCreate, userUpdate, uuid, type UserCreate, type UserUpdate } from '@pymes/shared';
+import { hash, verify as argonVerify } from '@node-rs/argon2';
+import {
+  passwordChange,
+  userCreate,
+  userUpdate,
+  uuid,
+  type PasswordChange,
+  type UserCreate,
+  type UserUpdate,
+} from '@pymes/shared';
 import type { FastifyRequest } from 'fastify';
 
 import { Roles, type AuthRequest } from '../auth/decorators';
@@ -44,6 +53,37 @@ export class UsersController {
     return this.appDb.tx(tenantCtx(req), (tx) =>
       tx.user.findMany({ where: { deletedAt: null }, select: SAFE_USER, orderBy: { createdAt: 'asc' } }),
     );
+  }
+
+  /**
+   * Cambio de la PROPIA contrasena (2026-09-01). Disponible para cualquier
+   * rol (sobreescribe el @Roles de la clase): es la cuenta del que la llama.
+   * Se declara antes que las rutas con :id para que no la capturen.
+   */
+  @Post('me/password')
+  @Roles('root', 'admin', 'staff')
+  async changeMyPassword(
+    @Body(new ZodPipe(passwordChange)) dto: PasswordChange,
+    @Req() req: FastifyRequest & AuthRequest,
+  ) {
+    const ctx = tenantCtx(req);
+    const userId = ctx.userId;
+    if (!userId) throw new ForbiddenException();
+    const passwordHash = await hash(dto.new_password, ARGON2_OPTIONS);
+    await this.appDb.tx(ctx, async (tx) => {
+      const user = await tx.user.findFirst({ where: { id: userId, deletedAt: null } });
+      if (!user) throw new NotFoundException();
+      if (!(await argonVerify(user.passwordHash, dto.current_password))) {
+        throw new UnprocessableEntityException({ title: 'La contrasena actual no coincide' });
+      }
+      await tx.user.update({ where: { id: userId }, data: { passwordHash } });
+      // Las demas sesiones se cierran: si alguien tenia el acceso, lo pierde.
+      await tx.refreshToken.updateMany({
+        where: { userId, userScope: 'tenant', revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+    });
+    return { ok: true };
   }
 
   /**

@@ -2,8 +2,100 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import Link from 'next/link';
+
 import { api, sseUrl } from '../../../lib/api';
 import { Badge, ErrorNote, PageHeader, buttonClass, buttonGhost, dt, inputClass } from '../../../lib/ui';
+
+interface Integration {
+  type: string;
+  configured: boolean;
+  public_config: Record<string, unknown>;
+}
+
+/**
+ * Ayuda para probar el bot sin WhatsApp real (pedido 2026-09-01): el dueño
+ * ve aca el identificador de SU negocio (el que cargo en Ajustes → WhatsApp)
+ * y entra al chat de prueba con ese dato ya puesto. Al conectar WhatsApp de
+ * verdad (live), el panel deja de mostrar el simulador como via principal.
+ */
+function PanelDePrueba() {
+  const [wa, setWa] = useState<Integration | null>(null);
+  const [copiado, setCopiado] = useState(false);
+  const [abierto, setAbierto] = useState(true);
+
+  useEffect(() => {
+    void api<Integration[]>('/integrations')
+      .then((rows) => setWa(rows.find((i) => i.type === 'whatsapp') ?? null))
+      .catch(() => undefined);
+  }, []);
+
+  const id = typeof wa?.public_config.phone_number_id === 'string' ? wa.public_config.phone_number_id : '';
+  const live = wa?.public_config.live === true;
+
+  if (!wa?.configured || !id) {
+    return (
+      <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+        <b>Para probar tu bot falta un paso.</b> Anda a{' '}
+        <Link className="font-medium underline" href="/app/settings">
+          Ajustes → WhatsApp
+        </Link>{' '}
+        y carga el identificador de tu negocio (durante las pruebas puede ser cualquier nombre, por
+        ejemplo <code className="rounded bg-white px-1">dev-mi-negocio</code>). Despues volve aca y
+        vas a poder escribirle a tu bot como si fueras un cliente.
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-sky-950">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <b>Proba tu bot como si fueras un cliente.</b>{' '}
+          {live
+            ? 'Tu WhatsApp real ya esta conectado: escribile a tu numero desde tu celular y la conversacion aparece aca.'
+            : 'Abri el chat de prueba y escribi: los mensajes entran a esta bandeja igual que los de WhatsApp.'}
+        </div>
+        <button className="shrink-0 text-xs text-sky-700 hover:underline" onClick={() => setAbierto(!abierto)}>
+          {abierto ? 'ocultar' : 'ver como'}
+        </button>
+      </div>
+
+      {abierto && (
+        <div className="mt-2 space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-sky-800">Identificador de tu negocio:</span>
+            <code className="rounded-md border border-sky-200 bg-white px-2 py-1 font-mono text-sm font-medium">
+              {id}
+            </code>
+            <button
+              className={buttonGhost}
+              onClick={() => {
+                void navigator.clipboard.writeText(id).then(() => {
+                  setCopiado(true);
+                  setTimeout(() => setCopiado(false), 2000);
+                });
+              }}
+            >
+              {copiado ? '✓ copiado' : 'Copiar'}
+            </button>
+            <a className={buttonClass} href={`/chat?negocio=${encodeURIComponent(id)}`} target="_blank" rel="noreferrer">
+              Abrir chat de prueba
+            </a>
+          </div>
+          <ol className="ml-4 list-decimal space-y-0.5 text-xs text-sky-900">
+            <li>
+              Toca <b>Abrir chat de prueba</b>: se abre en otra pestaña con tu identificador ya
+              puesto (si lo abris a mano, pegalo en el campo &quot;phone_number_id del negocio&quot;).
+            </li>
+            <li>Poni un numero de celular cualquiera para hacer de cliente y escribi un mensaje.</li>
+            <li>La conversacion aparece en esta bandeja y tu bot responde solo.</li>
+          </ol>
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface Conversation {
   id: string;
@@ -133,8 +225,9 @@ export default function InboxPage() {
   return (
     <div className="space-y-3">
       <PageHeader title="Bandeja de chat" />
+      <PanelDePrueba />
       <ErrorNote error={error} />
-      <div className="grid h-[calc(100vh-180px)] min-h-[420px] grid-cols-3 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className="grid h-[calc(100vh-330px)] min-h-[420px] grid-cols-3 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         <aside className="flex min-h-0 flex-col border-r border-slate-100">
           <div className="border-b border-slate-100 p-2">
             <input
