@@ -10,8 +10,11 @@ interface Msg {
 }
 
 const STORAGE_KEY = 'padmin_asistente';
+// TEMPORAL (pedido 2026-09-02): saludo con el tono sarcastico y el trato por
+// "Massi". Para volver al tono neutro, cambiar este texto y el bloque
+// TONO_TEMPORAL de apps/api/src/platform/assistant.service.ts.
 const BIENVENIDA =
-  'Hola! Soy el asistente del equipo de soporte. Preguntame lo que necesites sobre el sistema: como se hace algo, que significa un error y como resolverlo, o como guiar a un cliente paso a paso.';
+  'Hola Massi. Soy el asistente del equipo de soporte: me se el manual de memoria, que es mas de lo que puede decir la mayoria. Preguntame como se hace algo, que significa un error y como resolverlo, o como guiar a un cliente paso a paso.';
 
 /**
  * Asistente interno del portal admin (pedido 2026-09-02): burbuja de chat
