@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation';
 
 import { api } from '../../../../lib/api';
 import { formatRucConDv } from '../../../../lib/ruc';
+import { AssistantWidget } from '../../assistant';
 import {
   Badge,
   Card,
@@ -180,7 +181,9 @@ export default function TenantDetailPage() {
   if (!user) return null;
   return (
     <main className="mx-auto max-w-4xl space-y-6 p-6">
-      <header className="flex items-center justify-between">
+      <AssistantWidget />
+      {/* pr-14: aire para la burbuja fija del asistente arriba a la derecha */}
+      <header className="flex items-center justify-between pr-14">
         <div>
           <a className="text-sm text-sky-700 hover:underline" href="/platform">
             ← Panel de plataforma

@@ -53,3 +53,29 @@ export interface GoogleOauthSettingsView {
   /** Solo presencia, jamas el valor. */
   has_secret: boolean;
 }
+
+/**
+ * Asistente interno del portal admin (pedido 2026-09-02): chat de soporte
+ * para operadores, alimentado con el manual del sistema. El historial viaja
+ * completo desde el navegador (el server no guarda estado del chat).
+ */
+export const assistantAsk = z
+  .object({
+    messages: z
+      .array(
+        z
+          .object({
+            role: z.enum(['user', 'assistant']),
+            content: z.string().min(1).max(4000),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(40),
+  })
+  .strict()
+  .refine((d) => d.messages[d.messages.length - 1]?.role === 'user', {
+    message: 'el ultimo mensaje debe ser del usuario',
+    path: ['messages'],
+  });
+export type AssistantAsk = z.infer<typeof assistantAsk>;

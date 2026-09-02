@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { ApiError, api, logout } from '../../lib/api';
+import { AssistantWidget } from './assistant';
 import { OperatorsSection, ProfileSection } from './operators';
 import {
   Badge,
@@ -275,6 +276,7 @@ export default function PlatformPage() {
   if (!user) return null;
   return (
     <div className="min-h-screen lg:pl-60">
+      <AssistantWidget />
       {/* Menu lateral del portal admin (oscuro: identidad distinta al portal de clientes) */}
       <aside className="fixed inset-y-0 left-0 z-40 hidden w-60 flex-col bg-slate-900 text-slate-300 lg:flex">
         <div className="flex h-14 items-center gap-2.5 border-b border-slate-800 px-4">
@@ -329,7 +331,8 @@ export default function PlatformPage() {
       </aside>
 
       <main className="mx-auto max-w-5xl space-y-6 p-4 md:p-6">
-        <header className="flex items-center justify-between">
+        {/* pr-14: aire para la burbuja fija del asistente arriba a la derecha */}
+        <header className="flex items-center justify-between pr-14">
           <h1 className="text-2xl font-semibold text-slate-900">Panel de plataforma</h1>
           <div className="flex items-center gap-3 text-sm text-slate-500 lg:hidden">
             {user.email}

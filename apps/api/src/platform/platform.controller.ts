@@ -1,5 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Req, UseGuards } from '@nestjs/common';
 import {
+  assistantAsk,
   botBudgetPut,
   botEngineSettingsPut,
   featureCreate,
@@ -15,6 +16,7 @@ import {
   tenantCreate,
   tenantPatch,
   uuid,
+  type AssistantAsk,
   type BotBudgetPut,
   type BotEngineSettingsPut,
   type FeatureCreate,
@@ -34,6 +36,7 @@ import type { FastifyRequest } from 'fastify';
 
 import { PlatformRoles, type AuthRequest } from '../auth/decorators';
 import { ZodPipe } from '../common/zod.pipe';
+import { AssistantService } from './assistant.service';
 import { BotEngineService } from './bot-engine.service';
 import { GoogleOauthService } from './google-oauth.service';
 import { PlatformNetworkGuard } from './platform-network.guard';
@@ -59,7 +62,18 @@ export class PlatformController {
     private readonly security: SecuritySettingsService,
     private readonly users: PlatformUsersService,
     private readonly googleOauth: GoogleOauthService,
+    private readonly assistant: AssistantService,
   ) {}
+
+  /**
+   * Asistente interno de soporte (pedido 2026-09-02): chat para operadores
+   * que responde desde el manual del sistema con el motor de IA configurado.
+   * Disponible para admin y agent (los agentes son su publico principal).
+   */
+  @Post('assistant')
+  askAssistant(@Body(new ZodPipe(assistantAsk)) dto: AssistantAsk) {
+    return this.assistant.ask(dto);
+  }
 
   /** App OAuth de Google del sistema (ADR 0007): una para toda la plataforma. */
   @Get('settings/google')

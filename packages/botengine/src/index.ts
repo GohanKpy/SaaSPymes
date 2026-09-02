@@ -7,7 +7,7 @@ import { buildBotTools, type BotPermissions, type BotToolHandlers } from './tool
 import type { BotTurnResult, TurnMessage } from './turn';
 
 export type { BotPermissions, BotToolHandlers } from './tools';
-export type { BotTurnResult } from './turn';
+export type { BotTurnResult, TurnMessage } from './turn';
 
 export type BotProvider = 'anthropic' | 'openai';
 
@@ -196,6 +196,32 @@ export function buildSystem(input: BotTurnInput): string {
     );
   }
   return parts.join('\n');
+}
+
+export interface PlainTurnInput {
+  provider: BotProvider;
+  apiKey: string;
+  model?: string;
+  system: string;
+  history: TurnMessage[];
+  maxTokens?: number;
+}
+
+/**
+ * Turno de chat SIN herramientas con el proveedor configurado: lo usa el
+ * asistente interno del portal admin (responde desde el manual del sistema).
+ * Mismo runner, timeout y reintentos que el bot de WhatsApp.
+ */
+export async function runPlainTurn(input: PlainTurnInput): Promise<BotTurnResult> {
+  const runner = input.provider === 'openai' ? runOpenAiTurn : runAnthropicTurn;
+  return runner({
+    apiKey: input.apiKey,
+    model: input.model,
+    system: input.system,
+    history: input.history,
+    tools: [],
+    maxTokens: input.maxTokens ?? 1024,
+  });
 }
 
 export interface SummaryInput {
