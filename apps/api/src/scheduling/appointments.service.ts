@@ -7,6 +7,13 @@ import { AppPrisma } from '../prisma/app-prisma.service';
 export const DEFAULT_DURATION_MIN = 30;
 // Capacidad por franja v1 = 1 (doc 03: la capacidad se valida en la app).
 const SLOT_CAPACITY = 1;
+// Grilla de inicio de los turnos (2026-09-03): antes el paso era la duracion
+// del servicio, asi que una keratina de 180 min solo podia empezar a las
+// 08:00, 11:00 o 14:00 aunque la agenda estuviera vacia ("se cierra en
+// horarios especificos"). Ahora cualquier inicio cada 30 min que quepa
+// entero antes del cierre; los servicios mas cortos usan su propia duracion.
+// Default de sistema: el paso por negocio llega con la config del panel.
+export const DEFAULT_SLOT_STEP_MIN = 30;
 
 /** Duracion efectiva del turno (ADR 0009 fase 2): la tarea del servicio, o
  *  la reunion inicial cuando el producto es un item. */
@@ -148,10 +155,12 @@ export class AppointmentsService {
       });
       const tenantBlocks = blocks.filter((b) => !b.employeeId);
       const branchSchedule = (branch.schedule ?? {}) as BranchSchedule;
-      const pool = (query.employee_id
-        ? agendables.filter((e) => e.id === query.employee_id)
-        : agendables
-      ).map((e) => ({
+      // Todo el equipo con su horario del dia: la capacidad se calcula
+      // siempre sobre el equipo entero (los turnos sin asignar los cubre
+      // cualquiera), y el empleado pedido solo tiene que estar libre el.
+      // Antes, con un empleado elegido, el turno sin asignar se le
+      // descontaba a el solo y desaparecian horarios reales (2026-09-03).
+      const equipo = agendables.map((e) => ({
         id: e.id,
         ranges: e.schedule
           ? utcRanges(e.schedule as BranchSchedule, query.date, timezone)
@@ -162,15 +171,16 @@ export class AppointmentsService {
         s.startsAt.getTime() < end && s.endsAt.getTime() > start;
 
       const slots: string[] = [];
-      const stepMs = duration * 60_000;
+      const durationMs = duration * 60_000;
+      const stepMs = Math.min(duration, DEFAULT_SLOT_STEP_MIN) * 60_000;
       const now = Date.now();
       for (const range of ranges) {
         const [fromH, fromM] = range.from.split(':').map(Number);
         const [toH, toM] = range.to.split(':').map(Number);
         const rangeStart = localToUtc(query.date, fromH ?? 0, fromM ?? 0, timezone).getTime();
         const rangeEnd = localToUtc(query.date, toH ?? 0, toM ?? 0, timezone).getTime();
-        for (let start = rangeStart; start + stepMs <= rangeEnd; start += stepMs) {
-          const end = start + stepMs;
+        for (let start = rangeStart; start + durationMs <= rangeEnd; start += stepMs) {
+          const end = start + durationMs;
           if (start < now) continue;
           if (tenantBlocks.some((b) => overlap(b, start, end))) continue;
           if (agendables.length === 0) {
@@ -178,16 +188,21 @@ export class AppointmentsService {
             if (overlapping < SLOT_CAPACITY) slots.push(new Date(start).toISOString());
             continue;
           }
-          const libres = pool.filter(
+          const libres = equipo.filter(
             (e) =>
               dentroDe(e.ranges, start, end) &&
               !blocks.some((b) => b.employeeId === e.id && overlap(b, start, end)) &&
               !busy.some((b) => b.employeeId === e.id && overlap(b, start, end)),
-          ).length;
+          );
           // Turnos sin asignar (previos a cargar empleados) igual consumen a
-          // alguien: se descuentan de los libres.
+          // alguien del equipo: se descuentan del total de libres.
           const sinAsignar = busy.filter((b) => !b.employeeId && overlap(b, start, end)).length;
-          if (libres - sinAsignar > 0) slots.push(new Date(start).toISOString());
+          const elegidoLibre = query.employee_id
+            ? libres.some((e) => e.id === query.employee_id)
+            : true;
+          if (elegidoLibre && libres.length - sinAsignar > 0) {
+            slots.push(new Date(start).toISOString());
+          }
         }
       }
       return slots;
