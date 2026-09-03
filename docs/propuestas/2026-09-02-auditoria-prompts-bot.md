@@ -1,6 +1,6 @@
 # Auditoría de prompts del bot de WhatsApp — 2026-09-02
 
-**Estado:** propuesta, pendiente de aprobación de Johan.
+**Estado:** APROBADA y APLICADA el 2026-09-02 (ADR 0011; batería en `docs/qa/bot/2026-09-02-reporte.md`).
 **Disparador:** "siento que está alucinando mucho, da respuestas que uno no
 pregunta; hay muchas órdenes que podrían estar pisándose entre sí".
 **Evidencia:** código real (`apps/api/src/conversations/bot.service.ts`,

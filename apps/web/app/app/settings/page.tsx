@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 
+import { avisosDeIndicaciones } from '../../../lib/bot-indicaciones';
 import { api } from '../../../lib/api';
 import { formatRucConDv } from '../../../lib/ruc';
 import {
@@ -75,6 +76,9 @@ export default function SettingsPage() {
   const user = useSession('tenant');
   const [integrations, setIntegrations] = useState<Integration[]>([]);
   const [bot, setBot] = useState<BotSettings | null>(null);
+  // Borrador de las indicaciones del negocio para avisar en vivo (ADR 0011).
+  const [instrDraft, setInstrDraft] = useState('');
+  useEffect(() => setInstrDraft(bot?.instructionsText ?? ''), [bot?.instructionsText]);
   const [wa, setWa] = useState({ phone_number_id: '', access_token: '', verify_token: 'dev-verify-token', live: false });
   const [sifen, setSifen] = useState({ timbrado: '', establishment: '001', expedition_point: '001', vigencia_desde: '' });
   const [error, setError] = useState<string | null>(null);
@@ -381,19 +385,35 @@ export default function SettingsPage() {
               reserva. Sin link, si un cliente pide videollamada el bot aclara que la atencion es
               presencial.
             </p>
-            <Field label="Instrucciones del negocio (personalidad del bot, se adapta a tu rubro)">
+            <Field label="Indicaciones del negocio (cómo querés que atienda: tono, políticas, qué recomendar)">
               <textarea
-                className={`${inputClass} h-24`}
-                defaultValue={bot.instructionsText ?? ''}
-                onBlur={(e) => void patchBot({ instructions_text: e.target.value || null })}
-                placeholder="Conta que hace tu negocio y como atender. Ej: Somos un estudio creativo; tono cercano y profesional; trata a los clientes de vos; ante consultas de precios ofrece agendar la reunion de diagnostico gratuita."
+                className={`${inputClass} h-28`}
+                value={instrDraft}
+                onChange={(e) => setInstrDraft(e.target.value)}
+                onBlur={(e) => void patchBot({ instructions_text: e.target.value.trim() || null })}
+                placeholder="Ej: Somos un estudio creativo; tono cercano y profesional; tratá a los clientes de vos; ante consultas de precios ofrecé agendar la reunión de diagnóstico gratuita; los sábados no hacemos coloración."
               />
             </Field>
+            {avisosDeIndicaciones(instrDraft).length > 0 && (
+              <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                <p className="font-medium">
+                  Ojo: hay cosas en este texto que el bot ya toma del sistema. Si quedan las dos
+                  versiones, el bot se confunde y responde mal.
+                </p>
+                <ul className="ml-4 mt-1 list-disc space-y-0.5">
+                  {avisosDeIndicaciones(instrDraft).map((a) => (
+                    <li key={a}>{a}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <p className="mt-1 text-xs text-slate-400">
-              Texto plano. No hace falta escribir el catalogo ni los precios: el bot los consulta en
-              vivo del sistema. Variables disponibles: {'{{nombre_negocio}}'}, {'{{razon_social}}'},{' '}
-              {'{{direccion}}'}, {'{{telefono}}'}, {'{{actividad}}'}, {'{{email}}'} — cualquier otra{' '}
-              {'{{variable}}'} se elimina.
+              <b>Sí va acá:</b> el tono, cómo tratar al cliente, qué recomendar, políticas propias
+              (señas, cancelaciones, promociones vigentes). <b>No va acá:</b> horarios, precios ni la
+              lista de servicios (el bot los toma de Agenda y Catálogo), ni pedir nombre o teléfono
+              como requisito (el registro es opcional). Variables: {'{{nombre_negocio}}'},{' '}
+              {'{{razon_social}}'}, {'{{direccion}}'}, {'{{telefono}}'}, {'{{actividad}}'},{' '}
+              {'{{email}}'} — cualquier otra {'{{variable}}'} se elimina.
             </p>
             <label className="mt-2 flex items-start gap-2 text-sm">
               <input

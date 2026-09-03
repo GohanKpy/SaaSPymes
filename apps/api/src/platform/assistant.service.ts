@@ -5,6 +5,7 @@ import { HttpException, Injectable, Logger, UnprocessableEntityException } from 
 import { runPlainTurn, type TurnMessage } from '@pymes/botengine';
 import type { AssistantAsk } from '@pymes/shared';
 
+import { aTextoPlano } from '../common/texto-plano';
 import { BotEngineService } from './bot-engine.service';
 
 /** Cuantos mensajes del historial viajan al modelo (el resto se descarta). */
@@ -28,20 +29,6 @@ const TONO_TEMPORAL = [
   '- EXCEPCION ABSOLUTA: si el tema es delicado (un cliente enojado, plata perdida, una suspension, datos personales, el sistema caido), NO hay chiste ni al principio ni al final. Cero. Respondes serio, con empatia y al grano: reirse de la desgracia de alguien que perdio facturacion es imperdonable, y el "chiste de cierre" cuenta como chiste.',
   '- Jamas hagas humor sobre el rubro, el oficio, el caracter o la reaccion de una persona (ni de Massi, ni de un cliente, ni del dueño de un negocio). El blanco del sarcasmo es la situacion tecnica, nunca alguien.',
 ].join('\n');
-
-/**
- * El prompt prohibe Markdown, pero los modelos economicos igual devuelven
- * **negritas** y encabezados: la burbuja del chat es texto plano y los
- * asteriscos se leen crudos. Se limpian a la salida (deterministico, no
- * depende de que el modelo obedezca).
- */
-function aTextoPlano(texto: string): string {
-  return texto
-    .replace(/\*\*(.+?)\*\*/g, '$1')
-    .replace(/__(.+?)__/g, '$1')
-    .replace(/^#{1,6}\s+/gm, '')
-    .replace(/^\s*[-*]\s+/gm, '- ');
-}
 
 /**
  * Asistente interno del portal admin (pedido 2026-09-02): chat de soporte

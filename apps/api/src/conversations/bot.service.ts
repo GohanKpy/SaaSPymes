@@ -4,6 +4,7 @@ import type { Env } from '@pymes/shared';
 
 import { AppPrisma } from '../prisma/app-prisma.service';
 import { dvRuc } from '../common/ruc';
+import { aTextoPlano } from '../common/texto-plano';
 import { ENV } from '../env.module';
 import { GoogleCalendarService } from '../integrations/google-calendar.service';
 import { BotEngineService } from '../platform/bot-engine.service';
@@ -54,6 +55,49 @@ const normalizar = (s: string): string =>
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9]+/g, ' ')
     .trim();
+
+// Revisor deterministico de la respuesta (ADR 0011): tres chequeos sobre lo
+// que el modelo escribio y UN reintento dirigido. Generaliza el supervisor
+// anti-bucle del nombre (baterias 2026-08-17/18) con los dos fallos de la
+// conversacion del 2026-09-02: filtrar errores internos al cliente y
+// prometer acciones futuras sin derivar.
+const exigeNombre = (texto: string | null | undefined): boolean =>
+  /(necesito|necesitare|compartas|compartis|comparti\w*|proporcion\w*|requiero|falta|antes de|diste|dime|decime|indicame|indica\w*|dame|me des|pasame|podrias compartir)[^.?]{0,80}nombre y apellido/i.test(
+    texto ?? '',
+  );
+const mencionaInternos = (texto: string): boolean =>
+  /\b(ids?|ID)\b|service_id|appointment_id|list_services|get_available_slots|book_appointment|list_my_appointments|cancel_appointment|reschedule_appointment|save_customer_\w+|request_human|get_customer_history/i.test(
+    texto,
+  );
+const prometeAccionFutura = (texto: string): boolean =>
+  /\b(voy a|vamos a|te voy a|le voy a|en breve|luego|despues|mas tarde|más tarde|en un momento|enseguida|ya mismo)\b[^.!?\n]{0,50}\b(verific|consult|revis|chequ|averigu|avis|contact|llam|coordin)\w*/i.test(
+    texto,
+  );
+
+function revisarRespuesta(
+  reply: string | null,
+  historial: { senderType: string; body: string }[],
+  calledTools: Set<string>,
+): string[] {
+  if (!reply) return [];
+  const directivas: string[] = [];
+  if (exigeNombre(reply) && historial.some((m) => m.senderType === 'bot' && exigeNombre(m.body))) {
+    directivas.push(
+      'El cliente NO va a dar su nombre y no hace falta: el telefono ya lo identifica. Ejecuta AHORA su pedido con tus herramientas y no menciones el registro nunca mas.',
+    );
+  }
+  if (mencionaInternos(reply)) {
+    directivas.push(
+      'Tu respuesta menciona ids, herramientas o errores internos que el cliente no debe leer: reformulala en lenguaje de cliente y, si te falto un dato, consultalo con tus herramientas en este mismo turno (list_services antes de pedir horarios).',
+    );
+  }
+  if (prometeAccionFutura(reply) && !calledTools.has('request_human')) {
+    directivas.push(
+      'Prometiste una accion futura ("voy a verificar", "te aviso") que no vas a poder cumplir: o la resolves AHORA con tus herramientas en este mismo turno, o llamas request_human y decis que un companero del equipo sigue el chat.',
+    );
+  }
+  return directivas;
+}
 
 @Injectable()
 export class BotService {
@@ -145,11 +189,12 @@ export class BotService {
       const last = history[history.length - 1];
       if (!last || last.direction !== 'in') return;
 
+      // Estado del cliente como DATO (ADR 0011): que hacer con el nombre y los
+      // datos faltantes lo dice el prompt de sistema una sola vez.
       let customerContext: string | null = null;
       if (settings.accessCustomerData) {
         if (!customer) {
-          customerContext =
-            'El cliente AUN NO esta registrado en la agenda. En tu primera respuesta pedile con amabilidad su nombre y apellido (sin dejar de atender su consulta) y, cuando lo confirme, registralo con save_customer_name.';
+          customerContext = 'sin registrar (todavia no dio su nombre).';
         } else {
           const faltantes = [
             !customer.email && 'email',
@@ -160,11 +205,11 @@ export class BotService {
           const nombre = `${customer.firstName} ${customer.lastName ?? ''}`.trim();
           customerContext =
             customer.firstName === 'Cliente'
-              ? 'El cliente esta agendado sin nombre real: pedile su nombre y apellido con naturalidad y registralo con save_customer_name.'
-              : `Cliente registrado: ${nombre} (saludalo por su nombre).` +
+              ? 'registrado sin nombre real (todavia no dio su nombre).'
+              : `registrado como ${nombre}.` +
                 (faltantes.length > 0
-                  ? ` Datos que FALTAN en su ficha: ${faltantes.join(', ')}. Pedi como maximo UNO por conversacion, en un momento natural, y guardalo con save_customer_data.`
-                  : ' Su ficha esta completa: no pidas mas datos.');
+                  ? ` Datos que faltan en su ficha: ${faltantes.join(', ')}.`
+                  : ' Ficha completa: no pidas mas datos.');
         }
       }
 
@@ -201,11 +246,23 @@ export class BotService {
         await this.setNeedsHuman(tenantId, conversationId, true);
         return;
       }
+      const calledTools = new Set<string>();
       const handlers = this.withToolLogging(
         tenantId,
         conversation.id,
         this.buildHandlers(tenantId, conversation.id, settings.autoConfirmBookings, timezone),
+        calledTools,
       );
+      // Historial que lee el modelo (ADR 0011): sin los avisos automaticos de
+      // respaldo/presupuesto (el modelo los tomaba como "ya hay una persona")
+      // y con la cuenta de mensajes seguidos del cliente sin responder, para
+      // que atienda todos y no solo el primero.
+      const avisos = new Set([engineConfig.fallbackNotice, engineConfig.budgetNotice]);
+      const historial = history.filter((m) => !(m.senderType === 'bot' && avisos.has(m.body)));
+      let pendingMessages = 0;
+      for (let i = historial.length - 1; i >= 0 && historial[i]?.direction === 'in'; i--) {
+        pendingMessages++;
+      }
       // La guia base (del panel admin o el default del sistema, ADR 0008) y
       // las indicaciones del tenant admiten variables {{...}} conocidas;
       // las desconocidas se eliminan para que el modelo no lea llaves crudas
@@ -239,9 +296,10 @@ export class BotService {
         instructions,
         instructionsPriority: settings.instructionsOverride,
         customerContext,
+        pendingMessages,
         permissions: settings,
         handlers,
-        history: history.map((m) => ({
+        history: historial.map((m) => ({
           direction: m.direction as 'in' | 'out',
           senderType: m.senderType,
           body: m.body,
@@ -266,35 +324,22 @@ export class BotService {
         return;
       }
 
-      // Supervisor anti-bucle del registro (baterias 2026-08-17/18): gpt-4.1-mini
-      // a veces exige el nombre para reservar pese a las reglas y se ancla a su
-      // propia exigencia. Si va a pedirlo por SEGUNDA vez, el sistema corta el
-      // bucle relanzando el turno UNA vez con la orden de ejecutar el pedido.
-      const exigeNombre = (texto: string | null | undefined) =>
-        /(necesito|necesitare|compartas|compartis|comparti\w*|proporcion\w*|requiero|falta|antes de|diste|dime|decime|indicame|indica\w*|dame|me des|pasame|podrias compartir)[^.?]{0,80}nombre y apellido/i.test(
-          texto ?? '',
+      const directivas = revisarRespuesta(result.reply, historial, calledTools);
+      if (directivas.length > 0) {
+        this.logger.warn(
+          `revisor conv=${conversationId}: ${directivas.length} observacion(es); reintento dirigido`,
         );
-      if (
-        result.reply &&
-        exigeNombre(result.reply) &&
-        history.some((m) => m.senderType === 'bot' && exigeNombre(m.body))
-      ) {
-        this.logger.warn(`bucle de registro detectado conv=${conversationId}: reintento dirigido`);
         try {
           const retry = await runBotTurn({
             ...turnInput,
             history: [
               ...turnInput.history,
-              { direction: 'out' as const, senderType: 'bot', body: result.reply },
-              {
-                direction: 'in' as const,
-                senderType: 'system',
-                body: '[sistema] El cliente NO va a dar su nombre y NO hace falta: el telefono ya lo identifica. Ejecuta AHORA su pedido con tus herramientas (consultar horarios, reservar o derivar, segun corresponda) y no menciones el registro nunca mas.',
-              },
+              { direction: 'out' as const, senderType: 'bot', body: result.reply ?? '' },
+              { direction: 'in' as const, senderType: 'system', body: `[sistema] ${directivas.join(' ')}` },
             ],
           });
           result = {
-            ...retry,
+            reply: retry.reply ?? result.reply,
             inputTokens: result.inputTokens + retry.inputTokens,
             outputTokens: result.outputTokens + retry.outputTokens,
           };
@@ -327,7 +372,7 @@ export class BotService {
       );
 
       if (!result.reply) return;
-      await this.storeBotReply(tenantId, conversationId, result.reply);
+      await this.storeBotReply(tenantId, conversationId, aTextoPlano(result.reply));
       // La marca "necesita humano" NO se limpia porque el bot siga
       // respondiendo: al cliente se le prometio una persona (por fallo del
       // proveedor o por request_human) y esa promesa se cumple recien cuando
@@ -515,6 +560,7 @@ export class BotService {
     tenantId: string,
     conversationId: string,
     handlers: BotToolHandlers,
+    calledTools?: Set<string>,
   ): BotToolHandlers {
     const persist = (tool: string, rendered: string, ok: boolean, detail: string, ms: number) =>
       this.appDb
@@ -541,6 +587,7 @@ export class BotService {
       async (...args: A): Promise<R> => {
         const rendered = JSON.stringify(args);
         const startedAt = Date.now();
+        calledTools?.add(name);
         try {
           const result = await fn(...args);
           this.logger.log(`tool=${name} conv=${conversationId} args=${rendered} ok`);
@@ -589,6 +636,14 @@ export class BotService {
     /** El turno debe ser de ESTE cliente, futuro y vigente (cancelar/cambiar). */
     const ownFutureAppointment = async (appointmentId: string) =>
       this.appDb.tx(ctx, async (tx) => {
+        // Un id que no es UUID (el modelo manda "1" o un numero de orden)
+        // hacia explotar a Prisma con un stack que volvia al modelo como
+        // resultado de la herramienta (bateria 2026-09-02). Error accionable.
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(appointmentId)) {
+          throw new Error(
+            `appointment_id '${appointmentId}' invalido: usa el id exacto que devuelve list_my_appointments`,
+          );
+        }
         const conversation = await tx.conversation.findFirst({ where: { id: conversationId } });
         if (!conversation?.customerId) {
           throw new Error('este cliente no tiene turnos registrados con su telefono');
@@ -631,7 +686,7 @@ export class BotService {
             orderBy: [{ category: { sortOrder: 'asc' } }, { name: 'asc' }],
           });
           return services.map((s) => ({
-            id: s.id,
+            service_id: s.id,
             name: s.name,
             categoria: s.category?.name ?? null,
             descripcion: s.description,
@@ -842,7 +897,7 @@ export class BotService {
             take: 10,
           });
           return rows.map((a) => ({
-            id: a.id,
+            appointment_id: a.id,
             date: fechaLocal(a.startsAt.toISOString()),
             horaLocal: horaLocal(a.startsAt.toISOString()),
             serviceName: a.service?.name ?? null,

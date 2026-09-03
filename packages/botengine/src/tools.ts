@@ -4,6 +4,9 @@
 //     apagado significa que la herramienta ni siquiera se declara.
 //  2. Cada herramienta ejecuta server-side ya scopeada al tenant y al
 //     cliente de la conversacion; el bot no puede consultar por terceros.
+//  3. Las descripciones son CONTRATO (que recibe, que devuelve), no un
+//     manual de conversacion: las reglas de cuando y como usarlas viven en
+//     buildSystem, una sola vez cada una (ADR 0011).
 
 export interface BotPermissions {
   accessCatalog: boolean;
@@ -21,7 +24,8 @@ export interface BotPermissions {
 export interface BotToolHandlers {
   listServices(): Promise<
     {
-      id: string;
+      /** Mismo nombre que el parametro service_id de las demas herramientas. */
+      service_id: string;
       name: string;
       categoria: string | null;
       descripcion: string | null;
@@ -77,7 +81,8 @@ export interface BotToolHandlers {
   /** Turnos PROXIMOS del cliente de esta conversacion (para cancelar/cambiar). */
   listMyAppointments(): Promise<
     {
-      id: string;
+      /** Mismo nombre que el parametro appointment_id de cancelar/cambiar. */
+      appointment_id: string;
       date: string;
       horaLocal: string;
       serviceName: string | null;
@@ -140,7 +145,7 @@ export function buildBotTools(permissions: BotPermissions, handlers: BotToolHand
     tools.push({
       name: 'list_services',
       description:
-        'Lista TODOS los productos del negocio con precio (guaranies, IVA incluido), descripcion y tipo. tipo="servicio" se agenda como turno propio (duracion durationMin). tipo="item" es un producto o venta: lo que se agenda para tratarlo es una REUNION INICIAL de reunionInicialMin minutos — ofrecela vos si requiereReunion=true; si es false solo cuando el cliente quiera conversarlo. Todo el catalogo se coordina con las mismas herramientas de horarios y reserva. Usala SIEMPRE antes de hablar de precios o de que ofrece el negocio.',
+        'Catalogo completo del negocio: service_id (el que usan las demas herramientas), nombre, categoria, descripcion, precio (guaranies, IVA incluido) y tipo. tipo="servicio": se reserva como turno de durationMin minutos. tipo="item": producto o venta; se coordina con una reunion inicial de reunionInicialMin minutos cuando requiereReunion es true.',
       parameters: { type: 'object', properties: {}, additionalProperties: false },
       run: async () => JSON.stringify(await handlers.listServices()),
     });
@@ -149,16 +154,15 @@ export function buildBotTools(permissions: BotPermissions, handlers: BotToolHand
     tools.push({
       name: 'get_available_slots',
       description:
-        'Devuelve los horarios libres (hora local del negocio, formato HH:MM) para un producto en una fecha dada — para tipo="item" son los horarios de su reunion inicial. La respuesta ya viene separada en manana y tarde: usa esas listas tal cual para responder "a la manana/a la tarde". NO requiere que el cliente este registrado: consultala apenas pregunte por horarios, sin pedirle ningun dato antes. Si esa fecha no tiene horarios, la respuesta incluye la proxima fecha con disponibilidad y sus horarios: ofrecelos. SIEMPRE llama primero a list_services y usa el id exacto que devuelve; nunca inventes un service_id. Si el cliente pidio ser atendido por alguien puntual del EQUIPO, pasa su nombre en empleado y los horarios seran los de esa persona.',
+        'Horarios libres (hora local del negocio, HH:MM) de un servicio en una fecha, ya separados en manana y tarde. Para tipo="item" son los horarios de su reunion inicial. Si la fecha no tiene lugar, incluye la proxima fecha con horarios. Con empleado, devuelve solo los horarios de esa persona.',
       parameters: {
         type: 'object',
         properties: {
-          service_id: { type: 'string', description: 'id del servicio (de list_services)' },
+          service_id: { type: 'string', description: 'service_id tal cual lo devuelve list_services (nunca un numero de orden)' },
           date: { type: 'string', description: 'fecha YYYY-MM-DD en la zona del negocio' },
           empleado: {
             type: 'string',
-            description:
-              'opcional: nombre del EQUIPO elegido por el cliente; omitilo si no pidio a nadie puntual',
+            description: 'opcional: nombre del equipo elegido por el cliente',
           },
         },
         required: ['service_id', 'date'],
@@ -174,11 +178,11 @@ export function buildBotTools(permissions: BotPermissions, handlers: BotToolHand
     tools.push({
       name: 'book_appointment',
       description:
-        'Reserva un turno para el cliente de esta conversacion. NO requiere que el cliente este registrado ni haya dado su nombre: el sistema lo identifica por su telefono y reserva igual — JAMAS pospongas ni condiciones la reserva a pedirle el nombre. Reserva solo despues de que el cliente confirme explicitamente servicio y horario. Antes de reservar consulta get_available_slots en este mismo turno: hora_local debe ser exactamente uno de los horarios que devolvio para esa fecha (con el MISMO empleado, si el cliente eligio uno). Si el producto es tipo="item", lo reservado es una REUNION INICIAL para tratarlo (la respuesta lo indica en tipo): confirmaselo asi al cliente. Si el cliente pidio una modalidad especial o dejo un pedido puntual, registralo en nota Y ademas llama request_human para que el equipo lo coordine.',
+        'Reserva para el cliente de esta conversacion el servicio service_id en date a hora_local (uno de los horarios devueltos por get_available_slots para esa fecha y ese empleado). Devuelve id, estado, tipo (servicio o reunion_inicial) y quien atiende. La nota queda visible para el equipo en la reserva.',
       parameters: {
         type: 'object',
         properties: {
-          service_id: { type: 'string', description: 'id del servicio (de list_services)' },
+          service_id: { type: 'string', description: 'service_id tal cual lo devuelve list_services (nunca un numero de orden)' },
           date: { type: 'string', description: 'fecha YYYY-MM-DD en la zona del negocio' },
           hora_local: {
             type: 'string',
@@ -186,13 +190,11 @@ export function buildBotTools(permissions: BotPermissions, handlers: BotToolHand
           },
           nota: {
             type: 'string',
-            description:
-              'opcional: modalidad o pedido especial del cliente (ej. "prefiere por Meet"); queda visible para el equipo en la reserva',
+            description: 'opcional: modalidad o pedido especial del cliente',
           },
           empleado: {
             type: 'string',
-            description:
-              'opcional: nombre del EQUIPO elegido por el cliente; omitilo si no pidio a nadie puntual (el sistema asigna solo)',
+            description: 'opcional: nombre del equipo elegido por el cliente',
           },
         },
         required: ['service_id', 'date', 'hora_local'],
@@ -214,18 +216,18 @@ export function buildBotTools(permissions: BotPermissions, handlers: BotToolHand
     tools.push({
       name: 'list_my_appointments',
       description:
-        'Lista los turnos PROXIMOS del cliente de esta conversacion (fecha, hora local, servicio, estado y quien lo atiende). NO requiere registro: el telefono ya lo identifica. Usala SIEMPRE antes de cancelar o cambiar un turno, para saber cual es y confirmarlo con el cliente.',
+        'Turnos proximos del cliente de esta conversacion: appointment_id (el que usan cancelar y cambiar), fecha, hora local, servicio, estado y quien lo atiende.',
       parameters: { type: 'object', properties: {}, additionalProperties: false },
       run: async () => JSON.stringify(await handlers.listMyAppointments()),
     });
     tools.push({
       name: 'cancel_appointment',
       description:
-        'Cancela un turno futuro del cliente de esta conversacion. Solo turnos de ESTE cliente. Antes de cancelar: consulta list_my_appointments, deci al cliente cual turno vas a cancelar (fecha, hora y servicio) y espera su confirmacion explicita. Tras cancelar, ofrecele reagendar.',
+        'Cancela un turno futuro del cliente de esta conversacion por su id (de list_my_appointments).',
       parameters: {
         type: 'object',
         properties: {
-          appointment_id: { type: 'string', description: 'id del turno (de list_my_appointments)' },
+          appointment_id: { type: 'string', description: 'appointment_id tal cual lo devuelve list_my_appointments (nunca un numero de orden)' },
           motivo: { type: 'string', description: 'opcional: motivo breve que dio el cliente' },
         },
         required: ['appointment_id'],
@@ -242,11 +244,11 @@ export function buildBotTools(permissions: BotPermissions, handlers: BotToolHand
     tools.push({
       name: 'reschedule_appointment',
       description:
-        'Cambia un turno futuro del cliente de esta conversacion a otra fecha y hora. Solo turnos de ESTE cliente. Flujo: list_my_appointments para identificar el turno → get_available_slots para la nueva fecha (mismo servicio) → confirmacion explicita del cliente → esta herramienta. hora_local debe ser exactamente uno de los horarios que devolvio get_available_slots. El turno mantiene su profesional salvo que el cliente pida otro (empleado).',
+        'Mueve un turno futuro del cliente de esta conversacion (id de list_my_appointments) a date y hora_local (uno de los horarios de get_available_slots para el mismo servicio). Mantiene el profesional salvo que se indique otro en empleado.',
       parameters: {
         type: 'object',
         properties: {
-          appointment_id: { type: 'string', description: 'id del turno (de list_my_appointments)' },
+          appointment_id: { type: 'string', description: 'appointment_id tal cual lo devuelve list_my_appointments (nunca un numero de orden)' },
           date: { type: 'string', description: 'nueva fecha YYYY-MM-DD en la zona del negocio' },
           hora_local: {
             type: 'string',
@@ -275,7 +277,7 @@ export function buildBotTools(permissions: BotPermissions, handlers: BotToolHand
     tools.push({
       name: 'save_customer_name',
       description:
-        'Registra al cliente de esta conversacion en la agenda del negocio con su nombre. Si el cliente se presenta espontaneamente con nombre y apellido ("Soy Ana Benitez"), registralo directamente sin pedir confirmacion; confirma antes solo si el nombre es ambiguo o incompleto. Llamala UNA sola vez: si responde que ya estaba agendado, no insistas ni la repitas.',
+        'Registra el nombre y apellido del cliente de esta conversacion en la agenda del negocio. Una sola vez por conversacion; si ya estaba agendado lo informa y no pisa el nombre existente.',
       parameters: {
         type: 'object',
         properties: {
@@ -292,7 +294,7 @@ export function buildBotTools(permissions: BotPermissions, handlers: BotToolHand
     tools.push({
       name: 'save_customer_data',
       description:
-        'Completa la ficha del cliente de esta conversacion con datos que el compartio: email, fecha de nacimiento, direccion o documento. Solo completa campos vacios (jamas pisa datos ya cargados). Usala apenas el cliente mencione uno de estos datos.',
+        'Completa campos vacios de la ficha del cliente de esta conversacion (email, fecha de nacimiento, direccion, documento). No pisa datos ya cargados.',
       parameters: {
         type: 'object',
         properties: {
@@ -332,13 +334,13 @@ export function buildBotTools(permissions: BotPermissions, handlers: BotToolHand
   tools.push({
     name: 'request_human',
     description:
-      'Marca esta conversacion como "necesita humano" en la bandeja del negocio para que una persona del equipo la atienda y le avisa en vivo. NO requiere ningun dato del cliente: si pide hablar con una persona, llamala YA, aunque no sepa su nombre. Usala SIEMPRE que le digas al cliente que le pasas la consulta a un companero, que alguien lo va a contactar o coordinar algo, o cuando pida hablar con una persona. Nunca prometas derivacion sin llamarla.',
+      'Marca esta conversacion como "necesita humano" en la bandeja del negocio y avisa al equipo en vivo. Es la unica forma de derivar a una persona.',
     parameters: {
       type: 'object',
       properties: {
         motivo: {
           type: 'string',
-          description: 'motivo breve para el equipo (ej. "pide hablar con una persona", "coordinar link de Meet")',
+          description: 'motivo breve para el equipo',
         },
       },
       required: ['motivo'],
