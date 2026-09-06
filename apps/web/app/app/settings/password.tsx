@@ -26,7 +26,7 @@ export function PasswordSection({ email }: { email: string }) {
     setError(null);
     setOk(false);
     if (form.new_password !== form.repeat) {
-      setError('La contrasena nueva y su repeticion no coinciden.');
+      setError('La contraseña nueva y su repetición no coinciden.');
       return;
     }
     setBusy(true);

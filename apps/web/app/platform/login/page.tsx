@@ -61,13 +61,14 @@ export default function PlatformLoginPage() {
           <Field label="Email">
             <input className={inputClass} type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
           </Field>
-          <Field label="Contrasena">
+          <Field label="Contraseña">
             <input className={inputClass} type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
           </Field>
           <ErrorNote error={error} />
           <button className={`${buttonClass} w-full`} disabled={busy}>
             {busy ? 'Entrando…' : 'Entrar'}
           </button>
+          <p className="text-xs text-slate-500">¿Olvidaste tu contraseña? Un administrador del portal te genera una nueva desde Usuarios del portal.</p>
         </form>
       </div>
     </main>

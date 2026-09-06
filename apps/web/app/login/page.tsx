@@ -33,7 +33,7 @@ export default function LoginPage() {
       });
       const data = (await res.json()) as LoginResponse & { title?: string };
       if (!res.ok) {
-        setError(res.status === 401 ? 'Email o contrasena incorrectos.' : (data.title ?? 'Error'));
+        setError(res.status === 401 ? 'Email o contraseña incorrectos.' : (data.title ?? 'Error'));
         return;
       }
       if (data.tenant_options) {
@@ -66,16 +66,22 @@ export default function LoginPage() {
 
         {tenantOptions ? (
           <div className="space-y-2">
-            <p className="text-sm text-slate-600">Tu email existe en varias empresas, elegi una:</p>
+            <p className="text-sm text-slate-600">Tu email existe en varias empresas. Elegí con cuál entrar:</p>
             {tenantOptions.map((t) => (
               <button
                 key={t.id}
-                className="w-full rounded-md border border-slate-300 px-3 py-2 text-left text-sm transition-colors hover:bg-slate-50"
+                className="w-full rounded-md border border-slate-300 px-3 py-2 text-left text-sm transition-colors hover:bg-slate-50 disabled:opacity-50"
+                disabled={busy}
                 onClick={() => void submit(t.id)}
               >
                 {t.name}
               </button>
             ))}
+            {/* Antes este error quedaba oculto: solo se pintaba en el primer formulario. */}
+            <ErrorNote error={error} />
+            <button type="button" className="text-xs text-sky-700 hover:underline" onClick={() => setTenantOptions(undefined)}>
+              ← Volver
+            </button>
           </div>
         ) : (
           <form
@@ -94,7 +100,7 @@ export default function LoginPage() {
                 required
               />
             </Field>
-            <Field label="Contrasena">
+            <Field label="Contraseña">
               <input
                 className={inputClass}
                 type="password"
@@ -107,6 +113,10 @@ export default function LoginPage() {
             <button className={`${buttonClass} w-full`} disabled={busy}>
               {busy ? 'Entrando…' : 'Entrar'}
             </button>
+            <p className="text-xs text-slate-500">
+              ¿Olvidaste tu contraseña? Pedile al dueño o a un administrador de tu negocio que te genere una nueva desde Personal → Accesos al
+              panel. Si sos el dueño, pedila al soporte de la plataforma.
+            </p>
           </form>
         )}
       </div>

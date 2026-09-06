@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 
 import { logout } from '../../lib/api';
 import { FeedbackProvider } from '../../lib/feedback';
@@ -26,18 +26,9 @@ const ICONS = {
     'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z',
 } as const;
 
-function Icon({ d }: { d: string }) {
+function Icon({ d, className = 'h-4 w-4' }: { d: string; className?: string }) {
   return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="h-4 w-4 shrink-0"
-      aria-hidden
-    >
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`${className} shrink-0`} aria-hidden>
       <path d={d} />
     </svg>
   );
@@ -80,6 +71,11 @@ const NAV: { title: string; items: NavItem[] }[] = [
 export default function TenantLayout({ children }: { children: ReactNode }) {
   const user = useSession('tenant');
   const pathname = usePathname();
+  // Menu movil (fase 4 auditoria de paneles 2026-09-05): panel deslizante con
+  // los mismos grupos que el menu lateral; antes eran pastillas con scroll
+  // horizontal y Ajustes quedaba fuera de pantalla. Se cierra al navegar.
+  const [menu, setMenu] = useState(false);
+  useEffect(() => setMenu(false), [pathname]);
   if (!user) return null;
 
   const groups = NAV.map((g) => ({
@@ -89,93 +85,96 @@ export default function TenantLayout({ children }: { children: ReactNode }) {
 
   // /app solo exacto; el resto tambien marca sus subpaginas (ej. la ficha de un cliente).
   const isActive = (href: string) => (href === '/app' ? pathname === '/app' : pathname.startsWith(href));
+  const actual = groups.flatMap((g) => g.items).find((i) => isActive(i.href));
 
   const salir = () => void logout().then(() => location.assign('/login'));
+
+  const nav = (
+    <nav className="flex-1 space-y-4 overflow-y-auto p-3">
+      {groups.map((g) => (
+        <div key={g.title}>
+          <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">{g.title}</p>
+          <div className="space-y-0.5">
+            {g.items.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                aria-current={isActive(item.href) ? 'page' : undefined}
+                className={`flex items-center gap-2.5 rounded-md px-3 py-1.5 text-sm transition-colors ${
+                  isActive(item.href) ? 'bg-sky-50 font-medium text-sky-800' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                }`}
+              >
+                <Icon d={ICONS[item.icon]} />
+                {item.label}
+              </Link>
+            ))}
+          </div>
+        </div>
+      ))}
+    </nav>
+  );
+  const pie = (
+    <div className="border-t border-slate-100 p-3">
+      <p className="truncate px-1 text-sm font-medium text-slate-700">{user.full_name}</p>
+      <p className="px-1 text-[11px] text-slate-400">{roleLabel(user.role)}</p>
+      <button className="mt-2 w-full rounded-md border border-slate-200 px-3 py-1.5 text-sm text-slate-600 transition-colors hover:bg-slate-100" onClick={salir}>
+        Cerrar sesión
+      </button>
+    </div>
+  );
 
   return (
     <div className="min-h-screen">
       {/* Menu lateral (pantallas medianas en adelante) */}
       <aside className="fixed inset-y-0 left-0 z-40 hidden w-56 flex-col border-r border-slate-200 bg-white lg:flex">
         <div className="flex h-14 items-center gap-2.5 border-b border-slate-100 px-4">
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sky-600 text-sm font-bold text-white">
-            P
-          </span>
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sky-600 text-sm font-bold text-white">P</span>
           <div className="leading-tight">
             <p className="text-sm font-semibold text-slate-900">PyMEs SaaS</p>
             <p className="text-[11px] text-slate-400">Panel del negocio</p>
           </div>
         </div>
-        <nav className="flex-1 space-y-4 overflow-y-auto p-3">
-          {groups.map((g) => (
-            <div key={g.title}>
-              <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">{g.title}</p>
-              <div className="space-y-0.5">
-                {g.items.map((item) => (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={`flex items-center gap-2.5 rounded-md px-3 py-1.5 text-sm transition-colors ${
-                      isActive(item.href)
-                        ? 'bg-sky-50 font-medium text-sky-800'
-                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-                    }`}
-                  >
-                    <Icon d={ICONS[item.icon]} />
-                    {item.label}
-                  </Link>
-                ))}
-              </div>
-            </div>
-          ))}
-        </nav>
-        <div className="border-t border-slate-100 p-3">
-          <p className="truncate px-1 text-sm font-medium text-slate-700">{user.full_name}</p>
-          <p className="px-1 text-[11px] text-slate-400">{roleLabel(user.role)}</p>
-          <button
-            className="mt-2 w-full rounded-md border border-slate-200 px-3 py-1.5 text-sm text-slate-600 transition-colors hover:bg-slate-100"
-            onClick={salir}
-          >
-            Cerrar sesión
-          </button>
-        </div>
+        {nav}
+        {pie}
       </aside>
 
-      {/* Barra superior compacta (pantallas chicas) */}
-      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white lg:hidden">
-        <div className="flex items-center justify-between px-4 py-2">
-          <div className="flex items-center gap-2">
-            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-sky-600 text-xs font-bold text-white">
-              P
-            </span>
-            <span className="text-sm font-semibold text-slate-900">PyMEs SaaS</span>
-          </div>
-          <div className="flex items-center gap-2 text-xs text-slate-500">
-            <span className="max-w-[10rem] truncate">{user.full_name}</span>
-            <button
-              className="rounded-md border border-slate-200 px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-100"
-              onClick={salir}
-            >
-              Salir
-            </button>
-          </div>
-        </div>
-        <nav className="flex gap-1 overflow-x-auto px-2 pb-2">
-          {groups.flatMap((g) =>
-            g.items.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1 text-xs ${
-                  isActive(item.href) ? 'bg-sky-100 font-medium text-sky-800' : 'text-slate-600 hover:bg-slate-100'
-                }`}
-              >
-                <Icon d={ICONS[item.icon]} />
-                {item.label}
-              </Link>
-            )),
-          )}
-        </nav>
+      {/* Barra superior (pantallas chicas): abre el menu y muestra donde estas */}
+      <header className="sticky top-0 z-30 flex h-12 items-center gap-2 border-b border-slate-200 bg-white px-3 lg:hidden">
+        <button type="button" className="rounded-md p-1.5 text-slate-600 hover:bg-slate-100" aria-label="Abrir menú" onClick={() => setMenu(true)}>
+          <Icon d="M4 7h16M4 12h16M4 17h16" className="h-5 w-5" />
+        </button>
+        <span className="flex items-center gap-1.5 text-sm font-semibold text-slate-900">
+          {actual && <Icon d={ICONS[actual.icon]} />}
+          {actual?.label ?? 'PyMEs SaaS'}
+        </span>
+        <span className="ml-auto max-w-[9rem] truncate text-xs text-slate-500">{user.full_name}</span>
       </header>
+
+      {menu && (
+        <div
+          className="fixed inset-0 z-50 bg-black/40 lg:hidden"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setMenu(false);
+          }}
+        >
+          <aside className="flex h-full w-64 flex-col bg-white shadow-2xl">
+            <div className="flex h-14 items-center justify-between border-b border-slate-100 px-4">
+              <div className="flex items-center gap-2.5">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sky-600 text-sm font-bold text-white">P</span>
+                <div className="leading-tight">
+                  <p className="text-sm font-semibold text-slate-900">PyMEs SaaS</p>
+                  <p className="text-[11px] text-slate-400">Panel del negocio</p>
+                </div>
+              </div>
+              <button type="button" className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label="Cerrar menú" onClick={() => setMenu(false)}>
+                <Icon d="M6 6l12 12M18 6L6 18" className="h-5 w-5" />
+              </button>
+            </div>
+            {nav}
+            {pie}
+          </aside>
+        </div>
+      )}
 
       <main className="p-4 md:p-6 lg:ml-56">
         <div className="mx-auto max-w-6xl">

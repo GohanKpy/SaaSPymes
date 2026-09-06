@@ -14,7 +14,7 @@ const STORAGE_KEY = 'padmin_asistente';
 // "Massi". Para volver al tono neutro, cambiar este texto y el bloque
 // TONO_TEMPORAL de apps/api/src/platform/assistant.service.ts.
 const BIENVENIDA =
-  'Hola Massi. Soy el asistente del equipo de soporte: me se el manual de memoria, que es mas de lo que puede decir la mayoria. Preguntame como se hace algo, que significa un error y como resolverlo, o como guiar a un cliente paso a paso.';
+  'Hola Massi. Soy el asistente del equipo de soporte: me sé el manual de memoria, que es más de lo que puede decir la mayoría. Preguntame cómo se hace algo, qué significa un error y cómo resolverlo, o cómo guiar a un cliente paso a paso.';
 
 /**
  * Asistente interno del portal admin (pedido 2026-09-02): burbuja de chat

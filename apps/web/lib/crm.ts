@@ -30,13 +30,13 @@ export interface CustomFieldDef {
 export const ACTIVITY_TYPES: { value: string; label: string; task: boolean }[] = [
   { value: 'nota', label: 'Nota', task: false },
   { value: 'llamada', label: 'Llamada', task: false },
-  { value: 'reunion', label: 'Reunion', task: false },
+  { value: 'reunion', label: 'Reunión', task: false },
   { value: 'tarea', label: 'Tarea', task: true },
   { value: 'seguimiento', label: 'Seguimiento', task: true },
 ];
 
 export const CONTACT_KINDS: { value: string; label: string }[] = [
-  { value: 'phone', label: 'Telefono' },
+  { value: 'phone', label: 'Teléfono' },
   { value: 'email', label: 'Email' },
   { value: 'web', label: 'Web' },
   { value: 'im', label: 'Red social' },

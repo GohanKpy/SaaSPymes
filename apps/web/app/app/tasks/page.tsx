@@ -201,7 +201,7 @@ export default function TasksPage() {
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Tareas y seguimientos"
+        title="Tareas"
         description="Todo lo pendiente con tus clientes en un solo lugar: las tareas que carga tu equipo y los seguimientos que el bot sugiere al cerrar una conversación."
         actions={
           <Button variant="primary" onClick={() => setNueva(true)}>

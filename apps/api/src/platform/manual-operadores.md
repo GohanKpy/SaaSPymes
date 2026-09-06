@@ -156,6 +156,14 @@ edita desde Mi perfil").
 
 ## 3. Portal del negocio (client.inicia.com.py) — sección por sección
 
+Menú lateral en tres grupos: Operación (Inicio, Chat, Agenda, Tareas), Gestión
+(Clientes, Catálogo, Facturación) y Administración (Personal, Ajustes). En el
+celular el menú se abre con el botón ☰ de la barra superior. El personal
+(rol staff) no ve Personal y en Ajustes solo ve Mi cuenta. Si alguien olvidó
+su contraseña, el dueño o un administrador le genera una nueva desde
+Personal → Accesos al panel → "Nueva contraseña"; al dueño se la reinicia
+el equipo de la plataforma desde su ficha en el portal admin.
+
 ### 3.1 Inicio
 
 Tablero con los números del día y del mes del negocio: turnos de hoy,
