@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 
 import { api } from '../../../../lib/api';
+import { useConfirm, useToast } from '../../../../lib/feedback';
+import { errorMessage } from '../../../../lib/labels';
 import { ACTIVITY_TYPES, CONTACT_KINDS, SOURCES, type CustomFieldDef } from '../../../../lib/crm';
 import { dvRuc } from '../../../../lib/ruc';
 import {
@@ -136,6 +138,8 @@ const EMPTY_CP = { kind: 'phone', label: 'celular', value: '', is_primary: false
 const EMPTY_ACT = { activity_type: 'nota', body: '', due_at: '', assigned_user_id: '' };
 
 export default function CustomerFichaPage() {
+  const confirmar = useConfirm();
+  const toast = useToast();
   const { id } = useParams<{ id: string }>();
   const [customer, setCustomer] = useState<CustomerDetail | null>(null);
   const [defs, setDefs] = useState<CustomFieldDef[]>([]);
@@ -286,12 +290,18 @@ export default function CustomerFichaPage() {
   }
 
   async function removeActivity(aId: string) {
-    if (!confirm('Borrar esta entrada del historial?')) return;
+    const ok = await confirmar({
+      title: 'Borrar esta nota o tarea',
+      message: 'Se quita de la actividad del cliente. No se puede deshacer.',
+      confirmLabel: 'Borrar',
+    });
+    if (!ok) return;
     try {
       await api(`/customers/${id}/activities/${aId}`, { method: 'DELETE' });
+      toast.success('Eliminada');
       load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error');
+      toast.error(errorMessage(e));
     }
   }
 

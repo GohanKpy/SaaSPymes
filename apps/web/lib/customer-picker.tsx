@@ -1,0 +1,230 @@
+'use client';
+
+// Buscador de clientes compartido (fase 0, 2026-09-05). Reemplaza los
+// <select> que traian los primeros 50 clientes en Agenda y Facturacion (el
+// cliente 51 no se podia agendar ni facturar). Busca en el servidor mientras
+// se escribe y permite crear un cliente nuevo sin salir del formulario.
+import { useEffect, useRef, useState } from 'react';
+
+import { api } from './api';
+import { errorMessage } from './labels';
+import { Button, inputClass } from './ui';
+
+export interface PickedCustomer {
+  id: string;
+  firstName: string;
+  lastName: string | null;
+  phoneE164: string | null;
+  email?: string | null;
+  docNumber?: string | null;
+}
+
+export function customerName(c: { firstName: string; lastName: string | null }): string {
+  return `${c.firstName} ${c.lastName ?? ''}`.trim();
+}
+
+export function CustomerPicker({
+  value,
+  onChange,
+  autoFocus = false,
+  allowCreate = true,
+  placeholder = 'Buscar por nombre, celular o documento…',
+}: {
+  value: PickedCustomer | null;
+  onChange: (customer: PickedCustomer | null) => void;
+  autoFocus?: boolean;
+  allowCreate?: boolean;
+  placeholder?: string;
+}) {
+  const [q, setQ] = useState('');
+  const [results, setResults] = useState<PickedCustomer[]>([]);
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [nuevo, setNuevo] = useState({ first_name: '', last_name: '', phone_e164: '' });
+  const [error, setError] = useState<string | null>(null);
+  const boxRef = useRef<HTMLDivElement>(null);
+
+  // Busqueda con espera corta: una consulta por pausa, no por tecla.
+  useEffect(() => {
+    if (!open) return;
+    const term = q.trim();
+    const t = setTimeout(() => {
+      setBusy(true);
+      api<{ data: PickedCustomer[] }>(`/customers?limit=8${term ? `&q=${encodeURIComponent(term)}` : ''}`)
+        .then((r) => setResults(r.data))
+        .catch(() => setResults([]))
+        .finally(() => setBusy(false));
+    }, 250);
+    return () => clearTimeout(t);
+  }, [q, open]);
+
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, []);
+
+  async function crear(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setBusy(true);
+    try {
+      const created = await api<PickedCustomer>('/customers', {
+        method: 'POST',
+        json: {
+          first_name: nuevo.first_name.trim(),
+          ...(nuevo.last_name.trim() ? { last_name: nuevo.last_name.trim() } : {}),
+          ...(nuevo.phone_e164.trim() ? { phone_e164: nuevo.phone_e164.trim() } : {}),
+        },
+      });
+      onChange(created);
+      setCreating(false);
+      setOpen(false);
+      setNuevo({ first_name: '', last_name: '', phone_e164: '' });
+    } catch (err) {
+      const status = (err as { status?: number }).status;
+      const dupId = (err as { problem?: { detail?: string } }).problem?.detail;
+      if (status === 409 && dupId) {
+        // Ya existe: se usa el que esta, no se duplica.
+        try {
+          const existing = await api<PickedCustomer>(`/customers/${dupId}`);
+          onChange(existing);
+          setCreating(false);
+          setOpen(false);
+          return;
+        } catch {
+          /* cae al mensaje generico */
+        }
+      }
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (value) {
+    return (
+      <div className="flex items-center justify-between gap-2 rounded-md border border-slate-300 bg-slate-50 px-3 py-2 text-sm">
+        <span className="truncate">
+          <span className="font-medium text-slate-900">{customerName(value)}</span>
+          {value.phoneE164 && <span className="ml-2 text-slate-500">{value.phoneE164}</span>}
+        </span>
+        <button
+          type="button"
+          className="shrink-0 text-xs text-sky-700 hover:underline"
+          onClick={() => {
+            onChange(null);
+            setOpen(true);
+          }}
+        >
+          Cambiar
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div ref={boxRef} className="relative">
+      <input
+        className={inputClass}
+        value={q}
+        autoFocus={autoFocus}
+        placeholder={placeholder}
+        onFocus={() => setOpen(true)}
+        onChange={(e) => {
+          setQ(e.target.value);
+          setOpen(true);
+          setCreating(false);
+        }}
+        aria-autocomplete="list"
+        aria-expanded={open}
+      />
+      {open && (
+        <div className="absolute z-20 mt-1 w-full overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg">
+          {!creating && (
+            <ul className="max-h-60 overflow-y-auto text-sm">
+              {results.map((c) => (
+                <li key={c.id}>
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-sky-50"
+                    onClick={() => {
+                      onChange(c);
+                      setOpen(false);
+                      setQ('');
+                    }}
+                  >
+                    <span className="truncate">{customerName(c)}</span>
+                    <span className="shrink-0 text-xs text-slate-500">{c.phoneE164 ?? c.docNumber ?? ''}</span>
+                  </button>
+                </li>
+              ))}
+              {results.length === 0 && (
+                <li className="px-3 py-2 text-slate-400">
+                  {busy ? 'Buscando…' : q.trim() ? 'Ningún cliente coincide.' : 'Escribí para buscar.'}
+                </li>
+              )}
+            </ul>
+          )}
+          {allowCreate && !creating && (
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-sm font-medium text-sky-700 hover:bg-sky-50"
+              onClick={() => {
+                setCreating(true);
+                // Lo que ya escribio sirve como nombre.
+                const partes = q.trim().split(/\s+/);
+                setNuevo({
+                  first_name: partes[0] ?? '',
+                  last_name: partes.slice(1).join(' '),
+                  phone_e164: /^\+?\d{6,}$/.test(q.trim()) ? q.trim() : '',
+                });
+              }}
+            >
+              + Crear cliente nuevo{q.trim() ? ` "${q.trim()}"` : ''}
+            </button>
+          )}
+          {creating && (
+            <form onSubmit={(e) => void crear(e)} className="space-y-2 border-t border-slate-100 p-3">
+              <p className="text-xs text-slate-500">Cliente nuevo: solo el nombre es obligatorio.</p>
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  className={inputClass}
+                  placeholder="Nombre *"
+                  required
+                  autoFocus
+                  value={nuevo.first_name}
+                  onChange={(e) => setNuevo({ ...nuevo, first_name: e.target.value })}
+                />
+                <input
+                  className={inputClass}
+                  placeholder="Apellido"
+                  value={nuevo.last_name}
+                  onChange={(e) => setNuevo({ ...nuevo, last_name: e.target.value })}
+                />
+              </div>
+              <input
+                className={inputClass}
+                placeholder="Celular (+595…)"
+                value={nuevo.phone_e164}
+                onChange={(e) => setNuevo({ ...nuevo, phone_e164: e.target.value })}
+              />
+              {error && <p className="text-xs text-red-700">{error}</p>}
+              <div className="flex justify-end gap-2">
+                <Button variant="ghost" onClick={() => setCreating(false)}>
+                  Volver
+                </Button>
+                <Button variant="primary" type="submit" loading={busy}>
+                  Crear y elegir
+                </Button>
+              </div>
+            </form>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}

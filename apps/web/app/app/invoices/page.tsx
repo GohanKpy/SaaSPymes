@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { API_URL, api, getToken } from '../../../lib/api';
+import { useAskText, useToast } from '../../../lib/feedback';
+import { errorMessage } from '../../../lib/labels';
 import {
   Badge,
   Card,
@@ -45,6 +47,8 @@ interface Option {
 }
 
 export default function InvoicesPage() {
+  const askText = useAskText();
+  const toast = useToast();
   const [rows, setRows] = useState<Invoice[]>([]);
   const [customers, setCustomers] = useState<Option[]>([]);
   const [services, setServices] = useState<Option[]>([]);
@@ -107,13 +111,20 @@ export default function InvoicesPage() {
   }
 
   async function cancel(id: string) {
-    const reason = prompt('Motivo de anulacion (obligatorio):');
+    const reason = await askText({
+      title: 'Anular factura',
+      message: 'La anulación queda registrada y no se puede deshacer. Solo se puede anular dentro de las 48 horas de emitida.',
+      label: 'Motivo de la anulación',
+      placeholder: 'Ej: error en el cliente facturado',
+      confirmLabel: 'Anular factura',
+    });
     if (!reason) return;
     try {
       await api(`/invoices/${id}/cancel`, { method: 'POST', json: { reason } });
+      toast.success('Factura anulada');
       load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error');
+      toast.error(errorMessage(e));
     }
   }
 

@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { API_URL, ApiError, api, apiImageUrl, getToken } from '../../../lib/api';
+import { useConfirm, useToast } from '../../../lib/feedback';
+import { errorMessage } from '../../../lib/labels';
 import {
   Badge,
   Card,
@@ -77,6 +79,8 @@ function KindBadge({ kind }: { kind: Kind }) {
  *  inicial opcional que el bot coordina. La categoria solo aporta el
  *  tipo por defecto al crear. */
 export default function CatalogPage() {
+  const confirmar = useConfirm();
+  const toast = useToast();
   const [categories, setCategories] = useState<Category[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -125,10 +129,32 @@ export default function CatalogPage() {
   }
 
   async function removeCategory(c: Category) {
-    if (!confirm(`¿Eliminar la categoria "${c.name}"?`)) return;
+    const ok = await confirmar({
+      title: `Eliminar la categoría "${c.name}"`,
+      message: 'Solo se puede eliminar si no tiene productos activos; si los tiene, primero movelos o desactivalos.',
+      confirmLabel: 'Eliminar',
+    });
+    if (!ok) return;
     setError(null);
     try {
       await api(`/catalog/categories/${c.id}`, { method: 'DELETE' });
+      toast.success('Categoría eliminada');
+      load();
+    } catch (err) {
+      fail(err);
+    }
+  }
+
+  async function removeService(s: Service) {
+    const ok = await confirmar({
+      title: `Eliminar "${s.name}" del catálogo`,
+      message: 'Los turnos y facturas que ya lo usaron no cambian. Si solo querés dejar de ofrecerlo un tiempo, mejor desactivalo desde Editar.',
+      confirmLabel: 'Eliminar',
+    });
+    if (!ok) return;
+    try {
+      await api(`/catalog/services/${s.id}`, { method: 'DELETE' });
+      toast.success('Producto eliminado');
       load();
     } catch (err) {
       fail(err);
@@ -816,14 +842,7 @@ export default function CatalogPage() {
                     <button className={buttonGhost} onClick={() => openEdit(s)}>
                       Editar
                     </button>
-                    <button
-                      className={buttonDanger}
-                      onClick={() => {
-                        if (confirm(`¿Eliminar "${s.name}" del catalogo?`)) {
-                          void api(`/catalog/services/${s.id}`, { method: 'DELETE' }).then(load, fail);
-                        }
-                      }}
-                    >
+                    <button className={buttonDanger} onClick={() => void removeService(s)}>
                       Eliminar
                     </button>
                   </span>

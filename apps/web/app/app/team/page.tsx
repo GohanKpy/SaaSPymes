@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { api } from '../../../lib/api';
+import { useConfirm, useToast } from '../../../lib/feedback';
+import { errorMessage } from '../../../lib/labels';
 import {
   Badge,
   Card,
@@ -33,6 +35,8 @@ interface TeamUser {
 // Equipo del negocio: el root/admin da de alta cuentas para su personal,
 // reinicia contrasenas y desactiva accesos (doc 04 §2, API /users).
 export default function TeamPage() {
+  const confirmar = useConfirm();
+  const toast = useToast();
   const user = useSession('tenant');
   const [users, setUsers] = useState<TeamUser[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
@@ -65,33 +69,55 @@ export default function TeamPage() {
   }
 
   async function toggleActive(u: TeamUser) {
+    if (u.isActive) {
+      const ok = await confirmar({
+        title: `Desactivar a ${u.email}`,
+        message: 'No va a poder entrar al panel hasta que lo reactives. Sus datos y su historial se conservan.',
+        confirmLabel: 'Desactivar',
+      });
+      if (!ok) return;
+    }
     try {
       await api(`/users/${u.id}`, { method: 'PATCH', json: { is_active: !u.isActive } });
+      toast.success(u.isActive ? 'Cuenta desactivada' : 'Cuenta reactivada');
       load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error');
+      toast.error(errorMessage(e));
     }
   }
 
   async function resetPassword(u: TeamUser) {
-    if (!confirm(`Generar una contrasena nueva para ${u.email}? Sus sesiones activas se cierran.`)) return;
+    const ok = await confirmar({
+      title: `Generar una contraseña nueva para ${u.email}`,
+      message:
+        'La contraseña actual deja de servir y sus sesiones abiertas se cierran. La nueva se muestra una sola vez: copiala y pasásela.',
+      confirmLabel: 'Generar contraseña',
+      tone: 'primary',
+    });
+    if (!ok) return;
     try {
       const res = await api<{ email: string; temp_password: string }>(`/users/${u.id}/reset-password`, {
         method: 'POST',
       });
       setCreds({ email: res.email, pass: res.temp_password });
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error');
+      toast.error(errorMessage(e));
     }
   }
 
   async function removeUser(u: TeamUser) {
-    if (!confirm(`Eliminar la cuenta de ${u.email}? Deja de poder entrar al sistema.`)) return;
+    const ok = await confirmar({
+      title: `Eliminar la cuenta de ${u.email}`,
+      message: 'Deja de poder entrar al sistema. Si solo querés frenar el acceso un tiempo, usá Desactivar.',
+      confirmLabel: 'Eliminar cuenta',
+    });
+    if (!ok) return;
     try {
       await api(`/users/${u.id}`, { method: 'DELETE' });
+      toast.success('Cuenta eliminada');
       load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error');
+      toast.error(errorMessage(e));
     }
   }
 

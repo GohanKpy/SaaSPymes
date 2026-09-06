@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 
 import { api } from '../../../../lib/api';
+import { useAskText, useConfirm, useToast } from '../../../../lib/feedback';
+import { errorMessage } from '../../../../lib/labels';
 import { formatRucConDv } from '../../../../lib/ruc';
 import { AssistantWidget } from '../../assistant';
 import {
@@ -59,6 +61,9 @@ const STATUSES = ['trial', 'active', 'suspended', 'closed'] as const;
 // Ficha del cliente (ADR 0005): datos CRM del tenant, plan/estado y usuarios
 // con reinicio de contraseña, todo desde el portal del dueño del sistema.
 export default function TenantDetailPage() {
+  const askText = useAskText();
+  const confirmar = useConfirm();
+  const toast = useToast();
   const user = useSession('platform');
   const params = useParams<{ id: string }>();
   const tenantId = params.id;
@@ -138,34 +143,57 @@ export default function TenantDetailPage() {
   // Acuerdos a medida (doc 04 §3.11): forzar una feature con nota obligatoria
   // o quitar el acuerdo para volver a heredar del plan.
   async function forceFeature(code: string, enabled: boolean) {
-    const note = prompt(`Motivo del acuerdo para ${enabled ? 'activar' : 'desactivar'} "${code}" (obligatorio):`);
-    if (!note || note.trim().length < 3) return;
+    const nombre = features.find((f) => f.code === code)?.name ?? code;
+    const note = await askText({
+      title: `${enabled ? 'Activar' : 'Apagar'} "${nombre}" por acuerdo`,
+      message: enabled
+        ? 'La función queda activa para este cliente aunque su plan no la incluya. El motivo queda registrado en la auditoría.'
+        : 'La función queda apagada para este cliente aunque su plan la incluya. El motivo queda registrado en la auditoría.',
+      label: 'Motivo del acuerdo',
+      placeholder: 'Ej: piloto sin cargo hasta octubre',
+      confirmLabel: enabled ? 'Activar por acuerdo' : 'Apagar por acuerdo',
+    });
+    if (!note) return;
     setError(null);
     try {
       await api(`/platform/tenants/${tenantId}/overrides`, {
         method: 'PUT',
-        json: { feature_code: code, enabled, note: note.trim() },
+        json: { feature_code: code, enabled, note },
       });
+      toast.success(`"${nombre}" ${enabled ? 'activada' : 'apagada'} por acuerdo`);
       load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error');
+      toast.error(errorMessage(e));
     }
   }
 
   async function inheritFeature(code: string) {
+    const nombre = features.find((f) => f.code === code)?.name ?? code;
+    const ok = await confirmar({
+      title: `Quitar el acuerdo sobre "${nombre}"`,
+      message: 'Se borra el acuerdo a medida y vuelve a regir lo que dice el plan del cliente.',
+      confirmLabel: 'Volver a lo del plan',
+    });
+    if (!ok) return;
     setError(null);
     try {
       await api(`/platform/tenants/${tenantId}/overrides/${code}`, { method: 'DELETE' });
+      toast.success('Acuerdo quitado: rige el plan');
       load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error');
+      toast.error(errorMessage(e));
     }
   }
 
   async function resetPassword(u: TenantUser) {
-    if (!confirm(`Generar una contrasena nueva para ${u.email}? Sus sesiones activas se cierran.`)) {
-      return;
-    }
+    const ok = await confirmar({
+      title: `Generar una contraseña nueva para ${u.email}`,
+      message:
+        'La contraseña actual deja de servir y sus sesiones abiertas se cierran. La nueva se muestra una sola vez: copiala y pasásela al cliente por un canal seguro.',
+      confirmLabel: 'Generar contraseña',
+      tone: 'primary',
+    });
+    if (!ok) return;
     setError(null);
     try {
       const res = await api<{ email: string; temp_password: string }>(

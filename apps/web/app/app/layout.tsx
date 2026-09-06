@@ -5,6 +5,8 @@ import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
 
 import { logout } from '../../lib/api';
+import { FeedbackProvider } from '../../lib/feedback';
+import { roleLabel } from '../../lib/labels';
 import { useSession } from '../../lib/ui';
 
 // Iconos inline (trazos estilo lucide) para no sumar dependencias.
@@ -76,8 +78,6 @@ const NAV: { title: string; items: NavItem[] }[] = [
   },
 ];
 
-const ROLE_LABEL: Record<string, string> = { root: 'dueño', admin: 'administrador', staff: 'staff' };
-
 export default function TenantLayout({ children }: { children: ReactNode }) {
   const user = useSession('tenant');
   const pathname = usePathname();
@@ -131,7 +131,7 @@ export default function TenantLayout({ children }: { children: ReactNode }) {
         </nav>
         <div className="border-t border-slate-100 p-3">
           <p className="truncate px-1 text-sm font-medium text-slate-700">{user.full_name}</p>
-          <p className="px-1 text-[11px] text-slate-400">{ROLE_LABEL[user.role] ?? user.role}</p>
+          <p className="px-1 text-[11px] text-slate-400">{roleLabel(user.role)}</p>
           <button
             className="mt-2 w-full rounded-md border border-slate-200 px-3 py-1.5 text-sm text-slate-600 transition-colors hover:bg-slate-100"
             onClick={salir}
@@ -179,7 +179,9 @@ export default function TenantLayout({ children }: { children: ReactNode }) {
       </header>
 
       <main className="p-4 md:p-6 lg:ml-56">
-        <div className="mx-auto max-w-6xl">{children}</div>
+        <div className="mx-auto max-w-6xl">
+          <FeedbackProvider>{children}</FeedbackProvider>
+        </div>
       </main>
     </div>
   );

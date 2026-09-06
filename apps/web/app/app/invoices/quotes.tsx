@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { API_URL, api, getToken } from '../../../lib/api';
+import { useConfirm, useToast } from '../../../lib/feedback';
+import { errorMessage } from '../../../lib/labels';
 import {
   Badge,
   Card,
@@ -67,6 +69,8 @@ export function QuotesSection({
   onError: (msg: string) => void;
   onInvoiced: () => void;
 }) {
+  const confirmar = useConfirm();
+  const toast = useToast();
   const [rows, setRows] = useState<Quote[]>([]);
   const [customerId, setCustomerId] = useState('');
   const [validUntil, setValidUntil] = useState('');
@@ -130,23 +134,37 @@ export function QuotesSection({
   }
 
   async function convert(q: Quote) {
-    if (!confirm(`¿Convertir el presupuesto P-${String(q.number).padStart(4, '0')} en factura?`)) return;
+    const numero = `P-${String(q.number).padStart(4, '0')}`;
+    const ok = await confirmar({
+      title: `Convertir el presupuesto ${numero} en factura`,
+      message: 'Se crea un borrador de factura con los mismos ítems (todavía no se emite) y el presupuesto queda marcado como facturado.',
+      confirmLabel: 'Crear la factura',
+      tone: 'primary',
+    });
+    if (!ok) return;
     try {
       await api(`/quotes/${q.id}/invoice`, { method: 'POST', json: {} });
+      toast.success(`Borrador de factura creado a partir de ${numero}`);
       load();
       onInvoiced();
     } catch (e) {
-      onError(e instanceof Error ? e.message : 'Error');
+      toast.error(errorMessage(e));
     }
   }
 
   async function remove(q: Quote) {
-    if (!confirm('¿Borrar este borrador de presupuesto?')) return;
+    const ok = await confirmar({
+      title: 'Borrar este borrador de presupuesto',
+      message: 'No se puede deshacer. Los presupuestos ya enviados no se borran: quedan como historial.',
+      confirmLabel: 'Borrar',
+    });
+    if (!ok) return;
     try {
       await api(`/quotes/${q.id}`, { method: 'DELETE' });
+      toast.success('Borrador borrado');
       load();
     } catch (e) {
-      onError(e instanceof Error ? e.message : 'Error');
+      toast.error(errorMessage(e));
     }
   }
 

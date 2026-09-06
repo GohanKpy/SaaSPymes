@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { ApiError, api } from '../../../lib/api';
+import { useConfirm, useToast } from '../../../lib/feedback';
+import { errorMessage } from '../../../lib/labels';
 import {
   Badge,
   EmptyRow,
@@ -139,6 +141,8 @@ function buildWeek(days: Record<string, DayForm>): Record<string, Franja[]> {
  *  participan de la agenda: los turnos se les asignan sin solaparse. Fase 3:
  *  horario propio (o el del negocio) y Google Calendar personal. */
 export default function EmployeesPage() {
+  const confirmar = useConfirm();
+  const toast = useToast();
   const user = useSession('tenant');
   const [rows, setRows] = useState<Employee[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -243,12 +247,18 @@ export default function EmployeesPage() {
   }
 
   async function remove(e: Employee) {
-    if (!confirm(`¿Dar de baja a ${e.firstName} ${e.lastName}? Su historial de turnos se conserva.`)) return;
+    const ok = await confirmar({
+      title: `Dar de baja a ${e.firstName} ${e.lastName}`,
+      message: 'Deja de aparecer en la agenda y no recibe más turnos. Su ficha y su historial de turnos se conservan.',
+      confirmLabel: 'Dar de baja',
+    });
+    if (!ok) return;
     try {
       await api(`/employees/${e.id}`, { method: 'DELETE' });
+      toast.success(`${e.firstName} dado de baja`);
       load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error');
+      toast.error(errorMessage(err));
     }
   }
 
@@ -310,9 +320,15 @@ export default function EmployeesPage() {
   }
 
   async function googleDisconnect(e: Employee) {
-    if (!confirm(`¿Desconectar el Google Calendar de ${e.firstName}? Sus bloqueos personales dejan de importarse.`)) return;
+    const ok = await confirmar({
+      title: `Desconectar el Google Calendar de ${e.firstName}`,
+      message: 'Sus eventos personales dejan de bloquear horarios en la agenda. Se puede volver a conectar cuando quiera.',
+      confirmLabel: 'Desconectar',
+    });
+    if (!ok) return;
     try {
       await api(`/integrations/google/employee/${e.id}`, { method: 'DELETE' });
+      toast.success('Google Calendar desconectado');
       load();
     } catch (err) {
       fail(err);

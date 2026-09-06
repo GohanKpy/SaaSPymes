@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { avisosDeIndicaciones } from '../../../lib/bot-indicaciones';
 import { api } from '../../../lib/api';
+import { useConfirm, useToast } from '../../../lib/feedback';
+import { errorMessage } from '../../../lib/labels';
 import { formatRucConDv } from '../../../lib/ruc';
 import {
   Badge,
@@ -73,6 +75,8 @@ interface TenantMe {
 }
 
 export default function SettingsPage() {
+  const confirmar = useConfirm();
+  const toast = useToast();
   const user = useSession('tenant');
   const [integrations, setIntegrations] = useState<Integration[]>([]);
   const [bot, setBot] = useState<BotSettings | null>(null);
@@ -82,7 +86,6 @@ export default function SettingsPage() {
   const [wa, setWa] = useState({ phone_number_id: '', access_token: '', verify_token: 'dev-verify-token', live: false });
   const [sifen, setSifen] = useState({ timbrado: '', establishment: '001', expedition_point: '001', vigencia_desde: '' });
   const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState<string | null>(null);
 
   // Datos de la empresa + marca: todo lo que se imprime en el KuDE y lo que
   // el bot puede responder (direccion, telefono) se edita aca.
@@ -123,7 +126,7 @@ export default function SettingsPage() {
   // limpieza de la URL para que un F5 no lo repita.
   useEffect(() => {
     const google = new URLSearchParams(window.location.search).get('google');
-    if (google === 'connected') setSaved('✓ Google Calendar conectado');
+    if (google === 'connected') toast.success('Google Calendar conectado');
     if (google === 'error') setError('No se pudo conectar Google Calendar: proba de nuevo');
     if (google) window.history.replaceState(null, '', window.location.pathname);
   }, []);
@@ -167,7 +170,7 @@ export default function SettingsPage() {
           json: { address: sucursal.address || undefined, phone: sucursal.phone || undefined },
         });
       }
-      setSaved('Datos de la empresa guardados: se reflejan en el KuDE de las facturas');
+      toast.success('Datos de la empresa guardados');
       load();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error');
@@ -178,7 +181,7 @@ export default function SettingsPage() {
     e.preventDefault();
     try {
       await api('/integrations/whatsapp', { method: 'PUT', json: wa });
-      setSaved('WhatsApp configurado');
+      toast.success('WhatsApp guardado');
       load();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error');
@@ -192,7 +195,7 @@ export default function SettingsPage() {
         method: 'PUT',
         json: { ...sifen, vigencia_desde: sifen.vigencia_desde || undefined },
       });
-      setSaved('Datos SIFEN guardados');
+      toast.success('Datos de facturación electrónica guardados');
       load();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error');
@@ -227,12 +230,18 @@ export default function SettingsPage() {
   }
 
   async function disconnectGoogle() {
-    if (!confirm('¿Desconectar Google Calendar? Los turnos dejaran de reflejarse en tu calendario.')) return;
+    const ok = await confirmar({
+      title: 'Desconectar Google Calendar',
+      message: 'Los turnos dejan de reflejarse en tu calendario y los eventos de Google dejan de bloquear horarios. Podés volver a conectarlo cuando quieras.',
+      confirmLabel: 'Desconectar',
+    });
+    if (!ok) return;
     try {
       await api('/integrations/google_calendar', { method: 'DELETE' });
+      toast.success('Google Calendar desconectado');
       void api<Integration[]>('/integrations').then(setIntegrations);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error');
+      toast.error(errorMessage(e));
     }
   }
 
@@ -243,7 +252,6 @@ export default function SettingsPage() {
         description="Datos de tu empresa, el bot de atención y las conexiones con WhatsApp, Google Calendar y SIFEN."
       />
       <ErrorNote error={error} />
-      {saved && <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{saved}</p>}
 
       {user && <PasswordSection email={user.email} />}
 

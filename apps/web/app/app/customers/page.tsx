@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
 import { ApiError, api } from '../../../lib/api';
+import { useConfirm, useToast } from '../../../lib/feedback';
+import { errorMessage } from '../../../lib/labels';
 import { SOURCES, sourceLabel } from '../../../lib/crm';
 import {
   Badge,
@@ -38,6 +40,8 @@ interface Customer {
 const EMPTY = { first_name: '', last_name: '', phone_e164: '', email: '' };
 
 export default function CustomersPage() {
+  const confirmar = useConfirm();
+  const toast = useToast();
   const router = useRouter();
   const [rows, setRows] = useState<Customer[]>([]);
   const [q, setQ] = useState('');
@@ -85,12 +89,18 @@ export default function CustomersPage() {
   }
 
   async function remove(id: string) {
-    if (!confirm('Desactivar este cliente?')) return;
+    const ok = await confirmar({
+      title: 'Desactivar este cliente',
+      message: 'Deja de aparecer en las listas y el bot no lo usa. Su historial de turnos y facturas se conserva.',
+      confirmLabel: 'Desactivar',
+    });
+    if (!ok) return;
     try {
       await api(`/customers/${id}`, { method: 'DELETE' });
+      toast.success('Cliente desactivado');
       load(q, source, tag);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error');
+      toast.error(errorMessage(e));
     }
   }
 
