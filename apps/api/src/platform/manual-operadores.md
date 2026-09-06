@@ -48,6 +48,24 @@ versión segura.
 
 ## 2. Portal de administración (admin.inicia.com.py)
 
+Desde el 2026-09-06 el portal tiene un menú lateral fijo y una página por
+tema (antes era una sola página larga con anclas; los links viejos con
+`#bot`, `#planes`, etc. siguen llevando al lugar correcto):
+
+| Menú | Ruta | Quién |
+|---|---|---|
+| Clientes (lista y alta) | /platform | admin y agente |
+| Ficha de un cliente | /platform/tenants/<id> | admin y agente |
+| Planes | /platform/plans | admin y agente |
+| Motor del bot (IA) | /platform/settings/bot | admin y agente |
+| Seguridad | /platform/settings/seguridad | admin y agente |
+| Google Calendar | /platform/settings/google | admin y agente |
+| Usuarios del portal | /platform/team | solo admin |
+| Mi perfil | /platform/profile | todos |
+
+En el celular el menú se abre con el botón ☰ de la barra superior. El
+asistente (esta burbuja) está siempre arriba a la derecha.
+
 ### 2.1 Entrar
 
 Usuario y contraseña. Tras varios intentos fallidos (10 en 10 minutos por
