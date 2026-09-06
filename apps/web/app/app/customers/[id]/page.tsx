@@ -1,21 +1,25 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 
 import { api } from '../../../../lib/api';
+import { CustomerPicker, customerName, type PickedCustomer } from '../../../../lib/customer-picker';
 import { useConfirm, useToast } from '../../../../lib/feedback';
-import { errorMessage } from '../../../../lib/labels';
+import { APPOINTMENT_STATUS, INVOICE_STATUS, errorMessage, statusOf } from '../../../../lib/labels';
 import { ACTIVITY_TYPES, CONTACT_KINDS, SOURCES, type CustomFieldDef } from '../../../../lib/crm';
 import { dvRuc } from '../../../../lib/ruc';
 import {
   Badge,
+  Button,
   Card,
   ErrorNote,
   Field,
   GroupTitle,
-  buttonClass,
+  Modal,
+  buttonGhost,
+  buttonSoft,
   dt,
   inputClass,
   money,
@@ -140,7 +144,11 @@ const EMPTY_ACT = { activity_type: 'nota', body: '', due_at: '', assigned_user_i
 export default function CustomerFichaPage() {
   const confirmar = useConfirm();
   const toast = useToast();
+  const router = useRouter();
   const { id } = useParams<{ id: string }>();
+  const [fusionar, setFusionar] = useState(false);
+  const [fusionCon, setFusionCon] = useState<PickedCustomer | null>(null);
+  const [guardando, setGuardando] = useState(false);
   const [customer, setCustomer] = useState<CustomerDetail | null>(null);
   const [defs, setDefs] = useState<CustomFieldDef[]>([]);
   const [users, setUsers] = useState<TeamUser[]>([]);
@@ -172,11 +180,23 @@ export default function CustomerFichaPage() {
     void api<TeamUser[]>('/users').then(setUsers).catch(() => setUsers([]));
   }, [load, id]);
 
+  // Cambios sin guardar: compara el formulario con lo que vino del servidor.
+  const dirty = useMemo(() => Boolean(customer && form && JSON.stringify(form) !== JSON.stringify(toForm(customer))), [customer, form]);
+  useEffect(() => {
+    if (!dirty) return;
+    const onLeave = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener('beforeunload', onLeave);
+    return () => window.removeEventListener('beforeunload', onLeave);
+  }, [dirty]);
+
   async function save(e: React.FormEvent) {
     e.preventDefault();
     if (!form) return;
     setError(null);
     setSaved(false);
+    setGuardando(true);
     const clear = (v: string) => v.trim() || null;
     const custom_data: Record<string, string | number | boolean> = {};
     for (const def of defs) {
@@ -216,9 +236,62 @@ export default function CustomerFichaPage() {
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
+      toast.success('Ficha guardada');
       load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error');
+      toast.error(errorMessage(e));
+    } finally {
+      setGuardando(false);
+    }
+  }
+
+  /** El puntaje se guarda al instante: antes las estrellas estaban fuera del formulario y no persistian solas. */
+  async function setRating(n: number | null) {
+    if (!form) return;
+    setForm({ ...form, rating: n });
+    try {
+      await api(`/customers/${id}`, { method: 'PATCH', json: { rating: n } });
+      setCustomer((c) => (c ? { ...c, rating: n } : c));
+      toast.success(n ? `Puntaje: ${n} de 5` : 'Puntaje quitado');
+    } catch (e) {
+      toast.error(errorMessage(e));
+    }
+  }
+
+  async function desactivar() {
+    if (!customer) return;
+    const ok = await confirmar({
+      title: `Desactivar a ${customerName(customer)}`,
+      message: 'Deja de aparecer en las listas y el bot no lo usa. Su historial de turnos y facturas se conserva.',
+      confirmLabel: 'Desactivar',
+    });
+    if (!ok) return;
+    try {
+      await api(`/customers/${id}`, { method: 'DELETE' });
+      toast.success('Cliente desactivado');
+      router.push('/app/customers');
+    } catch (e) {
+      toast.error(errorMessage(e));
+    }
+  }
+
+  async function confirmarFusion() {
+    if (!customer || !fusionCon) return;
+    const ok = await confirmar({
+      title: `Unir "${customerName(fusionCon)}" dentro de "${customerName(customer)}"`,
+      message:
+        'Los turnos, facturas, notas y contactos del otro registro pasan a esta ficha y el otro registro se desactiva. No se puede deshacer.',
+      confirmLabel: 'Unir fichas',
+    });
+    if (!ok) return;
+    try {
+      await api(`/customers/${id}/merge`, { method: 'POST', json: { source_id: fusionCon.id } });
+      toast.success('Fichas unidas');
+      setFusionar(false);
+      setFusionCon(null);
+      load();
+    } catch (e) {
+      toast.error(errorMessage(e));
     }
   }
 
@@ -230,9 +303,10 @@ export default function CustomerFichaPage() {
         json: { ...cp, label: cp.label.trim() || 'otro', value: cp.value.trim() },
       });
       setCp(EMPTY_CP);
+      toast.success('Contacto agregado');
       load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error');
+      toast.error(errorMessage(e));
     }
   }
 
@@ -244,16 +318,23 @@ export default function CustomerFichaPage() {
       });
       load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error');
+      toast.error(errorMessage(e));
     }
   }
 
-  async function removeContactPoint(cpId: string) {
+  async function removeContactPoint(point: ContactPoint) {
+    const ok = await confirmar({
+      title: `Quitar ${point.value}`,
+      message: 'Se borra este dato de contacto de la ficha.',
+      confirmLabel: 'Quitar',
+    });
+    if (!ok) return;
     try {
-      await api(`/customers/${id}/contact-points/${cpId}`, { method: 'DELETE' });
+      await api(`/customers/${id}/contact-points/${point.id}`, { method: 'DELETE' });
+      toast.success('Contacto quitado');
       load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error');
+      toast.error(errorMessage(e));
     }
   }
 
@@ -271,9 +352,10 @@ export default function CustomerFichaPage() {
         },
       });
       setAct(EMPTY_ACT);
+      toast.success('Agregado a la actividad del cliente');
       load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error');
+      toast.error(errorMessage(e));
     }
   }
 
@@ -285,7 +367,7 @@ export default function CustomerFichaPage() {
       });
       load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error');
+      toast.error(errorMessage(e));
     }
   }
 
@@ -324,35 +406,83 @@ export default function CustomerFichaPage() {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="space-y-2">
         <Link className="text-sm text-sky-700 hover:underline" href="/app/customers">
           ← Clientes
         </Link>
-        <h1 className="text-xl font-semibold text-slate-900">
-          {customer.firstName} {customer.lastName}
-        </h1>
-        {/* Rating editable: clic en la estrella fija el valor; clic en la misma lo quita */}
-        <span className="text-lg">
-          {[1, 2, 3, 4, 5].map((n) => (
-            <button
-              key={n}
-              type="button"
-              title={`Rating ${n}`}
-              className={n <= (form.rating ?? 0) ? 'text-amber-500' : 'text-slate-300'}
-              onClick={() => setForm({ ...form, rating: form.rating === n ? null : n })}
-            >
-              ★
-            </button>
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-xl font-semibold text-slate-900">
+            {customer.firstName} {customer.lastName}
+          </h1>
+          {/* Puntaje: clic en la estrella fija el valor; clic en la misma lo quita. Se guarda solo. */}
+          <span className="text-lg" title="Puntaje del cliente (1 a 5)">
+            {[1, 2, 3, 4, 5].map((n) => (
+              <button
+                key={n}
+                type="button"
+                aria-label={`Puntaje ${n} de 5`}
+                className={n <= (form.rating ?? 0) ? 'text-amber-500' : 'text-slate-300 hover:text-amber-300'}
+                onClick={() => void setRating(form.rating === n ? null : n)}
+              >
+                ★
+              </button>
+            ))}
+          </span>
+          {(customer.tags ?? []).map((t) => (
+            <Badge key={t} tone="sky">
+              {t}
+            </Badge>
           ))}
-        </span>
-        {(customer.tags ?? []).map((t) => (
-          <Badge key={t} tone="sky">
-            {t}
-          </Badge>
-        ))}
-        {saved && <span className="text-sm text-emerald-600">✓ guardado</span>}
+          {saved && <span className="text-sm text-emerald-600">✓ guardado</span>}
+        </div>
+        {/* Acciones rapidas: lo que antes obligaba a salir a otra pantalla y buscar al cliente de nuevo */}
+        <div className="flex flex-wrap gap-1.5">
+          <Link className={buttonSoft} href={`/app/schedule?nuevo=1&customer=${customer.id}`}>
+            Agendar turno
+          </Link>
+          <Link className={buttonGhost} href={`/app/inbox?customer=${customer.id}`}>
+            Abrir chat
+          </Link>
+          <Link className={buttonGhost} href={`/app/invoices?nueva=1&customer=${customer.id}`}>
+            Nueva factura
+          </Link>
+          <Link className={buttonGhost} href={`/app/invoices?vista=presupuestos&nuevo=1&customer=${customer.id}`}>
+            Nuevo presupuesto
+          </Link>
+          {customer.phoneE164 && (
+            <a className={buttonGhost} href={`https://wa.me/${customer.phoneE164.replace(/\D/g, '')}`} target="_blank" rel="noreferrer">
+              WhatsApp
+            </a>
+          )}
+          <button className={buttonGhost} onClick={() => setFusionar(true)}>
+            Unir con otra ficha…
+          </button>
+          <Button variant="danger" className="ml-auto" onClick={() => void desactivar()}>
+            Desactivar
+          </Button>
+        </div>
       </div>
       <ErrorNote error={error} />
+
+      {fusionar && (
+        <Modal
+          title="Unir fichas duplicadas"
+          description={`Elegí el registro duplicado. Sus turnos, facturas, notas y contactos pasan a la ficha de ${customerName(customer)} y el duplicado se desactiva.`}
+          onClose={() => setFusionar(false)}
+        >
+          <Field label="Ficha duplicada (la que se absorbe)">
+            <CustomerPicker value={fusionCon} onChange={setFusionCon} allowCreate={false} autoFocus />
+          </Field>
+          <div className="mt-4 flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setFusionar(false)}>
+              Volver
+            </Button>
+            <Button variant="primary" disabled={!fusionCon || fusionCon.id === customer.id} onClick={() => void confirmarFusion()}>
+              Unir
+            </Button>
+          </div>
+        </Modal>
+      )}
 
       <div className="grid gap-5 lg:grid-cols-3">
         <div className="space-y-5 lg:col-span-2">
@@ -383,12 +513,12 @@ export default function CustomerFichaPage() {
                   }}
                 >
                   <option value="">—</option>
-                  <option value="ci">Cedula (CI)</option>
+                  <option value="ci">Cédula (CI)</option>
                   <option value="ruc">RUC</option>
                   <option value="pasaporte">Pasaporte</option>
                 </select>
               </Field>
-              <Field label="Numero de documento">
+              <Field label="Número de documento">
                 <input
                   className={inputClass}
                   value={form.doc_number}
@@ -400,7 +530,7 @@ export default function CustomerFichaPage() {
                 />
               </Field>
               {form.doc_type === 'ruc' && (
-                <Field label="DV (automatico)">
+                <Field label="DV (automático)">
                   <input className={`${inputClass} bg-slate-50`} readOnly value={form.ruc_dv} />
                 </Field>
               )}
@@ -411,7 +541,7 @@ export default function CustomerFichaPage() {
                 <input className={inputClass} value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} />
               </Field>
               <div className="col-span-2">
-                <Field label="Direccion">
+                <Field label="Dirección">
                   <input className={inputClass} value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
                 </Field>
               </div>
@@ -423,7 +553,7 @@ export default function CustomerFichaPage() {
               </Field>
 
               <GroupTitle>Seguimiento comercial</GroupTitle>
-              <Field label="Origen (de donde llego)">
+              <Field label="Origen (de dónde llegó)">
                 <select className={inputClass} value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value })}>
                   <option value="">—</option>
                   {SOURCES.map((s) => (
@@ -434,7 +564,7 @@ export default function CustomerFichaPage() {
                 </select>
               </Field>
               <Field label="Detalle del origen">
-                <input className={inputClass} placeholder="Ej: campaña agosto, cliente Maria" value={form.source_detail} onChange={(e) => setForm({ ...form, source_detail: e.target.value })} />
+                <input className={inputClass} placeholder="Ej: campaña agosto, cliente María" value={form.source_detail} onChange={(e) => setForm({ ...form, source_detail: e.target.value })} />
               </Field>
               <div className="col-span-2">
                 <Field label="Etiquetas (separadas por coma)">
@@ -518,14 +648,33 @@ export default function CustomerFichaPage() {
                   <input type="checkbox" checked={form.marketing_opt_in} onChange={(e) => setForm({ ...form, marketing_opt_in: e.target.checked })} />
                   Acepta promociones
                 </label>
-                <button className={`${buttonClass} ml-auto`}>Guardar cambios</button>
+              </div>
+              {/* Barra de guardado siempre visible mientras haya cambios (antes el boton quedaba al fondo de 20 campos) */}
+              <div
+                className={`sticky bottom-0 z-10 col-span-2 -mx-4 -mb-4 mt-2 flex flex-wrap items-center justify-between gap-2 rounded-b-xl border-t px-4 py-3 md:col-span-4 ${
+                  dirty ? 'border-amber-200 bg-amber-50' : 'border-slate-100 bg-white'
+                }`}
+              >
+                <span className={`text-sm ${dirty ? 'font-medium text-amber-800' : 'text-slate-400'}`}>
+                  {dirty ? 'Tenés cambios sin guardar' : 'Sin cambios pendientes'}
+                </span>
+                <span className="flex gap-2">
+                  {dirty && (
+                    <Button variant="ghost" onClick={() => setForm(toForm(customer))}>
+                      Descartar
+                    </Button>
+                  )}
+                  <Button variant="primary" type="submit" loading={guardando} disabled={!dirty}>
+                    Guardar cambios
+                  </Button>
+                </span>
               </div>
             </form>
           </Card>
 
           <Card
             title="Otros contactos"
-            description="Telefonos, emails o redes adicionales al celular y email principales de arriba."
+            description="Teléfonos, emails o redes adicionales al celular y email principales de arriba."
           >
             <ul className="space-y-1">
               {customer.contactPoints.map((point) => (
@@ -543,7 +692,7 @@ export default function CustomerFichaPage() {
                   >
                     ★
                   </button>
-                  <button type="button" className="ml-auto text-xs text-red-600 hover:underline" onClick={() => void removeContactPoint(point.id)}>
+                  <button type="button" className="ml-auto text-xs text-red-600 hover:underline" onClick={() => void removeContactPoint(point)}>
                     Quitar
                   </button>
                 </li>
@@ -573,7 +722,9 @@ export default function CustomerFichaPage() {
                   <input className={inputClass} placeholder="+59521..., @usuario, https://..." value={cp.value} onChange={(e) => setCp({ ...cp, value: e.target.value })} required />
                 </Field>
               </div>
-              <button className={buttonClass}>Agregar</button>
+              <Button variant="soft" type="submit">
+                Agregar contacto
+              </Button>
             </form>
           </Card>
 
@@ -593,14 +744,31 @@ export default function CustomerFichaPage() {
                     <tr key={i}>
                       <td>{dt(h.starts_at)}</td>
                       <td>{h.service_name ?? '—'}</td>
-                      <td>{h.visit_status ?? '—'}</td>
-                      <td>{h.invoice_id ? `${money(h.total ?? 0)} (${h.invoice_status})` : '—'}</td>
+                      <td>
+                        {h.visit_status ? (
+                          <Badge tone={statusOf(APPOINTMENT_STATUS, h.visit_status).tone}>
+                            {statusOf(APPOINTMENT_STATUS, h.visit_status).label}
+                          </Badge>
+                        ) : (
+                          '—'
+                        )}
+                      </td>
+                      <td>
+                        {h.invoice_id ? (
+                          <Link className="text-sky-700 hover:underline" href={`/app/invoices?factura=${h.invoice_id}`}>
+                            {money(h.total ?? 0)}{' '}
+                            <span className="text-xs text-slate-500">({statusOf(INVOICE_STATUS, h.invoice_status).label})</span>
+                          </Link>
+                        ) : (
+                          '—'
+                        )}
+                      </td>
                     </tr>
                   ))}
                   {history.length === 0 && (
                     <tr>
                       <td colSpan={4} className="py-4 text-center text-slate-400">
-                        Sin visitas ni facturas todavia
+                        Sin visitas ni facturas todavía
                       </td>
                     </tr>
                   )}
@@ -614,7 +782,7 @@ export default function CustomerFichaPage() {
           {customer.lastConversationSummary && (
             <section className="rounded-xl border border-violet-200 bg-violet-50/50 p-3 shadow-sm">
               <p className="text-xs font-medium text-violet-800">
-                Resumen de la ultima conversacion
+                Resumen de la última conversación
                 {customer.lastSummaryAt ? ` (${dt(customer.lastSummaryAt)})` : ''}
               </p>
               <p className="mt-1 whitespace-pre-line text-sm text-slate-700">{customer.lastConversationSummary}</p>
@@ -637,7 +805,7 @@ export default function CustomerFichaPage() {
               </div>
               {users.length > 0 && ACTIVITY_TYPES.find((t) => t.value === act.activity_type)?.task && (
                 <select className={inputClass} value={act.assigned_user_id} onChange={(e) => setAct({ ...act, assigned_user_id: e.target.value })}>
-                  <option value="">Responsable: nadie</option>
+                  <option value="">Responsable: nadie en particular</option>
                   {users.map((u) => (
                     <option key={u.id} value={u.id}>
                       {u.fullName}
@@ -646,8 +814,10 @@ export default function CustomerFichaPage() {
                 </select>
               )}
               <div className="flex gap-2">
-                <input className={inputClass} placeholder="Escribi la nota o tarea…" value={act.body} onChange={(e) => setAct({ ...act, body: e.target.value })} required />
-                <button className={buttonClass}>+</button>
+                <input className={inputClass} placeholder="Escribí la nota o tarea…" value={act.body} onChange={(e) => setAct({ ...act, body: e.target.value })} required />
+                <Button variant="soft" type="submit">
+                  Agregar
+                </Button>
               </div>
             </form>
             <ul className="mt-3 space-y-2">
@@ -678,7 +848,7 @@ export default function CustomerFichaPage() {
                   </li>
                 );
               })}
-              {activities.length === 0 && <li className="text-sm text-slate-400">Sin notas todavia</li>}
+              {activities.length === 0 && <li className="text-sm text-slate-400">Sin notas todavía</li>}
             </ul>
           </Card>
         </div>

@@ -111,7 +111,7 @@ export class ConversationsService {
     return message;
   }
 
-  async setStatus(ctx: TenantContext, conversationId: string, status: 'paused' | 'bot_active') {
+  async setStatus(ctx: TenantContext, conversationId: string, status: 'paused' | 'bot_active' | 'closed') {
     const conversation = await this.appDb.tx(ctx, async (tx) => {
       const existing = await tx.conversation.findFirst({ where: { id: conversationId } });
       if (!existing) throw new NotFoundException();
@@ -152,7 +152,7 @@ export class ConversationsService {
       let conversation = await tx.conversation.findFirst({
         where: { phoneE164: msg.phoneE164 },
       });
-      if (conversation?.status === 'inactive') {
+      if ((conversation?.status === 'inactive' || conversation?.status === 'closed')) {
         // El cliente volvio a escribir: la conversacion revive con el bot.
         conversation = await tx.conversation.update({
           where: { id: conversation.id },

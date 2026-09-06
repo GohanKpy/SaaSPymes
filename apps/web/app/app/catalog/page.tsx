@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 
-import { API_URL, ApiError, api, apiImageUrl, getToken } from '../../../lib/api';
+import { API_URL, api, apiImageUrl, getToken } from '../../../lib/api';
 import { useConfirm, useToast } from '../../../lib/feedback';
 import { errorMessage } from '../../../lib/labels';
 import {
@@ -92,9 +92,8 @@ export default function CatalogPage() {
   useEffect(() => load(), [load]);
 
   function fail(e: unknown) {
-    const fields =
-      e instanceof ApiError && e.problem.errors ? ': ' + Object.keys(e.problem.errors).join(', ') : '';
-    setError((e instanceof Error ? e.message : 'Error') + fields);
+    // Campos traducidos y sin "Error" a secas (fase 0 auditoria 2026-09-05).
+    setError(errorMessage(e));
   }
 
   // ------------------------------ categorias ------------------------------

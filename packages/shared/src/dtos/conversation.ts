@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { paginationQuery, phoneE164, uuid } from '../validators';
 
 export const conversationListQuery = paginationQuery.extend({
-  status: z.enum(['bot_active', 'paused', 'agent', 'closed']).optional(),
+  status: z.enum(['bot_active', 'paused', 'agent', 'inactive', 'closed']).optional(),
   q: z.string().max(120).optional(),
 });
 export type ConversationListQuery = z.infer<typeof conversationListQuery>;

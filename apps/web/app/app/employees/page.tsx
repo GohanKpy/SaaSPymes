@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 
-import { ApiError, api } from '../../../lib/api';
+import { api } from '../../../lib/api';
 import { useConfirm, useToast } from '../../../lib/feedback';
 import { errorMessage } from '../../../lib/labels';
 import {
@@ -190,9 +190,8 @@ export default function EmployeesPage() {
   }, []);
 
   function fail(e: unknown) {
-    const fields =
-      e instanceof ApiError && e.problem.errors ? ': ' + Object.keys(e.problem.errors).join(', ') : '';
-    setError((e instanceof Error ? e.message : 'Error') + fields);
+    // Campos traducidos y sin "Error" a secas (fase 0 auditoria 2026-09-05).
+    setError(errorMessage(e));
   }
 
   function openNew() {

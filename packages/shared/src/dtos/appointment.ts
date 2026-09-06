@@ -30,6 +30,8 @@ export type AppointmentUpdate = z.infer<typeof appointmentUpdate>;
 
 export const appointmentListQuery = z.object({
   branch_id: uuid.optional(),
+  /** Turnos de un cliente puntual (panel del chat y ficha, fase 1 auditoria 2026-09-05). */
+  customer_id: uuid.optional(),
   from: z.iso.datetime({ offset: true }).optional(),
   to: z.iso.datetime({ offset: true }).optional(),
   status: z.enum(['pending', 'confirmed', 'completed', 'cancelled', 'no_show']).optional(),
@@ -49,3 +51,12 @@ export const appointmentCancel = z
   .object({ reason: z.string().max(500).optional() })
   .strict();
 export type AppointmentCancel = z.infer<typeof appointmentCancel>;
+
+/** Reprogramar desde el panel: nueva fecha/hora (uno de los horarios de disponibilidad) y, opcional, otro profesional. */
+export const appointmentReschedule = z
+  .object({
+    starts_at: z.iso.datetime({ offset: true }),
+    employee_id: uuid.optional(),
+  })
+  .strict();
+export type AppointmentReschedule = z.infer<typeof appointmentReschedule>;

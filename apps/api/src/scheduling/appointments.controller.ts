@@ -3,11 +3,13 @@ import {
   appointmentCancel,
   appointmentCreate,
   appointmentListQuery,
+  appointmentReschedule,
   availabilityQuery,
   uuid,
   type AppointmentCancel,
   type AppointmentCreate,
   type AppointmentListQuery,
+  type AppointmentReschedule,
   type AvailabilityQuery,
 } from '@pymes/shared';
 import type { FastifyRequest } from 'fastify';
@@ -74,5 +76,26 @@ export class AppointmentsController {
   @Post(':id/complete')
   complete(@Param('id', new ZodPipe(uuid)) id: string, @Req() req: FastifyRequest & AuthRequest) {
     return this.appointments.transition(tenantCtx(req), id, 'complete');
+  }
+
+  /** El cliente no vino (fase 1 auditoria 2026-09-05). */
+  @Post(':id/no-show')
+  noShow(@Param('id', new ZodPipe(uuid)) id: string, @Req() req: FastifyRequest & AuthRequest) {
+    return this.appointments.transition(tenantCtx(req), id, 'no_show');
+  }
+
+  /** Mover el turno a otra fecha/hora (y opcionalmente otro profesional). */
+  @Post(':id/reschedule')
+  async reschedule(
+    @Param('id', new ZodPipe(uuid)) id: string,
+    @Body(new ZodPipe(appointmentReschedule)) dto: AppointmentReschedule,
+    @Req() req: FastifyRequest & AuthRequest,
+  ) {
+    const ctx = tenantCtx(req);
+    const { nuevo, anterior } = await this.appointments.reschedule(ctx, id, dto);
+    // Espejo en Google en segundo plano (ADR 0007): jamas frena el cambio.
+    void this.google.removeAppointment(ctx.tenantId, anterior);
+    void this.google.pushAppointment(ctx.tenantId, nuevo.id);
+    return nuevo;
   }
 }

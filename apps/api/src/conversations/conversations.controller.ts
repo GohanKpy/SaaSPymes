@@ -83,6 +83,12 @@ export class ConversationsController {
     return this.conversations.setStatus(tenantCtx(req), id, 'bot_active');
   }
 
+  /** Marcar resuelta (fase 1 auditoria 2026-09-05): sale de la bandeja activa; un mensaje nuevo la reabre. */
+  @Post(':id/close')
+  close(@Param('id', new ZodPipe(uuid)) id: string, @Req() req: FastifyRequest & AuthRequest) {
+    return this.conversations.setStatus(tenantCtx(req), id, 'closed');
+  }
+
   @Post(':id/link-customer')
   link(
     @Param('id', new ZodPipe(uuid)) id: string,

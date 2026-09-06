@@ -1,6 +1,11 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import type { TenantContext, TenantTx } from '@pymes/db';
-import type { AppointmentCreate, AppointmentListQuery, AvailabilityQuery } from '@pymes/shared';
+import type {
+  AppointmentCreate,
+  AppointmentListQuery,
+  AppointmentReschedule,
+  AvailabilityQuery,
+} from '@pymes/shared';
 
 import { AppPrisma } from '../prisma/app-prisma.service';
 
@@ -89,6 +94,7 @@ export class AppointmentsService {
         where: {
           deletedAt: null,
           ...(query.branch_id ? { branchId: query.branch_id } : {}),
+          ...(query.customer_id ? { customerId: query.customer_id } : {}),
           ...(query.status ? { status: query.status } : {}),
           ...(query.from || query.to
             ? {
@@ -368,7 +374,7 @@ export class AppointmentsService {
   async transition(
     ctx: TenantContext,
     id: string,
-    action: 'confirm' | 'cancel' | 'complete',
+    action: 'confirm' | 'cancel' | 'complete' | 'no_show',
     reason?: string,
   ) {
     return this.appDb.tx(ctx, async (tx) => {
@@ -395,9 +401,68 @@ export class AppointmentsService {
         });
       }
       if (appointment.status !== 'confirmed' && appointment.status !== 'pending') {
-        throw new ConflictException({ title: 'El turno no se puede completar' });
+        throw new ConflictException({
+          title: action === 'no_show' ? 'El turno no se puede marcar como no vino' : 'El turno no se puede completar',
+        });
       }
-      return tx.appointment.update({ where: { id }, data: { status: 'completed' } });
+      // "No vino" (fase 1 auditoria 2026-09-05): el estado existia sin boton;
+      // marcarlo como cancelado ensuciaba las metricas de ausencias.
+      return tx.appointment.update({
+        where: { id },
+        data: { status: action === 'no_show' ? 'no_show' : 'completed' },
+      });
+    });
+  }
+
+  /**
+   * Reprogramar desde el panel (fase 1 auditoria 2026-09-05): cancela el
+   * original y crea el nuevo en UNA transaccion con la misma validacion que
+   * reservar (horario, empleado libre, capacidad). Si la creacion falla, el
+   * turno original queda intacto. Conserva servicio, notas y estado
+   * confirmado; el profesional se mantiene salvo pedido de cambio.
+   */
+  async reschedule(ctx: TenantContext, id: string, dto: AppointmentReschedule) {
+    return this.appDb.tx(ctx, async (tx) => {
+      const old = await tx.appointment.findFirst({ where: { id, deletedAt: null } });
+      if (!old) throw new NotFoundException();
+      if (!['pending', 'confirmed'].includes(old.status)) {
+        throw new ConflictException({ title: 'Solo se reprograman turnos pendientes o confirmados' });
+      }
+      const nuevaFecha = new Date(dto.starts_at).toISOString();
+      const anterior = await tx.appointment.update({
+        where: { id },
+        data: {
+          status: 'cancelled',
+          notes: `${old.notes ?? ''}\n[reprogramado a ${nuevaFecha}]`.trim(),
+        },
+      });
+      const nuevo = await this.createInTx(
+        tx,
+        ctx,
+        {
+          branch_id: old.branchId,
+          customer_id: old.customerId,
+          service_id: old.serviceId ?? undefined,
+          employee_id: dto.employee_id ?? old.employeeId ?? undefined,
+          starts_at: dto.starts_at,
+          notes: old.notes?.trim() || undefined,
+        },
+        'panel',
+        false,
+      );
+      const final =
+        old.status === 'confirmed'
+          ? await tx.appointment.update({
+              where: { id: nuevo.id },
+              data: { status: 'confirmed', confirmedBy: ctx.userId, confirmedAt: new Date() },
+              include: {
+                customer: { select: { id: true, firstName: true, lastName: true, phoneE164: true } },
+                service: { select: { id: true, name: true, durationMin: true } },
+                employee: { select: { id: true, firstName: true, lastName: true } },
+              },
+            })
+          : nuevo;
+      return { nuevo: final, anterior };
     });
   }
 }
