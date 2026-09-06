@@ -4,13 +4,15 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { api } from '../../../lib/api';
 import type { CustomFieldDef } from '../../../lib/crm';
-import { Card, Field, buttonClass, buttonGhost, inputClass } from '../../../lib/ui';
+import { useConfirm, useToast } from '../../../lib/feedback';
+import { errorMessage } from '../../../lib/labels';
+import { Button, Card, Field, buttonGhost, inputClass } from '../../../lib/ui';
 
 const TYPES: { value: CustomFieldDef['fieldType']; label: string }[] = [
   { value: 'text', label: 'Texto' },
-  { value: 'number', label: 'Numero' },
+  { value: 'number', label: 'Número' },
   { value: 'date', label: 'Fecha' },
-  { value: 'boolean', label: 'Si / No' },
+  { value: 'boolean', label: 'Sí / No' },
   { value: 'list', label: 'Lista de opciones' },
   { value: 'money', label: 'Monto (Gs)' },
   { value: 'url', label: 'Link' },
@@ -34,6 +36,9 @@ function toCode(label: string): string {
  * Bitrix). Solo root/admin pueden crear/editar; desactivar no borra datos.
  */
 export function CustomFieldsSection({ onError }: { onError: (msg: string) => void }) {
+  const confirmar = useConfirm();
+  const toast = useToast();
+  const [guardando, setGuardando] = useState(false);
   const [defs, setDefs] = useState<CustomFieldDef[]>([]);
   const [form, setForm] = useState(EMPTY);
 
@@ -46,9 +51,10 @@ export function CustomFieldsSection({ onError }: { onError: (msg: string) => voi
     e.preventDefault();
     const code = toCode(form.label);
     if (code.length < 2) {
-      onError('El nombre del campo es muy corto');
+      onError('El nombre del campo es muy corto.');
       return;
     }
+    setGuardando(true);
     try {
       await api('/custom-fields', {
         method: 'POST',
@@ -62,28 +68,41 @@ export function CustomFieldsSection({ onError }: { onError: (msg: string) => voi
         },
       });
       setForm(EMPTY);
+      toast.success('Campo agregado a la ficha de clientes');
       load();
     } catch (e) {
-      onError(e instanceof Error ? e.message : 'Error');
+      onError(errorMessage(e));
+    } finally {
+      setGuardando(false);
     }
   }
 
   async function toggleActive(def: CustomFieldDef) {
+    if (def.isActive) {
+      const ok = await confirmar({
+        title: `Desactivar el campo "${def.label}"`,
+        message: 'Deja de verse en las fichas, pero lo ya cargado se conserva. Podés reactivarlo cuando quieras.',
+        confirmLabel: 'Desactivar',
+      });
+      if (!ok) return;
+    }
     try {
       if (def.isActive) await api(`/custom-fields/${def.id}`, { method: 'DELETE' });
       else await api(`/custom-fields/${def.id}`, { method: 'PATCH', json: { is_active: true } });
+      toast.success(def.isActive ? 'Campo desactivado' : 'Campo reactivado');
       load();
     } catch (e) {
-      onError(e instanceof Error ? e.message : 'Error');
+      onError(errorMessage(e));
     }
   }
 
   async function patch(def: CustomFieldDef, json: Record<string, unknown>) {
     try {
       await api(`/custom-fields/${def.id}`, { method: 'PATCH', json });
+      toast.success('Guardado');
       load();
     } catch (e) {
-      onError(e instanceof Error ? e.message : 'Error');
+      onError(errorMessage(e));
     }
   }
 
@@ -124,7 +143,7 @@ export function CustomFieldsSection({ onError }: { onError: (msg: string) => voi
             </button>
           </li>
         ))}
-        {defs.length === 0 && <li className="text-sm text-slate-400">Sin campos propios todavia</li>}
+        {defs.length === 0 && <li className="text-sm text-slate-400">Sin campos propios todavía. Ejemplos: tipo de cabello, talle, obra social.</li>}
       </ul>
 
       <form className="mt-3 flex flex-wrap items-end gap-2" onSubmit={(e) => void create(e)}>
@@ -157,7 +176,9 @@ export function CustomFieldsSection({ onError }: { onError: (msg: string) => voi
           <input type="checkbox" checked={form.required} onChange={(e) => setForm({ ...form, required: e.target.checked })} />
           obligatorio
         </label>
-        <button className={buttonClass}>Agregar campo</button>
+        <Button variant="primary" type="submit" loading={guardando}>
+          Agregar campo
+        </Button>
       </form>
     </Card>
   );

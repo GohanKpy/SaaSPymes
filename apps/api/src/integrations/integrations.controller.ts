@@ -135,11 +135,11 @@ export class IntegrationsController {
       if (q.error || !q.code) throw new Error(q.error ?? 'sin code');
       const result = await this.google.connect(q.state, q.code);
       origin = this.panelOrigin(result.origin);
-      // path viene del state cifrado que emitimos nosotros (/app/settings o
+      // path viene del state cifrado que emitimos nosotros (/app/settings/calendario o
       // /app/employees), jamas del navegador.
       await reply.redirect(`${origin}${result.path}?google=connected`, 302);
     } catch {
-      await reply.redirect(`${origin}/app/settings?google=error`, 302);
+      await reply.redirect(`${origin}/app/settings/calendario?google=error`, 302);
     }
   }
 
@@ -163,13 +163,34 @@ export class IntegrationsController {
   }
 
   @Put('whatsapp')
-  putWhatsapp(
+  async putWhatsapp(
     @Body(new ZodPipe(whatsappIntegrationPut)) dto: WhatsappIntegrationPut,
     @Req() req: FastifyRequest & AuthRequest,
   ) {
+    // Al re-guardar sin tokens se conservan los cifrados: antes el formulario
+    // aparecia vacio y habia que retipear el token para cambiar cualquier cosa
+    // (fase 2 auditoria de paneles 2026-09-05).
+    let secret = { access_token: dto.access_token, verify_token: dto.verify_token };
+    if (!secret.access_token || !secret.verify_token) {
+      const existing = await this.appDb.tx(tenantCtx(req), (tx) =>
+        tx.integrationCredential.findFirst({ where: { type: 'whatsapp', employeeId: null } }),
+      );
+      const prev = existing
+        ? this.crypto.decryptJson<{ access_token?: string; verify_token?: string }>(existing.encryptedPayload)
+        : {};
+      secret = {
+        access_token: secret.access_token ?? prev.access_token,
+        verify_token: secret.verify_token ?? prev.verify_token,
+      };
+    }
+    if (!secret.access_token || !secret.verify_token) {
+      throw new UnprocessableEntityException({
+        title: 'Carga el token de acceso y el token de verificacion la primera vez',
+      });
+    }
     return this.upsert(req, 'whatsapp', {
       publicConfig: { phone_number_id: dto.phone_number_id, live: dto.live },
-      secret: { access_token: dto.access_token, verify_token: dto.verify_token },
+      secret,
     });
   }
 

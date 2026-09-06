@@ -25,20 +25,10 @@ import {
 // dia arriba y con fecha, alta en una ventana con la fecha adentro y un
 // buscador de clientes (adios al desplegable de 50), y todas las acciones
 // por turno: confirmar, atendido, no vino, reprogramar y cancelar con motivo.
+// Los horarios de atencion viven en Ajustes → Horarios (fase 2).
 
 const TZ = 'America/Asuncion';
 
-interface Franja {
-  from: string;
-  to: string;
-}
-interface Conflict {
-  id: string;
-  fecha: string;
-  hora: string;
-  cliente: string;
-  servicio: string;
-}
 interface Appointment {
   id: string;
   startsAt: string;
@@ -63,22 +53,10 @@ interface Employee {
   isActive: boolean;
 }
 
-// Inputs compactos: inputClass trae w-full y para hora/fecha un ancho fijo
-// chico es lo correcto.
-const timeInput =
-  'w-[5rem] rounded border border-slate-300 bg-white px-1 py-0.5 text-xs tabular-nums focus:border-sky-500 focus:outline-none';
+// Input compacto: inputClass trae w-full y para la fecha un ancho fijo es lo correcto.
 const dateInput =
   'w-40 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm focus:border-sky-500 focus:outline-none';
 
-const DIAS: { dow: string; label: string }[] = [
-  { dow: '1', label: 'Lunes' },
-  { dow: '2', label: 'Martes' },
-  { dow: '3', label: 'Miércoles' },
-  { dow: '4', label: 'Jueves' },
-  { dow: '5', label: 'Viernes' },
-  { dow: '6', label: 'Sábado' },
-  { dow: '0', label: 'Domingo' },
-];
 
 function today(): string {
   return new Date().toLocaleDateString('en-CA', { timeZone: TZ });
@@ -204,16 +182,6 @@ export default function SchedulePage() {
   const [reprog, setReprog] = useState<Appointment | null>(null);
   const [reprogForm, setReprogForm] = useState({ date: '', employee_id: '', slot: '' });
 
-  // --- horarios de atencion (se mudan a Ajustes en la fase 2) ---
-  const [horarios, setHorarios] = useState(false);
-  const [week, setWeek] = useState<Record<string, Franja[]>>({});
-  const [closedDates, setClosedDates] = useState<string[]>([]);
-  const [newClosed, setNewClosed] = useState('');
-  const [conflicts, setConflicts] = useState<Conflict[] | null>(null);
-  const [cancelMsg, setCancelMsg] = useState('');
-  const [askMessage, setAskMessage] = useState(false);
-  const [guardandoHorarios, setGuardandoHorarios] = useState(false);
-
   const load = useCallback(() => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
     const from = `${date}T00:00:00-03:00`;
@@ -248,7 +216,6 @@ export default function SchedulePage() {
     const q = new URLSearchParams(window.location.search);
     const fecha = q.get('fecha');
     if (fecha && /^\d{4}-\d{2}-\d{2}$/.test(fecha)) setDate(fecha);
-    if (q.get('horarios') === '1') void openHorarios();
     if (q.get('nuevo') === '1') {
       const customerId = q.get('customer');
       setNuevoForm((f) => ({ ...f, date: fecha ?? today() }));
@@ -392,74 +359,6 @@ export default function SchedulePage() {
     }
   }
 
-  // --------------------------- horarios de atencion --------------------------
-
-  async function openHorarios() {
-    if (!branch) {
-      // La sucursal llega asincrona: reintento corto.
-      setTimeout(() => void openHorarios(), 400);
-      return;
-    }
-    try {
-      const s = await api<{ week: Record<string, Franja[]> | null; closed_dates: string[] }>(
-        `/branches/${branch}/schedule`,
-      );
-      setWeek(
-        s.week ?? {
-          '1': [{ from: '08:00', to: '18:00' }],
-          '2': [{ from: '08:00', to: '18:00' }],
-          '3': [{ from: '08:00', to: '18:00' }],
-          '4': [{ from: '08:00', to: '18:00' }],
-          '5': [{ from: '08:00', to: '18:00' }],
-          '6': [{ from: '08:00', to: '18:00' }],
-        },
-      );
-      setClosedDates(s.closed_dates);
-      setHorarios(true);
-    } catch (e) {
-      toast.error(errorMessage(e));
-    }
-  }
-
-  async function saveSchedule(onConflict: 'abort' | 'keep' | 'cancel_notify') {
-    if (!branch) return;
-    setGuardandoHorarios(true);
-    const cleanWeek = Object.fromEntries(
-      Object.entries(week).map(([d, franjas]) => [d, franjas.filter((f) => f.from && f.to)]),
-    );
-    try {
-      const res = await api<{ saved: boolean; conflicts: number }>(`/branches/${branch}/schedule`, {
-        method: 'PUT',
-        json: {
-          week: cleanWeek,
-          closed_dates: closedDates,
-          on_conflict: onConflict,
-          ...(onConflict === 'cancel_notify' ? { message: cancelMsg.trim() } : {}),
-        },
-      });
-      setConflicts(null);
-      setAskMessage(false);
-      setCancelMsg('');
-      setHorarios(false);
-      toast.success(
-        onConflict === 'cancel_notify'
-          ? `Horarios guardados; ${res.conflicts} turno(s) cancelados y avisados por chat`
-          : onConflict === 'keep'
-            ? `Horarios guardados (los ${res.conflicts} turno(s) existentes se mantienen)`
-            : 'Horarios de atención guardados',
-      );
-      load();
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 409) {
-        setConflicts(((e.problem as { conflicts?: Conflict[] }).conflicts ?? []) as Conflict[]);
-        return;
-      }
-      toast.error(errorMessage(e));
-    } finally {
-      setGuardandoHorarios(false);
-    }
-  }
-
   // --------------------------------- render ---------------------------------
 
   const activos = (a: Appointment) => ['pending', 'confirmed'].includes(a.status);
@@ -550,9 +449,9 @@ export default function SchedulePage() {
                 </button>
               </span>
             )}
-            <button className={buttonGhost} onClick={() => void openHorarios()}>
+            <Link className={buttonGhost} href="/app/settings/horarios">
               Horarios de atención
-            </button>
+            </Link>
             <Button
               variant="primary"
               onClick={() => {
@@ -820,173 +719,6 @@ export default function SchedulePage() {
         </Modal>
       )}
 
-      {/* --------------------------- Horarios de atencion --------------------------- */}
-      {horarios && (
-        <Modal
-          title="Horarios de atención"
-          description="Hasta dos franjas por día: el hueco entre ambas es el corte del mediodía. Destildá un día para cerrarlo. Nada se agenda fuera de estas franjas."
-          onClose={() => setHorarios(false)}
-          size="xl"
-        >
-          <div className="grid gap-x-8 gap-y-4 lg:grid-cols-[auto_minmax(220px,1fr)]">
-            <div className="overflow-x-auto">
-              <div className="w-fit text-sm">
-                <div className="grid grid-cols-[5.5rem_10rem_12rem] gap-x-3 pb-1 text-[11px] uppercase tracking-wide text-slate-400">
-                  <span>Día</span>
-                  <span>Mañana / única</span>
-                  <span>Tarde (2ª franja)</span>
-                </div>
-                {DIAS.map(({ dow, label }) => {
-                  const franjas = week[dow] ?? [];
-                  const abierto = franjas.length > 0;
-                  const f1 = franjas[0] ?? { from: '', to: '' };
-                  const f2 = franjas[1] ?? { from: '', to: '' };
-                  return (
-                    <div key={dow} className="grid grid-cols-[5.5rem_10rem_12rem] items-center gap-x-3 border-t border-slate-50 py-1">
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={abierto}
-                          onChange={(e) => setWeek({ ...week, [dow]: e.target.checked ? [{ from: '08:00', to: '18:00' }] : [] })}
-                        />
-                        {label}
-                      </label>
-                      {abierto ? (
-                        <>
-                          <div className="flex items-center gap-1">
-                            <input type="time" className={timeInput} value={f1.from} onChange={(e) => setWeek({ ...week, [dow]: [{ ...f1, from: e.target.value }, ...(franjas[1] ? [f2] : [])] })} />
-                            <span className="text-slate-400">–</span>
-                            <input type="time" className={timeInput} value={f1.to} onChange={(e) => setWeek({ ...week, [dow]: [{ ...f1, to: e.target.value }, ...(franjas[1] ? [f2] : [])] })} />
-                          </div>
-                          {franjas[1] ? (
-                            <div className="flex items-center gap-1">
-                              <input type="time" className={timeInput} value={f2.from} onChange={(e) => setWeek({ ...week, [dow]: [f1, { ...f2, from: e.target.value }] })} />
-                              <span className="text-slate-400">–</span>
-                              <input type="time" className={timeInput} value={f2.to} onChange={(e) => setWeek({ ...week, [dow]: [f1, { ...f2, to: e.target.value }] })} />
-                              <button type="button" className="ml-1 text-xs text-red-600 hover:underline" aria-label="Quitar la segunda franja" onClick={() => setWeek({ ...week, [dow]: [f1] })}>
-                                ✕
-                              </button>
-                            </div>
-                          ) : (
-                            <button
-                              type="button"
-                              className="w-fit text-xs text-sky-700 hover:underline"
-                              onClick={() => setWeek({ ...week, [dow]: [{ ...f1, to: '12:00' }, { from: '13:00', to: f1.to || '18:00' }] })}
-                            >
-                              + corte al mediodía
-                            </button>
-                          )}
-                        </>
-                      ) : (
-                        <>
-                          <span className="text-xs text-slate-400">cerrado</span>
-                          <span />
-                        </>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-            <div className="lg:border-l lg:border-slate-100 lg:pl-6">
-              <p className="mb-1 text-sm font-medium">Días cerrados</p>
-              <p className="mb-2 text-xs text-slate-500">Feriados o vacaciones puntuales.</p>
-              <div className="mb-2 flex items-center gap-2">
-                <input type="date" className={`${dateInput} w-36 py-1 text-xs`} value={newClosed} onChange={(e) => setNewClosed(e.target.value)} />
-                <Button
-                  variant="ghost"
-                  disabled={!/^\d{4}-\d{2}-\d{2}$/.test(newClosed) || closedDates.includes(newClosed)}
-                  onClick={() => {
-                    setClosedDates([...closedDates, newClosed].sort());
-                    setNewClosed('');
-                  }}
-                >
-                  Agregar día
-                </Button>
-              </div>
-              <div className="flex max-h-40 flex-wrap content-start gap-1.5 overflow-y-auto">
-                {closedDates.map((d) => (
-                  <span key={d} className="flex h-fit items-center gap-1 rounded bg-slate-100 px-2 py-0.5 text-xs">
-                    {d.split('-').reverse().join('/')}
-                    <button type="button" className="text-red-600" aria-label={`Quitar ${d}`} onClick={() => setClosedDates(closedDates.filter((x) => x !== d))}>
-                      ✕
-                    </button>
-                  </span>
-                ))}
-                {closedDates.length === 0 && <p className="text-xs text-slate-400">Ninguno cargado.</p>}
-              </div>
-            </div>
-          </div>
-          <div className="mt-5 flex justify-end gap-2">
-            <Button variant="ghost" onClick={() => setHorarios(false)}>
-              Volver
-            </Button>
-            <Button variant="primary" loading={guardandoHorarios} onClick={() => void saveSchedule('abort')}>
-              Guardar horarios
-            </Button>
-          </div>
-        </Modal>
-      )}
-
-      {conflicts && (
-        <Modal
-          title={`Hay ${conflicts.length} turno${conflicts.length === 1 ? '' : 's'} en el horario que querés cerrar`}
-          description="Podés guardar igual y dejar esos turnos como están, o cancelarlos avisando a los clientes por chat."
-          onClose={() => {
-            setConflicts(null);
-            setAskMessage(false);
-          }}
-          role="alertdialog"
-        >
-          <ul className="max-h-40 space-y-1 overflow-y-auto text-sm">
-            {conflicts.map((c) => (
-              <li key={c.id} className="rounded bg-slate-50 px-2 py-1">
-                {c.fecha.split('-').reverse().join('/')} {c.hora} — {c.cliente} ({c.servicio})
-              </li>
-            ))}
-          </ul>
-          {askMessage && (
-            <div className="mt-3">
-              <Field label="Mensaje para esos clientes (se envía al cancelar)">
-                <textarea
-                  className={`${inputClass} h-20`}
-                  placeholder="Ej: por un imprevisto debemos reprogramar; escribinos y coordinamos un nuevo horario."
-                  value={cancelMsg}
-                  onChange={(e) => setCancelMsg(e.target.value)}
-                />
-              </Field>
-            </div>
-          )}
-          <div className="mt-5 flex flex-wrap justify-end gap-2">
-            <Button
-              variant="ghost"
-              onClick={() => {
-                setConflicts(null);
-                setAskMessage(false);
-              }}
-            >
-              Volver
-            </Button>
-            <Button variant="ghost" loading={guardandoHorarios} onClick={() => void saveSchedule('keep')}>
-              Guardar y mantener esos turnos
-            </Button>
-            {askMessage ? (
-              <Button
-                variant="danger-solid"
-                loading={guardandoHorarios}
-                disabled={cancelMsg.trim().length < 3}
-                onClick={() => void saveSchedule('cancel_notify')}
-              >
-                Cancelar esos turnos y avisar
-              </Button>
-            ) : (
-              <Button variant="danger" onClick={() => setAskMessage(true)}>
-                Cancelarlos y avisar a los clientes…
-              </Button>
-            )}
-          </div>
-        </Modal>
-      )}
     </div>
   );
 }

@@ -194,7 +194,7 @@ export class GoogleCalendarService implements OnModuleInit, OnModuleDestroy {
     this.logger.log(
       `google calendar conectado tenant=${state.tid} empleado=${employeeId ?? '-'} email=${connectedEmail}`,
     );
-    return { origin: state.origin, path: employeeId ? '/app/employees' : '/app/settings' };
+    return { origin: state.origin, path: employeeId ? '/app/employees' : '/app/settings/calendario' };
   }
 
   /** Access token vigente de una conexion (refresh en memoria, jamas persistido). */

@@ -119,7 +119,7 @@ function PanelDePrueba() {
     return (
       <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
         <b>Para probar tu bot falta un paso.</b> Andá a{' '}
-        <Link className="font-medium underline" href="/app/settings">
+        <Link className="font-medium underline" href="/app/settings/whatsapp">
           Ajustes → WhatsApp
         </Link>{' '}
         y cargá el identificador de tu negocio (durante las pruebas puede ser cualquier nombre, por ejemplo{' '}

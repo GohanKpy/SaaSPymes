@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Query, Req, Res } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, Post, Query, Req, Res } from '@nestjs/common';
 import {
   invoiceCancel,
   invoiceCreate,
@@ -54,6 +54,13 @@ export class InvoicesController {
     @Req() req: FastifyRequest & AuthRequest,
   ) {
     return this.invoices.createDraft(tenantCtx(req), dto);
+  }
+
+  /** Borrar un borrador (fase 2 auditoria 2026-09-05): lo emitido no se borra, se anula. */
+  @Delete(':id')
+  @HttpCode(204)
+  async remove(@Param('id', new ZodPipe(uuid)) id: string, @Req() req: FastifyRequest & AuthRequest) {
+    await this.invoices.removeDraft(tenantCtx(req), id);
   }
 
   @Get(':id')

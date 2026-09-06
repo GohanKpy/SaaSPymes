@@ -7,38 +7,47 @@ import { useConfirm, useToast } from '../../../lib/feedback';
 import { errorMessage } from '../../../lib/labels';
 import {
   Badge,
+  Button,
   EmptyRow,
   ErrorNote,
   Field,
   GroupTitle,
+  Modal,
   PageHeader,
-  buttonClass,
+  Tabs,
   buttonDanger,
   buttonGhost,
+  buttonSoft,
   inputClass,
   money,
   tableCard,
   useSession,
+  useUrlParam,
 } from '../../../lib/ui';
 
-// Campos configurables como obligatorios (espejo de EMPLOYEE_REQUIRABLE_FIELDS
-// en packages/shared/src/dtos/employee.ts; nombre y apellido son siempre
-// obligatorios y no se configuran).
+import { AccesosSection, type Prefill, type TeamUser } from './accesos';
+
+// Personal (fase 2 auditoria de paneles 2026-09-05): las fichas de quienes
+// trabajan y las cuentas con las que entran al panel, en una sola pantalla
+// con dos pestañas. Desde la ficha de un empleado se crea su acceso con los
+// datos ya puestos. Antes eran dos pantallas ("Empleados" y "Equipo") que
+// nadie distinguia y sin ningun enlace entre ellas.
+
 const CONFIGURABLES: { key: string; label: string }[] = [
-  { key: 'ci_number', label: 'CI' },
+  { key: 'ci_number', label: 'Cédula' },
   { key: 'birth_date', label: 'Fecha de nacimiento' },
-  { key: 'phone', label: 'Telefono' },
+  { key: 'phone', label: 'Teléfono' },
   { key: 'email', label: 'Email' },
-  { key: 'address', label: 'Direccion' },
+  { key: 'address', label: 'Dirección' },
   { key: 'marital_status', label: 'Estado civil' },
   { key: 'children_count', label: 'Cantidad de hijos' },
   { key: 'position', label: 'Cargo / puesto' },
   { key: 'hired_at', label: 'Fecha de ingreso' },
-  { key: 'ips_number', label: 'Nro asegurado IPS' },
+  { key: 'ips_number', label: 'Nro. de asegurado IPS' },
   { key: 'salary', label: 'Salario' },
   { key: 'emergency_contact_name', label: 'Emergencia: nombre' },
-  { key: 'emergency_contact_phone', label: 'Emergencia: telefono' },
-  { key: 'emergency_contact_relation', label: 'Emergencia: relacion' },
+  { key: 'emergency_contact_phone', label: 'Emergencia: teléfono' },
+  { key: 'emergency_contact_relation', label: 'Emergencia: relación' },
 ];
 
 interface Franja {
@@ -49,7 +58,6 @@ interface Schedule {
   week: Record<string, Franja[]>;
   closed_dates: string[];
 }
-
 interface Employee {
   id: string;
   firstName: string;
@@ -72,7 +80,7 @@ interface Employee {
   bookable: boolean;
   isActive: boolean;
   schedule: Schedule | null;
-  googleCalendar: string | null; // 'connected' | 'disconnected' | null
+  googleCalendar: string | null;
 }
 
 const VACIO = {
@@ -102,10 +110,10 @@ const soloFecha = (d: string | null) => (d ? d.slice(0, 10) : '');
 const DIAS: { key: string; label: string }[] = [
   { key: '1', label: 'Lunes' },
   { key: '2', label: 'Martes' },
-  { key: '3', label: 'Miercoles' },
+  { key: '3', label: 'Miércoles' },
   { key: '4', label: 'Jueves' },
   { key: '5', label: 'Viernes' },
-  { key: '6', label: 'Sabado' },
+  { key: '6', label: 'Sábado' },
   { key: '0', label: 'Domingo' },
 ];
 
@@ -116,12 +124,7 @@ function parseWeek(schedule: Schedule | null): Record<string, DayForm> {
   const out: Record<string, DayForm> = {};
   for (const d of DIAS) {
     const ranges = schedule?.week[d.key] ?? [];
-    out[d.key] = {
-      mFrom: ranges[0]?.from ?? '',
-      mTo: ranges[0]?.to ?? '',
-      tFrom: ranges[1]?.from ?? '',
-      tTo: ranges[1]?.to ?? '',
-    };
+    out[d.key] = { mFrom: ranges[0]?.from ?? '', mTo: ranges[0]?.to ?? '', tFrom: ranges[1]?.from ?? '', tTo: ranges[1]?.to ?? '' };
   }
   return out;
 }
@@ -137,21 +140,19 @@ function buildWeek(days: Record<string, DayForm>): Record<string, Franja[]> {
   return week;
 }
 
-/** Planilla de RRHH (ADR 0009): ficha completa del empleado. Los agendables
- *  participan de la agenda: los turnos se les asignan sin solaparse. Fase 3:
- *  horario propio (o el del negocio) y Google Calendar personal. */
-export default function EmployeesPage() {
+export default function PersonalPage() {
   const confirmar = useConfirm();
   const toast = useToast();
   const user = useSession('tenant');
-  const [rows, setRows] = useState<Employee[]>([]);
+  const [vista, setVista] = useUrlParam('vista', 'fichas');
+  const [rows, setRows] = useState<Employee[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   const [editing, setEditing] = useState<Employee | 'nuevo' | null>(null);
   const [form, setForm] = useState(VACIO);
+  const [guardando, setGuardando] = useState(false);
+  const [accounts, setAccounts] = useState<TeamUser[]>([]);
+  const [prefill, setPrefill] = useState<Prefill | null>(null);
 
-  // Campos obligatorios definidos por el admin del tenant: pintan el * y el
-  // required del formulario; el server los valida ademas por su cuenta.
   const [required, setRequired] = useState<string[]>([]);
   const [showCfg, setShowCfg] = useState(false);
   const [cfg, setCfg] = useState<string[]>([]);
@@ -160,38 +161,44 @@ export default function EmployeesPage() {
   const isAdmin = user ? ['root', 'admin'].includes(user.role) : false;
 
   const load = useCallback(() => {
-    void api<Employee[]>('/employees').then(setRows).catch((e) => setError(String(e.message)));
+    api<Employee[]>('/employees')
+      .then((r) => {
+        setRows(r);
+        setError(null);
+      })
+      .catch((e) => setError(errorMessage(e, 'No se pudo cargar el personal.')));
     void api<{ required_fields: string[] }>('/employees/form-settings')
       .then((r) => setRequired(r.required_fields))
       .catch(() => undefined);
+    void api<TeamUser[]>('/users').then(setAccounts).catch(() => setAccounts([]));
   }, []);
   useEffect(() => load(), [load]);
-
-  async function saveCfg(e: React.FormEvent) {
-    e.preventDefault();
-    try {
-      const res = await api<{ required_fields: string[] }>('/employees/form-settings', {
-        method: 'PUT',
-        json: { required_fields: cfg },
-      });
-      setRequired(res.required_fields);
-      setShowCfg(false);
-    } catch (err) {
-      fail(err);
-    }
-  }
 
   // Retorno del OAuth de Google del empleado (?google=connected|error).
   useEffect(() => {
     const q = new URLSearchParams(window.location.search).get('google');
-    if (q === 'connected') setNotice('Google Calendar conectado.');
-    if (q === 'error') setError('No se pudo conectar el Google Calendar.');
-    if (q) window.history.replaceState(null, '', window.location.pathname);
+    if (q === 'connected') toast.success('Google Calendar del empleado conectado');
+    if (q === 'error') toast.error('No se pudo conectar el Google Calendar del empleado.');
+    if (q) {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('google');
+      window.history.replaceState(null, '', url.toString());
+    }
   }, []);
 
-  function fail(e: unknown) {
-    // Campos traducidos y sin "Error" a secas (fase 0 auditoria 2026-09-05).
-    setError(errorMessage(e));
+  async function saveCfg(e: React.FormEvent) {
+    e.preventDefault();
+    setGuardando(true);
+    try {
+      const res = await api<{ required_fields: string[] }>('/employees/form-settings', { method: 'PUT', json: { required_fields: cfg } });
+      setRequired(res.required_fields);
+      setShowCfg(false);
+      toast.success('Campos obligatorios guardados');
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setGuardando(false);
+    }
   }
 
   function openNew() {
@@ -225,23 +232,21 @@ export default function EmployeesPage() {
 
   async function save(ev: React.FormEvent) {
     ev.preventDefault();
-    setError(null);
-    const json: Record<string, unknown> = {
-      first_name: form.first_name,
-      last_name: form.last_name,
-      bookable: form.bookable,
-      is_active: form.is_active,
-    };
+    const json: Record<string, unknown> = { first_name: form.first_name, last_name: form.last_name, bookable: form.bookable, is_active: form.is_active };
     for (const [k, v] of Object.entries(form)) {
       if (typeof v === 'string' && v.trim()) json[k] = v.trim();
     }
+    setGuardando(true);
     try {
       if (editing === 'nuevo') await api('/employees', { method: 'POST', json });
       else if (editing) await api(`/employees/${editing.id}`, { method: 'PATCH', json });
+      toast.success(editing === 'nuevo' ? `${form.first_name} agregado al personal` : 'Ficha guardada');
       setEditing(null);
       load();
     } catch (e) {
-      fail(e);
+      toast.error(errorMessage(e));
+    } finally {
+      setGuardando(false);
     }
   }
 
@@ -261,8 +266,7 @@ export default function EmployeesPage() {
     }
   }
 
-  // ---------------------- horario propio (fase 3) ----------------------
-
+  // ---------------------- horario propio ----------------------
   const [schedEmployee, setSchedEmployee] = useState<Employee | null>(null);
   const [propio, setPropio] = useState(false);
   const [days, setDays] = useState<Record<string, DayForm>>(parseWeek(null));
@@ -280,41 +284,35 @@ export default function EmployeesPage() {
   async function saveSchedule(ev: React.FormEvent) {
     ev.preventDefault();
     if (!schedEmployee) return;
-    setError(null);
+    setGuardando(true);
     try {
       await api(`/employees/${schedEmployee.id}`, {
         method: 'PATCH',
         json: { schedule: propio ? { week: buildWeek(days), closed_dates: libres } : null },
       });
+      toast.success(`Horario de ${schedEmployee.firstName} guardado`);
       setSchedEmployee(null);
       load();
     } catch (e) {
-      fail(e);
+      toast.error(errorMessage(e));
+    } finally {
+      setGuardando(false);
     }
   }
-
-  const setDay = (key: string, patch: Partial<DayForm>) =>
-    setDays((d) => ({ ...d, [key]: { ...(d[key] as DayForm), ...patch } }));
+  const setDay = (key: string, patch: Partial<DayForm>) => setDays((d) => ({ ...d, [key]: { ...(d[key] as DayForm), ...patch } }));
 
   // ---------------------- Google Calendar del empleado ----------------------
-
   async function googleConnect(e: Employee, copiar: boolean) {
-    setError(null);
     try {
-      const res = await api<{ auth_url: string }>('/integrations/google/connect', {
-        method: 'POST',
-        json: { employee_id: e.id },
-      });
+      const res = await api<{ auth_url: string }>('/integrations/google/connect', { method: 'POST', json: { employee_id: e.id } });
       if (copiar) {
         await navigator.clipboard.writeText(res.auth_url);
-        setNotice(
-          `Link de conexion copiado: pasaselo a ${e.firstName} para que autorice su propia cuenta (valido 10 minutos).`,
-        );
+        toast.success(`Link copiado: pasáselo a ${e.firstName} para que autorice su cuenta (vale 10 minutos)`);
       } else {
         window.location.href = res.auth_url;
       }
     } catch (err) {
-      fail(err);
+      toast.error(errorMessage(err));
     }
   }
 
@@ -330,21 +328,164 @@ export default function EmployeesPage() {
       toast.success('Google Calendar desconectado');
       load();
     } catch (err) {
-      fail(err);
+      toast.error(errorMessage(err));
     }
   }
 
+  const tieneCuenta = (e: Employee) => Boolean(e.email && accounts.some((u) => u.email.toLowerCase() === e.email!.toLowerCase()));
+
   return (
     <div className="space-y-5">
+      <PageHeader
+        title="Personal"
+        description="Quién trabaja en tu negocio (fichas, horarios, quién atiende turnos) y con qué cuentas entran al panel."
+        actions={
+          vista === 'fichas' ? (
+            <>
+              {isAdmin && (
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    setCfg(required);
+                    setShowCfg(true);
+                  }}
+                >
+                  Campos obligatorios
+                </Button>
+              )}
+              <Button variant="primary" onClick={openNew}>
+                Nuevo empleado
+              </Button>
+            </>
+          ) : undefined
+        }
+      />
+      <ErrorNote error={error} />
+
+      <Tabs
+        value={vista}
+        onChange={setVista}
+        items={[
+          { key: 'fichas', label: 'Fichas', count: rows?.filter((e) => e.isActive).length },
+          { key: 'accesos', label: 'Accesos al panel', count: accounts.length || undefined },
+        ]}
+      />
+
+      {vista === 'fichas' && (
+        <div className={tableCard}>
+          <table className="tbl">
+            <thead>
+              <tr>
+                <th>Nombre</th>
+                <th>Cargo</th>
+                <th>Horario</th>
+                <th>Google Calendar</th>
+                {isAdmin && <th className="text-right">Salario</th>}
+                <th>Acceso al panel</th>
+                <th>
+                  <span className="sr-only">Acciones</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {(rows ?? []).map((e) => (
+                <tr key={e.id} className={e.isActive ? 'hover:bg-slate-50' : 'text-slate-400'}>
+                  <td>
+                    <span className="font-medium">
+                      {e.firstName} {e.lastName}
+                    </span>
+                    <span className="mt-0.5 flex flex-wrap gap-1">
+                      {e.bookable ? <Badge tone="sky">atiende turnos</Badge> : <Badge tone="slate">no atiende turnos</Badge>}
+                      {!e.isActive && <Badge tone="red">dado de baja</Badge>}
+                    </span>
+                  </td>
+                  <td>{e.position ?? '—'}</td>
+                  <td>
+                    <button className={buttonGhost} onClick={() => openSchedule(e)}>
+                      {e.schedule ? 'Horario propio' : 'El del negocio'}
+                    </button>
+                  </td>
+                  <td>
+                    {e.googleCalendar === 'connected' ? (
+                      <span className="inline-flex items-center gap-1.5">
+                        <Badge tone="emerald">conectado</Badge>
+                        <button className={buttonGhost} onClick={() => void googleDisconnect(e)}>
+                          Desconectar
+                        </button>
+                      </span>
+                    ) : (
+                      <span className="inline-flex flex-wrap items-center gap-1.5">
+                        {e.googleCalendar === 'disconnected' && <Badge tone="amber">acceso revocado</Badge>}
+                        <button className={buttonGhost} onClick={() => void googleConnect(e, false)}>
+                          Conectar
+                        </button>
+                        <button className={buttonGhost} title="Copiar el link para que la persona autorice su propia cuenta" onClick={() => void googleConnect(e, true)}>
+                          Copiar link
+                        </button>
+                      </span>
+                    )}
+                  </td>
+                  {isAdmin && <td className="text-right tabular-nums">{e.salary ? money(e.salary) : '—'}</td>}
+                  <td>
+                    {tieneCuenta(e) ? (
+                      <Badge tone="emerald">tiene cuenta</Badge>
+                    ) : isAdmin && e.isActive ? (
+                      <button
+                        className={buttonSoft}
+                        onClick={() => {
+                          setPrefill({ email: e.email ?? '', full_name: `${e.firstName} ${e.lastName}` });
+                          setVista('accesos');
+                        }}
+                      >
+                        Crear acceso
+                      </button>
+                    ) : (
+                      <span className="text-xs text-slate-400">sin cuenta</span>
+                    )}
+                  </td>
+                  <td className="text-right">
+                    <span className="inline-flex gap-1">
+                      <button className={buttonGhost} onClick={() => openEdit(e)}>
+                        Editar
+                      </button>
+                      {e.isActive && (
+                        <button className={buttonDanger} onClick={() => void remove(e)}>
+                          Dar de baja
+                        </button>
+                      )}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+              {rows && rows.length === 0 && (
+                <EmptyRow
+                  colSpan={isAdmin ? 7 : 6}
+                  action={
+                    <Button variant="soft" onClick={openNew}>
+                      Cargar al primero
+                    </Button>
+                  }
+                >
+                  Sin personal cargado. Sin empleados, la agenda funciona con capacidad simple; al cargar al primero, cada turno queda asignado a una persona y el cliente puede elegir con quién.
+                </EmptyRow>
+              )}
+              {rows === null && !error && <EmptyRow colSpan={7}>Cargando…</EmptyRow>}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {vista === 'accesos' && <AccesosSection prefill={prefill} onPrefillUsed={() => setPrefill(null)} onUsers={setAccounts} />}
+
       {schedEmployee && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/40 p-4">
-          <form className="w-full max-w-lg space-y-3 rounded-xl bg-white p-5 shadow-xl" onSubmit={(e) => void saveSchedule(e)}>
-            <h3 className="font-semibold">
-              Horario de {schedEmployee.firstName} {schedEmployee.lastName}
-            </h3>
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={!propio} onChange={(e) => setPropio(!e.target.checked)} />
-              Usa el horario de atencion del negocio
+        <Modal title={`Horario de ${schedEmployee.firstName} ${schedEmployee.lastName}`} onClose={() => setSchedEmployee(null)} size="lg">
+          <form className="space-y-3" onSubmit={(e) => void saveSchedule(e)}>
+            <label className="flex items-start gap-2 text-sm">
+              <input type="checkbox" className="mt-0.5" checked={!propio} onChange={(e) => setPropio(!e.target.checked)} />
+              <span>
+                <b>Usa el horario de atención del negocio</b>
+                <span className="block text-xs text-slate-500">Destildá para cargarle un horario propio (por ejemplo, medio turno).</span>
+              </span>
             </label>
             {propio && (
               <>
@@ -368,85 +509,79 @@ export default function EmployeesPage() {
                       </div>
                     );
                   })}
-                  <p className="text-xs text-slate-500">
-                    Dia sin horas = no trabaja ese dia. Solo recibe turnos dentro de su franja (y
-                    dentro del horario del negocio).
-                  </p>
+                  <p className="text-xs text-slate-500">Día sin horas = no trabaja ese día. Solo recibe turnos dentro de su franja (y dentro del horario del negocio).</p>
                 </div>
                 <div className="space-y-1">
-                  <span className="text-sm font-medium">Dias libres / vacaciones</span>
+                  <span className="text-sm font-medium">Días libres / vacaciones</span>
                   <div className="flex flex-wrap gap-1">
                     {libres.map((f) => (
                       <span key={f} className="flex items-center gap-1 rounded bg-slate-100 px-2 py-0.5 text-xs">
-                        {f}
-                        <button type="button" className="text-red-500" onClick={() => setLibres(libres.filter((x) => x !== f))}>
+                        {f.split('-').reverse().join('/')}
+                        <button type="button" className="text-red-500" aria-label={`Quitar ${f}`} onClick={() => setLibres(libres.filter((x) => x !== f))}>
                           ×
                         </button>
                       </span>
                     ))}
-                    {libres.length === 0 && <span className="text-xs text-slate-400">Sin dias libres cargados.</span>}
+                    {libres.length === 0 && <span className="text-xs text-slate-400">Sin días libres cargados.</span>}
                   </div>
                   <div className="flex gap-2">
                     <input className={`${inputClass} w-40`} type="date" value={nuevoLibre} onChange={(e) => setNuevoLibre(e.target.value)} />
-                    <button
-                      type="button"
-                      className={buttonGhost}
+                    <Button
+                      variant="ghost"
+                      disabled={!nuevoLibre || libres.includes(nuevoLibre)}
                       onClick={() => {
-                        if (nuevoLibre && !libres.includes(nuevoLibre)) setLibres([...libres, nuevoLibre].sort());
+                        setLibres([...libres, nuevoLibre].sort());
                         setNuevoLibre('');
                       }}
                     >
-                      Agregar
-                    </button>
+                      Agregar día
+                    </Button>
                   </div>
                 </div>
               </>
             )}
             <div className="flex justify-end gap-2">
-              <button type="button" className={buttonGhost} onClick={() => setSchedEmployee(null)}>
-                Cancelar
-              </button>
-              <button className={buttonClass}>Guardar</button>
+              <Button variant="ghost" onClick={() => setSchedEmployee(null)}>
+                Volver
+              </Button>
+              <Button variant="primary" type="submit" loading={guardando}>
+                Guardar
+              </Button>
             </div>
           </form>
-        </div>
+        </Modal>
       )}
 
       {editing && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/40 p-4">
-          <form className="w-full max-w-2xl space-y-3 rounded-xl bg-white p-5 shadow-xl" onSubmit={(e) => void save(e)}>
-            <h3 className="font-semibold">{editing === 'nuevo' ? 'Nuevo empleado' : 'Editar empleado'}</h3>
-            <p className="text-xs text-slate-500">
-              Solo nombres y apellidos son obligatorios; todo lo demas es opcional y se puede
-              completar despues. (Los campos con * los definiste vos en &quot;Campos obligatorios&quot;.)
-            </p>
+        <Modal
+          title={editing === 'nuevo' ? 'Nuevo empleado' : `Editar a ${editing.firstName} ${editing.lastName}`}
+          description={`Solo nombres y apellidos son obligatorios; todo lo demás se puede completar después.${isAdmin ? ' Los campos con * los definiste vos en "Campos obligatorios".' : ''}`}
+          onClose={() => setEditing(null)}
+          size="xl"
+        >
+          <form className="space-y-3" onSubmit={(e) => void save(e)}>
             <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
               <GroupTitle>Datos personales</GroupTitle>
               <Field label="Nombres *">
-                <input className={inputClass} value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} required />
+                <input className={inputClass} value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} required autoFocus />
               </Field>
               <Field label="Apellidos *">
                 <input className={inputClass} value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} required />
               </Field>
-              <Field label={lbl('ci_number', 'CI')}>
+              <Field label={lbl('ci_number', 'Cédula')}>
                 <input className={inputClass} required={req('ci_number')} value={form.ci_number} onChange={(e) => setForm({ ...form, ci_number: e.target.value })} />
               </Field>
               <Field label={lbl('birth_date', 'Fecha de nacimiento')}>
                 <input className={inputClass} type="date" required={req('birth_date')} value={form.birth_date} onChange={(e) => setForm({ ...form, birth_date: e.target.value })} />
               </Field>
-              <Field label={lbl('phone', 'Telefono')}>
+              <Field label={lbl('phone', 'Teléfono')}>
                 <input className={inputClass} required={req('phone')} value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
               </Field>
               <Field label={lbl('email', 'Email')}>
                 <input className={inputClass} type="email" required={req('email')} value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
               </Field>
               <Field label={lbl('marital_status', 'Estado civil')}>
-                <select
-                  className={inputClass}
-                  required={req('marital_status')}
-                  value={form.marital_status}
-                  onChange={(e) => setForm({ ...form, marital_status: e.target.value })}
-                >
+                <select className={inputClass} required={req('marital_status')} value={form.marital_status} onChange={(e) => setForm({ ...form, marital_status: e.target.value })}>
                   <option value="">—</option>
                   <option value="soltero">Soltero/a</option>
                   <option value="casado">Casado/a</option>
@@ -456,18 +591,9 @@ export default function EmployeesPage() {
                 </select>
               </Field>
               <Field label={lbl('children_count', 'Cantidad de hijos')}>
-                <input
-                  className={inputClass}
-                  type="number"
-                  min="0"
-                  max="30"
-                  placeholder="0 = no tiene"
-                  required={req('children_count')}
-                  value={form.children_count}
-                  onChange={(e) => setForm({ ...form, children_count: e.target.value })}
-                />
+                <input className={inputClass} type="number" min="0" max="30" placeholder="0 = no tiene" required={req('children_count')} value={form.children_count} onChange={(e) => setForm({ ...form, children_count: e.target.value })} />
               </Field>
-              <Field label={lbl('address', 'Direccion')}>
+              <Field label={lbl('address', 'Dirección')}>
                 <input className={inputClass} required={req('address')} value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
               </Field>
 
@@ -478,37 +604,32 @@ export default function EmployeesPage() {
               <Field label={lbl('hired_at', 'Fecha de ingreso')}>
                 <input className={inputClass} type="date" required={req('hired_at')} value={form.hired_at} onChange={(e) => setForm({ ...form, hired_at: e.target.value })} />
               </Field>
-              <Field label={lbl('ips_number', 'Nro asegurado IPS')}>
+              <Field label={lbl('ips_number', 'Nro. de asegurado IPS')}>
                 <input className={inputClass} required={req('ips_number')} value={form.ips_number} onChange={(e) => setForm({ ...form, ips_number: e.target.value })} />
               </Field>
-              <Field label={lbl('salary', 'Salario (Gs; solo lo ven root/admin)')}>
-                <input className={inputClass} required={req('salary')} value={form.salary} onChange={(e) => setForm({ ...form, salary: e.target.value })} />
-              </Field>
+              {isAdmin && (
+                <Field label={lbl('salary', 'Salario (Gs; solo lo ven dueño y administradores)')}>
+                  <input className={inputClass} inputMode="numeric" required={req('salary')} value={form.salary} onChange={(e) => setForm({ ...form, salary: e.target.value })} />
+                </Field>
+              )}
               <div className="col-span-2">
                 <Field label="Notas">
                   <textarea className={`${inputClass} h-16`} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
                 </Field>
               </div>
 
-              <GroupTitle>Contacto de emergencia (a quien llamar si le pasa algo)</GroupTitle>
+              <GroupTitle>Contacto de emergencia (a quién llamar si le pasa algo)</GroupTitle>
               <Field label={lbl('emergency_contact_name', 'Nombre')}>
                 <input className={inputClass} required={req('emergency_contact_name')} value={form.emergency_contact_name} onChange={(e) => setForm({ ...form, emergency_contact_name: e.target.value })} />
               </Field>
-              <Field label={lbl('emergency_contact_phone', 'Telefono')}>
+              <Field label={lbl('emergency_contact_phone', 'Teléfono')}>
                 <input className={inputClass} required={req('emergency_contact_phone')} value={form.emergency_contact_phone} onChange={(e) => setForm({ ...form, emergency_contact_phone: e.target.value })} />
               </Field>
-              <Field label={lbl('emergency_contact_relation', 'Relacion con el empleado')}>
-                <input
-                  className={inputClass}
-                  list="relaciones-emergencia"
-                  placeholder="padre, madre, esposo/a…"
-                  required={req('emergency_contact_relation')}
-                  value={form.emergency_contact_relation}
-                  onChange={(e) => setForm({ ...form, emergency_contact_relation: e.target.value })}
-                />
+              <Field label={lbl('emergency_contact_relation', 'Relación con el empleado')}>
+                <input className={inputClass} list="relaciones-emergencia" placeholder="padre, madre, esposo/a…" required={req('emergency_contact_relation')} value={form.emergency_contact_relation} onChange={(e) => setForm({ ...form, emergency_contact_relation: e.target.value })} />
               </Field>
               <datalist id="relaciones-emergencia">
-                {['padre', 'madre', 'esposo/a', 'hijo/a', 'hermano/a', 'abuelo/a', 'tio/a', 'amigo/a', 'otro'].map((r) => (
+                {['padre', 'madre', 'esposo/a', 'hijo/a', 'hermano/a', 'abuelo/a', 'tío/a', 'amigo/a', 'otro'].map((r) => (
                   <option key={r} value={r} />
                 ))}
               </datalist>
@@ -518,65 +639,36 @@ export default function EmployeesPage() {
                 <input type="checkbox" className="mt-0.5" checked={form.bookable} onChange={(e) => setForm({ ...form, bookable: e.target.checked })} />
                 <span>
                   <b>Atiende clientes con turno</b>
-                  <span className="block text-xs text-slate-500">
-                    Aparece en la agenda y el sistema le asigna turnos automaticamente (nunca dos a
-                    la misma hora). Desmarcalo para personal que no atiende clientes (ej. limpieza,
-                    administracion).
-                  </span>
+                  <span className="block text-xs text-slate-500">Aparece en la agenda y el sistema le asigna turnos automáticamente (nunca dos a la misma hora). Destildalo para personal que no atiende clientes (limpieza, administración).</span>
                 </span>
               </label>
               <label className="flex items-start gap-2 text-sm">
                 <input type="checkbox" className="mt-0.5" checked={form.is_active} onChange={(e) => setForm({ ...form, is_active: e.target.checked })} />
                 <span>
                   <b>Trabaja actualmente</b>
-                  <span className="block text-xs text-slate-500">
-                    Desmarcalo si ya no trabaja en tu empresa: se archiva, deja de recibir turnos y
-                    de aparecer en las listas, pero su historial se conserva.
-                  </span>
+                  <span className="block text-xs text-slate-500">Destildalo si ya no trabaja en tu empresa: deja de recibir turnos y de aparecer en las listas, pero su historial se conserva.</span>
                 </span>
               </label>
             </div>
             <div className="flex justify-end gap-2">
-              <button type="button" className={buttonGhost} onClick={() => setEditing(null)}>
-                Cancelar
-              </button>
-              <button className={buttonClass}>Guardar</button>
+              <Button variant="ghost" onClick={() => setEditing(null)}>
+                Volver
+              </Button>
+              <Button variant="primary" type="submit" loading={guardando}>
+                {editing === 'nuevo' ? 'Agregar al personal' : 'Guardar'}
+              </Button>
             </div>
           </form>
-        </div>
+        </Modal>
       )}
 
-      <PageHeader
-        title="Empleados"
-        description="Ficha de RRHH del equipo. Los marcados como agendables reciben los turnos de la agenda: el sistema los asigna automáticamente y nunca superpone dos turnos de la misma persona. Cada uno puede tener horario propio y conectar su Google Calendar personal (sus eventos lo sacan de la agenda solo a él)."
-        actions={
-          <>
-            {isAdmin && (
-              <button
-                className={buttonGhost}
-                onClick={() => {
-                  setCfg(required);
-                  setShowCfg(true);
-                }}
-              >
-                Campos obligatorios
-              </button>
-            )}
-            <button className={buttonClass} onClick={openNew}>
-              Nuevo empleado
-            </button>
-          </>
-        }
-      />
-
       {showCfg && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/40 p-4">
-          <form className="w-full max-w-md space-y-3 rounded-xl bg-white p-5 shadow-xl" onSubmit={(e) => void saveCfg(e)}>
-            <h3 className="font-semibold">Campos obligatorios de la planilla</h3>
-            <p className="text-xs text-slate-500">
-              Definí qué datos son obligatorios al cargar un empleado en TU empresa. Se marcan con *
-              en el formulario y el sistema no deja guardar un empleado nuevo sin completarlos.
-            </p>
+        <Modal
+          title="Campos obligatorios de la ficha"
+          description="Definí qué datos son obligatorios al cargar un empleado en tu empresa. Se marcan con * y el sistema no deja guardar sin completarlos."
+          onClose={() => setShowCfg(false)}
+        >
+          <form className="space-y-3" onSubmit={(e) => void saveCfg(e)}>
             <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
               <label className="flex items-center gap-2 text-slate-400">
                 <input type="checkbox" checked disabled /> Nombres (siempre)
@@ -586,104 +678,22 @@ export default function EmployeesPage() {
               </label>
               {CONFIGURABLES.map((f) => (
                 <label key={f.key} className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={cfg.includes(f.key)}
-                    onChange={(e) =>
-                      setCfg(e.target.checked ? [...cfg, f.key] : cfg.filter((k) => k !== f.key))
-                    }
-                  />
+                  <input type="checkbox" checked={cfg.includes(f.key)} onChange={(e) => setCfg(e.target.checked ? [...cfg, f.key] : cfg.filter((k) => k !== f.key))} />
                   {f.label}
                 </label>
               ))}
             </div>
             <div className="flex justify-end gap-2">
-              <button type="button" className={buttonGhost} onClick={() => setShowCfg(false)}>
-                Cancelar
-              </button>
-              <button className={buttonClass}>Guardar</button>
+              <Button variant="ghost" onClick={() => setShowCfg(false)}>
+                Volver
+              </Button>
+              <Button variant="primary" type="submit" loading={guardando}>
+                Guardar
+              </Button>
             </div>
           </form>
-        </div>
+        </Modal>
       )}
-      {notice && <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{notice}</p>}
-      <ErrorNote error={error} />
-
-      <div className={tableCard}>
-        <table className="tbl">
-          <thead>
-            <tr>
-              <th>Nombre</th>
-              <th>Cargo</th>
-              <th>Horario</th>
-              <th>Google</th>
-              <th className="text-right">Salario</th>
-              <th>Estado</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((e) => (
-              <tr key={e.id} className="hover:bg-slate-50">
-                <td>
-                  {e.firstName} {e.lastName}
-                  {e.bookable && (
-                    <Badge tone="sky" className="ml-2">
-                      agendable
-                    </Badge>
-                  )}
-                </td>
-                <td>{e.position ?? '—'}</td>
-                <td>
-                  <button className={buttonGhost} onClick={() => openSchedule(e)}>
-                    {e.schedule ? 'Propio' : 'Del negocio'}
-                  </button>
-                </td>
-                <td>
-                  {e.googleCalendar === 'connected' ? (
-                    <span className="space-x-1">
-                      <Badge tone="emerald">conectado</Badge>
-                      <button className="text-xs text-red-600 hover:underline" onClick={() => void googleDisconnect(e)}>
-                        desconectar
-                      </button>
-                    </span>
-                  ) : (
-                    <span className="space-x-1 whitespace-nowrap">
-                      {e.googleCalendar === 'disconnected' && <Badge tone="amber">revocado</Badge>}
-                      <button className="text-xs text-sky-700 hover:underline" onClick={() => void googleConnect(e, false)}>
-                        conectar
-                      </button>
-                      <button className="text-xs text-slate-500 hover:underline" onClick={() => void googleConnect(e, true)}>
-                        copiar link
-                      </button>
-                    </span>
-                  )}
-                </td>
-                <td className="text-right tabular-nums">{e.salary ? money(e.salary) : '—'}</td>
-                <td>
-                  <Badge tone={e.isActive ? 'emerald' : 'slate'}>{e.isActive ? 'activo' : 'inactivo'}</Badge>
-                </td>
-                <td className="text-right">
-                  <span className="inline-flex gap-1">
-                    <button className={buttonGhost} onClick={() => openEdit(e)}>
-                      Editar
-                    </button>
-                    <button className={buttonDanger} onClick={() => void remove(e)}>
-                      Dar de baja
-                    </button>
-                  </span>
-                </td>
-              </tr>
-            ))}
-            {rows.length === 0 && (
-              <EmptyRow colSpan={7}>
-                Sin empleados cargados. Sin empleados, la agenda funciona con capacidad simple; al cargar el primero,
-                cada turno queda asignado a una persona.
-              </EmptyRow>
-            )}
-          </tbody>
-        </table>
-      </div>
     </div>
   );
 }

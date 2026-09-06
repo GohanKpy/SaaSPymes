@@ -71,8 +71,7 @@ const NAV: { title: string; items: NavItem[] }[] = [
   {
     title: 'Administración',
     items: [
-      { href: '/app/employees', label: 'Empleados', icon: 'employees' },
-      { href: '/app/team', label: 'Equipo', icon: 'team', roles: ['root', 'admin'] },
+      { href: '/app/employees', label: 'Personal', icon: 'team', roles: ['root', 'admin'] },
       { href: '/app/settings', label: 'Ajustes', icon: 'settings' },
     ],
   },

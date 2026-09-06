@@ -100,6 +100,19 @@ export class InvoicesService {
     );
   }
 
+  /** Solo borradores: una factura emitida tiene numero fiscal y se anula, no se borra. */
+  async removeDraft(ctx: TenantContext, id: string) {
+    await this.appDb.tx(ctx, async (tx) => {
+      const invoice = await tx.invoice.findFirst({ where: { id } });
+      if (!invoice) throw new NotFoundException();
+      if (invoice.status !== 'draft') {
+        throw new ConflictException({ title: 'Solo se borran borradores; una factura emitida se anula' });
+      }
+      await tx.invoiceItem.deleteMany({ where: { invoiceId: id } });
+      await tx.invoice.delete({ where: { id } });
+    });
+  }
+
   async get(ctx: TenantContext, id: string) {
     const invoice = await this.appDb.tx(ctx, (tx) =>
       tx.invoice.findFirst({

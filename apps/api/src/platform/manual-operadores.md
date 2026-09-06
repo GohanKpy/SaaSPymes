@@ -185,7 +185,7 @@ Turnos del negocio, por día y por empleado.
   empleado no trabaja a esa hora, o un evento del Google Calendar del negocio
   bloquea el horario.
 - "El empleado elegido no existe o no es agendable": el empleado está
-  archivado o no tiene tildado "Atiende clientes con turno" en Empleados.
+  dado de baja o no tiene tildado "Atiende clientes con turno" en Personal.
 
 ### 3.4 Tareas
 
@@ -272,36 +272,63 @@ Presupuestos formales sin valor fiscal, numerados P-0001, P-0002…
   nuevo") o se borran.
 - Se puede descargar en PDF para enviar al cliente.
 
-### 3.9 Empleados
+### 3.9 Personal (ruta /app/employees)
 
-Fichas del personal del negocio (no confundir con Equipo, que son los
-usuarios que entran al panel).
+Una sola pantalla con dos pestañas (desde el 2026-09-05; antes eran dos
+pantallas separadas, "Empleados" y "Equipo"):
+
+**Pestaña Fichas**: quién trabaja en el negocio.
 
 - Solo nombres y apellidos son obligatorios; el email es opcional.
 - **"Atiende clientes con turno"** (agendable): tildar solo para quienes
   reciben turnos en la agenda; el bot ofrece únicamente empleados agendables.
-- **"Trabaja actualmente"**: destildar para archivar a alguien que ya no está
-  (no se borra el historial).
-- Cada empleado puede tener su **horario propio** (si no, rige el de la
-  sucursal) y conectar su **Google Calendar personal** para que sus eventos
-  privados bloqueen su agenda.
-- La **planilla** guarda los datos administrativos (documento, cargo, fechas,
-  salario…). Los campos que exige la planilla los define el negocio; si
-  faltan aparece "Faltan campos obligatorios de la planilla de tu empresa".
-- El contacto de emergencia (a quién llamar si le pasa algo) va al final del
-  formulario.
+- **"Trabaja actualmente"**: destildar para dar de baja a alguien que ya no
+  está (no se borra el historial). El botón "Dar de baja" hace lo mismo.
+- Cada empleado puede tener su **horario propio** (si no, rige el del
+  negocio) y conectar su **Google Calendar personal** para que sus eventos
+  privados bloqueen su agenda ("Conectar" abre Google acá mismo; "Copiar
+  link" da un enlace de 10 minutos para que la persona autorice desde su
+  propia cuenta).
+- La ficha guarda los datos administrativos (cédula, cargo, fechas, IPS,
+  salario, contacto de emergencia). Qué campos son obligatorios lo define
+  el negocio con el botón "Campos obligatorios"; si faltan aparece "Faltan
+  campos obligatorios de la planilla de tu empresa".
+- La columna "Acceso al panel" dice si esa persona ya tiene cuenta para
+  entrar al sistema (se cruza por email). "Crear acceso" abre la otra
+  pestaña con nombre y email ya cargados.
 
-### 3.10 Equipo
+**Pestaña Accesos al panel** (`?vista=accesos`; la URL vieja /app/team
+redirige acá): las cuentas con las que la gente entra al panel.
 
-Usuarios que entran al panel del negocio (root, admin, staff).
-
-- Alta con contraseña temporal mostrada UNA sola vez.
-- "Reiniciar contraseña" genera una temporal nueva (también una sola vez) y
+- Alta con contraseña temporal mostrada UNA sola vez (botón Copiar).
+- Roles: Personal (staff: agenda, chat, clientes, facturación) y
+  Administrador (además catálogo, personal y ajustes). El dueño es root.
+- "Nueva contraseña" genera una temporal nueva (también una sola vez) y
   cierra las sesiones de ese usuario.
 - El usuario root no se elimina ni puede ser tocado por un admin.
-- Acceso por sucursal: a un usuario se le puede limitar qué sucursales ve.
+- Acceso por sucursal: a una cuenta se le puede limitar qué sucursales ve.
 
-### 3.11 Ajustes
+### 3.10 Ajustes (ruta /app/settings/…)
+
+Desde el 2026-09-05 Ajustes está dividido en secciones con un menú lateral;
+la URL /app/settings sola redirige a la primera sección que corresponda al
+rol. Secciones y quién las ve:
+
+| Sección | Ruta | Quién |
+|---|---|---|
+| Empresa (datos y marca) | /app/settings/empresa | root, admin |
+| Horarios de atención | /app/settings/horarios | root, admin |
+| Bot de atención | /app/settings/bot | root, admin |
+| WhatsApp | /app/settings/whatsapp | solo root |
+| Google Calendar | /app/settings/calendario | solo root |
+| Facturación electrónica | /app/settings/facturacion | solo root |
+| Campos personalizados | /app/settings/campos | root, admin |
+| Mi cuenta (contraseña) | /app/settings/cuenta | todos |
+
+Los horarios de atención antes se editaban desde la Agenda; ahora la Agenda
+tiene un botón que lleva a esta sección. Al re-guardar WhatsApp no hace
+falta retipear el token de acceso ni el verify token: si se dejan vacíos se
+conservan los ya cargados.
 
 - **Datos de la empresa y marca**: razón social, fantasía, RUC (el dígito
   verificador se completa solo), dirección, teléfono, actividad, email de
@@ -432,7 +459,7 @@ En orden de frecuencia:
 **Agenda**
 - "Sin disponibilidad en ese horario": horario ocupado o fuera del horario de
   atención/empleado.
-- "El empleado elegido no existe o no es agendable": revisar en Empleados que
+- "El empleado elegido no existe o no es agendable": revisar en Personal que
   esté activo y con "Atiende clientes con turno" tildado.
 - "Solo se confirman turnos pendientes" / "El turno no se puede cancelar" /
   "El turno no se puede completar": el turno ya está en un estado final.
@@ -455,7 +482,7 @@ En orden de frecuencia:
   facturo" / "Un presupuesto X no puede pasar a Y" (respetar el flujo
   borrador → enviado → aceptado/rechazado).
 
-**Empleados y equipo**
+**Personal (fichas y accesos)**
 - "Faltan campos obligatorios de la planilla de tu empresa": la planilla
   define campos obligatorios que quedaron vacíos.
 - "El empleado no existe": fue archivado o eliminado.

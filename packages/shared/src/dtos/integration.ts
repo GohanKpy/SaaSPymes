@@ -6,8 +6,9 @@ import { z } from 'zod';
 export const whatsappIntegrationPut = z
   .object({
     phone_number_id: z.string().min(1).max(64),
-    access_token: z.string().min(1),
-    verify_token: z.string().min(1).max(128),
+    /** Opcionales al re-guardar: ausentes = se mantienen los ya cargados (fase 2 auditoria 2026-09-05). */
+    access_token: z.string().min(1).optional(),
+    verify_token: z.string().min(1).max(128).optional(),
     /** true = las respuestas salen de verdad por WhatsApp Cloud API. */
     live: z.boolean().default(false),
   })

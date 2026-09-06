@@ -119,7 +119,7 @@ export default function TenantHome() {
           key: 'whatsapp',
           titulo: 'Conectá WhatsApp (o el chat de prueba)',
           detalle: 'Con un identificador de prueba ya podés hablar con tu bot como si fueras un cliente.',
-          href: '/app/settings',
+          href: '/app/settings/whatsapp',
           hecho: integraciones.some((i) => i.type === 'whatsapp' && i.configured),
         },
         {
@@ -149,7 +149,7 @@ export default function TenantHome() {
           tenant?.currentPlan ? (
             <span className="inline-flex items-center gap-2">
               Plan {tenant.currentPlan.name}
-              <Link className="text-sky-700 hover:underline" href="/app/settings">
+              <Link className="text-sky-700 hover:underline" href="/app/settings/empresa">
                 ver funciones incluidas
               </Link>
             </span>
