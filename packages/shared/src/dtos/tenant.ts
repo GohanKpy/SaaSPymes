@@ -110,3 +110,14 @@ export interface EffectiveFeature {
   source: 'plan' | 'override';
   limits: Record<string, unknown>;
 }
+
+/** Ajustes del negocio (2026-09-07): cierre de la cuenta mensual y anticipacion de recurrentes. */
+export const tenantSettingsPut = z
+  .object({
+    monthly_close_day: z.number().int().min(1).max(28),
+    monthly_auto_invoice: z.boolean(),
+    recurring_lead_days: z.number().int().min(1).max(60),
+  })
+  .partial()
+  .strict();
+export type TenantSettingsPut = z.infer<typeof tenantSettingsPut>;

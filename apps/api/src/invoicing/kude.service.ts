@@ -31,7 +31,16 @@ interface Branding {
 export class KudeService {
   constructor(private readonly appDb: AppPrisma) {}
 
-  async render(ctx: TenantContext, invoiceId: string): Promise<{ pdf: Buffer; filename: string }> {
+  /**
+   * requirePayment (default true): el boton del panel entrega el comprobante
+   * recien con el pago registrado (regla 2026-08-07). La cuenta mensual y el
+   * link publico lo envian para que lo PAGUEN, asi que lo piden en false.
+   */
+  async render(
+    ctx: TenantContext,
+    invoiceId: string,
+    opts: { requirePayment?: boolean } = {},
+  ): Promise<{ pdf: Buffer; filename: string }> {
     const data = await this.appDb.tx(ctx, async (tx) => {
       const invoice = await tx.invoice.findFirst({
         where: { id: invoiceId },
@@ -54,7 +63,7 @@ export class KudeService {
     }
     // Regla del negocio (2026-08-07): el KuDE de una factura vigente se
     // entrega recien con el pago registrado (las anuladas quedan exentas).
-    if (invoice.status === 'approved') {
+    if (invoice.status === 'approved' && opts.requirePayment !== false) {
       const pagado = invoice.payments.reduce((sum, p) => sum + p.amount, 0n);
       if (pagado < invoice.total) {
         throw new UnprocessableEntityException({

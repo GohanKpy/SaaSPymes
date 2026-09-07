@@ -79,3 +79,32 @@ export const assistantAsk = z
     path: ['messages'],
   });
 export type AssistantAsk = z.infer<typeof assistantAsk>;
+
+/** Correo saliente del sistema (2026-09-07): SMTP para resumenes y facturas por email. */
+export const mailSettingsPut = z
+  .object({
+    host: z.string().min(1).max(200),
+    port: z.number().int().min(1).max(65535).default(587),
+    /** TLS implicito (465); false = STARTTLS o sin cifrado (Mailpit). */
+    secure: z.boolean().default(false),
+    user: z.string().max(200).optional(),
+    /** Solo al cargar o rotar; ausente = mantener la guardada. */
+    password: z.string().min(1).max(500).optional(),
+    from_email: z.email(),
+    from_name: z.string().max(120).optional(),
+  })
+  .strict();
+export type MailSettingsPut = z.infer<typeof mailSettingsPut>;
+
+export interface MailSettingsView {
+  host: string | null;
+  port: number | null;
+  secure: boolean;
+  user: string | null;
+  from_email: string | null;
+  from_name: string | null;
+  /** Solo presencia, jamas el valor. */
+  has_password: boolean;
+  /** 'panel' si hay registro en base; 'env' si rige SMTP_HOST del entorno. */
+  source: 'panel' | 'env';
+}

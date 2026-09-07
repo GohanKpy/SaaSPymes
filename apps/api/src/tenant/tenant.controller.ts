@@ -1,5 +1,11 @@
-import { Body, Controller, Get, NotFoundException, Patch, Req } from '@nestjs/common';
-import { tenantSelfPatch, type EffectiveFeature, type TenantSelfPatch } from '@pymes/shared';
+import { Body, Controller, Get, NotFoundException, Patch, Put, Req } from '@nestjs/common';
+import {
+  tenantSelfPatch,
+  tenantSettingsPut,
+  type EffectiveFeature,
+  type TenantSelfPatch,
+  type TenantSettingsPut,
+} from '@pymes/shared';
 import type { FastifyRequest } from 'fastify';
 
 import { Prisma } from '@pymes/db';
@@ -83,6 +89,43 @@ export class TenantController {
   }
 
   /** Features efectivas para que la UI muestre u oculte modulos (doc 04 §3.2). */
+  /** Ajustes del negocio (2026-09-07): cierre de la cuenta mensual y anticipacion de recurrentes. */
+  @Get('settings')
+  async settings(@Req() req: FastifyRequest & AuthRequest) {
+    const ctx = tenantCtx(req);
+    const row = await this.appDb.tx(ctx, (tx) => tx.tenantSettings.findUnique({ where: { tenantId: ctx.tenantId } }));
+    return {
+      monthly_close_day: row?.monthlyCloseDay ?? 1,
+      monthly_auto_invoice: row?.monthlyAutoInvoice ?? false,
+      recurring_lead_days: row?.recurringLeadDays ?? 7,
+    };
+  }
+
+  @Put('settings')
+  @Roles('root', 'admin')
+  async putSettings(@Body(new ZodPipe(tenantSettingsPut)) dto: TenantSettingsPut, @Req() req: FastifyRequest & AuthRequest) {
+    const ctx = tenantCtx(req);
+    const row = await this.appDb.tx(ctx, (tx) =>
+      tx.tenantSettings.upsert({
+        where: { tenantId: ctx.tenantId },
+        update: {
+          monthlyCloseDay: dto.monthly_close_day,
+          monthlyAutoInvoice: dto.monthly_auto_invoice,
+          recurringLeadDays: dto.recurring_lead_days,
+          updatedBy: ctx.userId,
+        },
+        create: {
+          tenantId: ctx.tenantId,
+          monthlyCloseDay: dto.monthly_close_day ?? 1,
+          monthlyAutoInvoice: dto.monthly_auto_invoice ?? false,
+          recurringLeadDays: dto.recurring_lead_days ?? 7,
+          updatedBy: ctx.userId,
+        },
+      }),
+    );
+    return { monthly_close_day: row.monthlyCloseDay, monthly_auto_invoice: row.monthlyAutoInvoice, recurring_lead_days: row.recurringLeadDays };
+  }
+
   @Get('features')
   features_(@Req() req: FastifyRequest & AuthRequest): Promise<EffectiveFeature[]> {
     return this.features.effective(tenantCtx(req).tenantId);

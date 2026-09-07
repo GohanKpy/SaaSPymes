@@ -217,6 +217,9 @@ function mapCustomer(dto: CustomerCreate | CustomerUpdate) {
     tags: dto.tags,
     assignedUserId: dto.assigned_user_id,
     marketingOptIn: dto.marketing_opt_in,
+    // Cuenta mensual (2026-09-07)
+    billingMode: dto.billing_mode,
+    invoiceChannel: dto.invoice_channel,
     rating: dto.rating,
     customData: dto.custom_data === undefined ? undefined : (dto.custom_data as Prisma.InputJsonValue),
   };

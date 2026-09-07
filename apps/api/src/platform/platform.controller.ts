@@ -1,10 +1,23 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Put,
+  Req,
+  UnprocessableEntityException,
+  UseGuards,
+} from '@nestjs/common';
 import {
   assistantAsk,
   botBudgetPut,
   botEngineSettingsPut,
   featureCreate,
   googleOauthSettingsPut,
+  mailSettingsPut,
   overridePut,
   planCreate,
   planUpdate,
@@ -21,6 +34,7 @@ import {
   type BotEngineSettingsPut,
   type FeatureCreate,
   type GoogleOauthSettingsPut,
+  type MailSettingsPut,
   type OverridePut,
   type PlanCreate,
   type PlanUpdate,
@@ -39,6 +53,8 @@ import { ZodPipe } from '../common/zod.pipe';
 import { AssistantService } from './assistant.service';
 import { BotEngineService } from './bot-engine.service';
 import { GoogleOauthService } from './google-oauth.service';
+import { MailSettingsService } from './mail-settings.service';
+import { MailerService } from '../common/mailer.service';
 import { PlatformNetworkGuard } from './platform-network.guard';
 import { SecuritySettingsService } from './security-settings.service';
 import { PlansService } from './plans.service';
@@ -63,6 +79,8 @@ export class PlatformController {
     private readonly users: PlatformUsersService,
     private readonly googleOauth: GoogleOauthService,
     private readonly assistant: AssistantService,
+    private readonly mail: MailSettingsService,
+    private readonly mailer: MailerService,
   ) {}
 
   /**
@@ -88,6 +106,33 @@ export class PlatformController {
     @Req() req: FastifyRequest & AuthRequest,
   ) {
     return this.googleOauth.save(dto, actor(req), req.ip);
+  }
+
+  /** Correo saliente del sistema (2026-09-07): resumenes y facturas por email. */
+  @Get('settings/mail')
+  mailSettings() {
+    return this.mail.view();
+  }
+
+  @Put('settings/mail')
+  @PlatformRoles('admin')
+  putMailSettings(@Body(new ZodPipe(mailSettingsPut)) dto: MailSettingsPut, @Req() req: FastifyRequest & AuthRequest) {
+    return this.mail.save(dto, actor(req), req.ip);
+  }
+
+  /** Correo de prueba al operador logueado con la configuracion vigente. */
+  @Post('settings/mail/test')
+  @PlatformRoles('admin')
+  async testMail(@Req() req: FastifyRequest & AuthRequest) {
+    const me = (await this.users.profile(actor(req))) as { email?: string } | null;
+    const to = me?.email;
+    if (!to) throw new UnprocessableEntityException({ title: 'Tu usuario no tiene email' });
+    try {
+      const r = await this.mailer.send({ to, subject: 'Prueba de correo saliente — PyMEs SaaS', text: 'Si leés esto, el correo saliente del sistema funciona.' });
+      return { ok: true, to, message_id: r.messageId };
+    } catch (error) {
+      throw new UnprocessableEntityException({ title: `No se pudo enviar: ${error instanceof Error ? error.message : String(error)}` });
+    }
   }
 
   // --- Mi perfil (cualquier operador del portal) ---

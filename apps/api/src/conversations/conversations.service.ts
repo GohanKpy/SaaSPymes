@@ -7,6 +7,7 @@ import { AppPrisma } from '../prisma/app-prisma.service';
 import { BotService } from './bot.service';
 import { TenantEventsService } from './events.service';
 import { WaSenderService } from './wa-sender.service';
+import { RecurringService } from '../scheduling/recurring.service';
 
 export interface InboundMessage {
   phoneE164: string;
@@ -22,6 +23,7 @@ export class ConversationsService {
     private readonly events: TenantEventsService,
     @Inject(forwardRef(() => BotService)) private readonly bot: BotService,
     private readonly waSender: WaSenderService,
+    @Inject(forwardRef(() => RecurringService)) private readonly recurring: RecurringService,
   ) {}
 
   async list(ctx: TenantContext, query: ConversationListQuery): Promise<Page<unknown>> {
@@ -190,6 +192,12 @@ export class ConversationsService {
     });
     if (stored) {
       this.events.emit(tenantId, 'message.new', serializeMessage(stored));
+      // Turno recurrente esperando confirmacion (2026-09-07): un SI/NO se
+      // resuelve aca, determinista, y el bot no interviene en ese mensaje.
+      const resuelto = await this.recurring
+        .handleConfirmationReply(tenantId, msg.phoneE164, msg.body)
+        .catch(() => false);
+      if (resuelto) return;
       // El bot responde fuera del request del webhook (200 inmediato, doc 01);
       // con status paused/agent el propio bot decide no intervenir.
       this.bot.scheduleRespond(tenantId, stored.conversationId);

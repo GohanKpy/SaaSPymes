@@ -40,10 +40,12 @@ interface Appointment {
   status: string;
   source: string;
   notes: string | null;
-  customer: { id: string; firstName: string; lastName: string | null; phoneE164: string | null };
+  customer: { id: string; firstName: string; lastName: string | null; phoneE164: string | null; billingMode?: string };
   service: { id: string; name: string; durationMin: number | null } | null;
   services: { id: string; name: string; durationMin: number }[];
   employee: { id: string; firstName: string; lastName: string } | null;
+  recurringBookingId?: string | null;
+  confirmationRequestedAt?: string | null;
 }
 interface Service {
   id: string;
@@ -498,14 +500,19 @@ export default function SchedulePage() {
           </button>
         </>
       )}
-      {a.status === 'completed' && (
-        <Link
-          className={buttonSoft}
-          href={`/app/invoices?nueva=1&customer=${a.customer.id}${idsServicios(a).length ? `&services=${idsServicios(a).join(',')}` : ''}`}
-        >
-          Cobrar
-        </Link>
-      )}
+      {a.status === 'completed' &&
+        (a.customer.billingMode === 'monthly' ? (
+          <Link className={buttonGhost} href={`/app/invoices?vista=cuentas`} title="Este cliente factura por cuenta mensual: lo atendido ya está en su cuenta">
+            En su cuenta del mes
+          </Link>
+        ) : (
+          <Link
+            className={buttonSoft}
+            href={`/app/invoices?nueva=1&customer=${a.customer.id}${idsServicios(a).length ? `&services=${idsServicios(a).join(',')}` : ''}`}
+          >
+            Cobrar
+          </Link>
+        ))}
     </span>
   );
 
@@ -619,9 +626,15 @@ export default function SchedulePage() {
                     </td>
                     <td>{nombreEmpleado(a.employee) ?? '—'}</td>
                     <td>
-                      <Badge tone={st.tone}>{st.label}</Badge>
+                      <span className="inline-flex flex-wrap items-center gap-1">
+                        <Badge tone={st.tone}>{st.label}</Badge>
+                        {a.confirmationRequestedAt && a.status === 'pending' && <Badge tone="amber">esperando al cliente</Badge>}
+                      </span>
                     </td>
-                    <td className="text-xs text-slate-500">{SOURCE_LABEL[a.source] ?? a.source}</td>
+                    <td className="text-xs text-slate-500">
+                      {SOURCE_LABEL[a.source] ?? a.source}
+                      {a.recurringBookingId && <span className="block text-violet-700">recurrente</span>}
+                    </td>
                     <td className="text-right">{acciones(a)}</td>
                   </tr>
                 );

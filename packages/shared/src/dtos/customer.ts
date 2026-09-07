@@ -46,6 +46,10 @@ export const customerCreate = z
     tags: tags.optional(),
     assigned_user_id: uuid.optional(),
     marketing_opt_in: z.boolean().optional(),
+    /** Cuenta mensual (2026-09-07): por servicio o acumulado y facturado al cierre. */
+    billing_mode: z.enum(['per_service', 'monthly']).optional(),
+    /** Por donde recibe las facturas y resumenes. */
+    invoice_channel: z.enum(['whatsapp', 'email']).optional(),
     rating: z.number().int().min(1).max(5).optional(),
     custom_data: customData.optional(),
   })
@@ -78,6 +82,8 @@ export const customerUpdate = z
     tags: tags,
     assigned_user_id: uuid.nullable(),
     marketing_opt_in: z.boolean(),
+    billing_mode: z.enum(['per_service', 'monthly']),
+    invoice_channel: z.enum(['whatsapp', 'email']),
     rating: z.number().int().min(1).max(5).nullable(),
     custom_data: customData,
   })

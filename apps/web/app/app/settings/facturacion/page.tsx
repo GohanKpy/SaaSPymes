@@ -58,11 +58,68 @@ export default function FacturacionPage() {
     }
   }
 
+  // Cuenta mensual (2026-09-07): cierre automatico.
+  const [settings, setSettings] = useState({ monthly_close_day: 1, monthly_auto_invoice: false, recurring_lead_days: 7 });
+  const [guardandoCierre, setGuardandoCierre] = useState(false);
+  useEffect(() => {
+    void api<typeof settings>('/tenant/settings').then(setSettings).catch(() => undefined);
+  }, []);
+  async function saveCierre(e: React.FormEvent) {
+    e.preventDefault();
+    setGuardandoCierre(true);
+    try {
+      const r = await api<typeof settings>('/tenant/settings', {
+        method: 'PUT',
+        json: { monthly_close_day: settings.monthly_close_day, monthly_auto_invoice: settings.monthly_auto_invoice },
+      });
+      setSettings(r);
+      toast.success('Cierre mensual guardado');
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setGuardandoCierre(false);
+    }
+  }
+
   if (sifen === undefined) return <ErrorNote error={error} />;
 
   return (
     <>
       <ErrorNote error={error} />
+      <Card
+        title="Cuenta mensual: cierre automático"
+        description="Para los clientes con Facturación: cuenta mensual (se elige en su ficha). En la fecha de cierre el sistema arma el resumen del mes anterior por cliente, se lo envía por su canal (WhatsApp o email), te avisa con una tarea y un correo, y si lo activás, emite la factura y la envía."
+      >
+        <form className="space-y-3" onSubmit={(e) => void saveCierre(e)}>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Día del mes en que se cierra la cuenta (1 a 28)">
+              <input
+                className={inputClass}
+                type="number"
+                min={1}
+                max={28}
+                value={settings.monthly_close_day}
+                onChange={(e) => setSettings({ ...settings, monthly_close_day: Number(e.target.value) })}
+              />
+              <span className="mt-0.5 block text-xs text-slate-400">Se cierra lo consumido hasta el último día del mes anterior; lo del mes en curso queda para el próximo cierre.</span>
+            </Field>
+            <label className="flex items-start gap-2 pt-6 text-sm">
+              <input type="checkbox" className="mt-0.5" checked={settings.monthly_auto_invoice} onChange={(e) => setSettings({ ...settings, monthly_auto_invoice: e.target.checked })} />
+              <span>
+                <b>Facturar automáticamente al cerrar</b>
+                <span className="block text-xs text-slate-500">
+                  Emite una factura por cliente con todos sus consumos (a nombre de su RUC predeterminado) y se la envía. Apagado: solo se envía el resumen y facturás vos desde Facturación → Cuentas del mes.
+                </span>
+              </span>
+            </label>
+          </div>
+          <div className="flex justify-end">
+            <Button variant="primary" type="submit" loading={guardandoCierre}>
+              Guardar
+            </Button>
+          </div>
+        </form>
+      </Card>
       <Card
         title={
           <span className="inline-flex items-center gap-2">

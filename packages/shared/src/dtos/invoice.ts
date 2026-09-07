@@ -75,3 +75,40 @@ export const paymentCreate = z
   })
   .strict();
 export type PaymentCreate = z.infer<typeof paymentCreate>;
+
+// ---------------- cuenta mensual (2026-09-07) ----------------
+
+/** Consumo pendiente cargado a mano (articulo comprado, extra); mismo contrato que un item de factura. */
+export const chargeCreate = z
+  .object({
+    service_id: uuid.optional(),
+    description: z.string().min(1).max(500).optional(),
+    quantity: z.coerce.number().positive().default(1),
+    unit_price: montoGs(z.coerce.bigint().min(0n).optional()),
+    tax_rate: z.union([z.literal(0), z.literal(5), z.literal(10)]).optional(),
+    charged_on: z.iso.date().optional(),
+    notes: z.string().max(500).optional(),
+  })
+  .strict()
+  .refine((i) => i.service_id || (i.description && i.unit_price !== undefined), {
+    message: 'consumo libre requiere description y unit_price',
+  });
+export type ChargeCreate = z.infer<typeof chargeCreate>;
+
+/** Facturar la cuenta de un cliente: todos sus consumos pendientes (o hasta una fecha). */
+export const accountInvoice = z
+  .object({
+    fiscal_id: uuid.optional(),
+    billing: invoiceBillingInput.optional(),
+    /** Emitir en el acto (toma numero). */
+    issue: z.boolean().default(true),
+    /** Enviar al cliente por su canal (WhatsApp o email) con el comprobante. */
+    send: z.boolean().default(true),
+    /** Solo consumos con fecha hasta esta inclusive; ausente = todos los pendientes. */
+    until: z.iso.date().optional(),
+  })
+  .strict();
+export type AccountInvoice = z.infer<typeof accountInvoice>;
+
+export const accountNotify = z.object({ until: z.iso.date().optional() }).strict();
+export type AccountNotify = z.infer<typeof accountNotify>;

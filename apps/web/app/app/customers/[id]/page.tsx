@@ -9,6 +9,7 @@ import { CustomerPicker, customerName, type PickedCustomer } from '../../../../l
 import { useConfirm, useToast } from '../../../../lib/feedback';
 import { APPOINTMENT_STATUS, INVOICE_STATUS, errorMessage, statusOf } from '../../../../lib/labels';
 import { ACTIVITY_TYPES, CONTACT_KINDS, SOURCES, type CustomFieldDef } from '../../../../lib/crm';
+import { MoneyInput } from '../../../../lib/money-input';
 import { dvRuc } from '../../../../lib/ruc';
 import {
   Badge,
@@ -67,9 +68,48 @@ interface CustomerDetail {
   customData: Record<string, string | number | boolean> | null;
   lastConversationSummary: string | null;
   lastSummaryAt: string | null;
+  billingMode: string;
+  invoiceChannel: string;
   contactPoints: ContactPoint[];
   fiscalIds: FiscalId[];
 }
+/** Consumo pendiente de la cuenta mensual (2026-09-07). */
+interface Consumo {
+  id: string;
+  description: string;
+  quantity: string;
+  lineTotal: string;
+  chargedOn: string;
+  source: string;
+}
+/** Servicio recurrente (2026-09-07). */
+interface Recurrente {
+  id: string;
+  frequency: string;
+  weekday: number | null;
+  dayOfMonth: number | null;
+  timeLocal: string;
+  durationMin: number;
+  startsOn: string;
+  endsOn: string | null;
+  isActive: boolean;
+  lastGeneratedOn: string | null;
+  lastError: string | null;
+  services: { id: string; name: string }[];
+  employee: { id: string; firstName: string; lastName: string } | null;
+}
+interface ServicioOpcion {
+  id: string;
+  name: string;
+  kind: string;
+  isActive?: boolean;
+  durationMin: number | null;
+  comboDurationMin: number | null;
+}
+const DIAS_SEMANA = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+const FRECUENCIA_LABEL: Record<string, string> = { weekly: 'cada semana', biweekly: 'cada dos semanas', monthly: 'cada mes' };
+const CONSUMO_VACIO = { service_id: '', description: '', quantity: '1', unit_price: '', tax_rate: '10', notes: '' };
+const RECURRENTE_VACIO = { service_ids: [] as string[], frequency: 'weekly', weekday: '1', day_of_month: '1', time_local: '10:00', duration_min: '', employee_id: '', starts_on: new Date().toISOString().slice(0, 10), ends_on: '', notes: '' };
 interface Activity {
   id: string;
   activityType: string;
@@ -114,6 +154,8 @@ interface FormState {
   notify_whatsapp: boolean;
   notify_email: boolean;
   marketing_opt_in: boolean;
+  billing_mode: string;
+  invoice_channel: string;
   custom: Record<string, string | boolean>;
 }
 
@@ -141,6 +183,8 @@ function toForm(c: CustomerDetail): FormState {
     assigned_user_id: c.assignedUserId ?? '',
     rating: c.rating,
     notes: c.notes ?? '',
+    billing_mode: c.billingMode ?? 'per_service',
+    invoice_channel: c.invoiceChannel ?? 'whatsapp',
     notify_whatsapp: c.notifyWhatsapp,
     notify_email: c.notifyEmail,
     marketing_opt_in: c.marketingOptIn,
@@ -173,6 +217,15 @@ export default function CustomerFichaPage() {
   const [fiscal, setFiscal] = useState<FiscalId | 'nueva' | null>(null);
   const [fiscalForm, setFiscalForm] = useState({ doc_type: 'ruc', doc_number: '', ruc_dv: '', legal_name: '', is_default: false });
   const [guardandoFiscal, setGuardandoFiscal] = useState(false);
+  // Cuenta mensual y servicios recurrentes (2026-09-07).
+  const [consumos, setConsumos] = useState<Consumo[]>([]);
+  const [consumo, setConsumo] = useState<typeof CONSUMO_VACIO | null>(null);
+  const [recurrentes, setRecurrentes] = useState<Recurrente[]>([]);
+  const [recurrente, setRecurrente] = useState<typeof RECURRENTE_VACIO | null>(null);
+  const [servicios, setServicios] = useState<ServicioOpcion[]>([]);
+  const [empleados, setEmpleados] = useState<{ id: string; firstName: string; lastName: string; bookable: boolean; isActive: boolean }[]>([]);
+  const [branchId, setBranchId] = useState<string | null>(null);
+  const [guardandoExtra, setGuardandoExtra] = useState(false);
 
   const load = useCallback(() => {
     void api<CustomerDetail>(`/customers/${id}`)
@@ -183,6 +236,8 @@ export default function CustomerFichaPage() {
       .catch((e) => setError(String(e.message)));
     void api<Activity[]>(`/customers/${id}/activities`).then(setActivities).catch(() => undefined);
     void api<HistoryRow[]>(`/customers/${id}/history`).then(setHistory).catch(() => undefined);
+    void api<{ charges: Consumo[] }>(`/billing/accounts/${id}`).then((r) => setConsumos(r.charges)).catch(() => setConsumos([]));
+    void api<Recurrente[]>(`/recurring-bookings?customer_id=${id}`).then(setRecurrentes).catch(() => setRecurrentes([]));
   }, [id]);
 
   useEffect(() => {
@@ -192,6 +247,9 @@ export default function CustomerFichaPage() {
       .catch(() => undefined);
     // Solo root/admin pueden listar usuarios: para staff el selector queda vacio.
     void api<TeamUser[]>('/users').then(setUsers).catch(() => setUsers([]));
+    void api<ServicioOpcion[]>('/catalog/services').then((s) => setServicios(s.filter((x) => x.isActive !== false))).catch(() => undefined);
+    void api<typeof empleados>('/employees').then((e) => setEmpleados(e.filter((x) => x.bookable && x.isActive))).catch(() => undefined);
+    void api<{ id: string; isMain?: boolean }[]>('/branches').then((b) => setBranchId((b.find((x) => x.isMain) ?? b[0])?.id ?? null)).catch(() => undefined);
   }, [load, id]);
 
   // Cambios sin guardar: compara el formulario con lo que vino del servidor.
@@ -245,6 +303,8 @@ export default function CustomerFichaPage() {
           notify_whatsapp: form.notify_whatsapp,
           notify_email: form.notify_email,
           marketing_opt_in: form.marketing_opt_in,
+          billing_mode: form.billing_mode,
+          invoice_channel: form.invoice_channel,
           custom_data,
         },
       });
@@ -410,6 +470,113 @@ export default function CustomerFichaPage() {
       toast.error(errorMessage(err));
     }
   }
+
+  // ---------------- cuenta mensual ----------------
+  async function guardarConsumo(e: React.FormEvent) {
+    e.preventDefault();
+    if (!consumo) return;
+    setGuardandoExtra(true);
+    try {
+      await api(`/customers/${id}/charges`, {
+        method: 'POST',
+        json: consumo.service_id
+          ? { service_id: consumo.service_id, quantity: Number(consumo.quantity) || 1, notes: consumo.notes.trim() || undefined }
+          : {
+              description: consumo.description.trim(),
+              unit_price: consumo.unit_price.replace(/\./g, ''),
+              quantity: Number(consumo.quantity) || 1,
+              tax_rate: Number(consumo.tax_rate),
+              notes: consumo.notes.trim() || undefined,
+            },
+      });
+      toast.success('Consumo agregado a la cuenta del mes');
+      setConsumo(null);
+      load();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setGuardandoExtra(false);
+    }
+  }
+
+  async function anularConsumo(c: Consumo) {
+    const ok = await confirmar({ title: `Anular "${c.description}"`, message: 'Se quita de la cuenta del mes. No se puede deshacer.', confirmLabel: 'Anular' });
+    if (!ok) return;
+    try {
+      await api(`/billing/charges/${c.id}`, { method: 'DELETE' });
+      toast.success('Consumo anulado');
+      load();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  }
+
+  // ---------------- servicios recurrentes ----------------
+  async function guardarRecurrente(e: React.FormEvent) {
+    e.preventDefault();
+    if (!recurrente || !branchId) return;
+    if (recurrente.service_ids.length === 0) {
+      toast.error('Elegí al menos un servicio.');
+      return;
+    }
+    setGuardandoExtra(true);
+    try {
+      await api('/recurring-bookings', {
+        method: 'POST',
+        json: {
+          customer_id: id,
+          branch_id: branchId,
+          service_ids: recurrente.service_ids,
+          frequency: recurrente.frequency,
+          ...(recurrente.frequency === 'monthly' ? { day_of_month: Number(recurrente.day_of_month) } : { weekday: Number(recurrente.weekday) }),
+          time_local: recurrente.time_local,
+          ...(recurrente.duration_min ? { duration_min: Number(recurrente.duration_min) } : {}),
+          ...(recurrente.employee_id ? { employee_id: recurrente.employee_id } : {}),
+          starts_on: recurrente.starts_on,
+          ...(recurrente.ends_on ? { ends_on: recurrente.ends_on } : {}),
+          ...(recurrente.notes.trim() ? { notes: recurrente.notes.trim() } : {}),
+        },
+      });
+      toast.success('Servicio recurrente creado: el sistema va a agendar y pedir confirmación con anticipación');
+      setRecurrente(null);
+      load();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setGuardandoExtra(false);
+    }
+  }
+
+  async function toggleRecurrente(r: Recurrente) {
+    try {
+      await api(`/recurring-bookings/${r.id}`, { method: 'PATCH', json: { is_active: !r.isActive } });
+      toast.success(r.isActive ? 'Recurrente pausado' : 'Recurrente reactivado');
+      load();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  }
+
+  async function quitarRecurrente(r: Recurrente) {
+    const ok = await confirmar({
+      title: 'Quitar este servicio recurrente',
+      message: 'No se generan más turnos. Los ya agendados quedan como están.',
+      confirmLabel: 'Quitar',
+    });
+    if (!ok) return;
+    try {
+      await api(`/recurring-bookings/${r.id}`, { method: 'DELETE' });
+      toast.success('Servicio recurrente quitado');
+      load();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  }
+
+  const describirRecurrente = (r: Recurrente) =>
+    r.frequency === 'monthly'
+      ? `${FRECUENCIA_LABEL[r.frequency]}, el día ${r.dayOfMonth} a las ${r.timeLocal}`
+      : `${FRECUENCIA_LABEL[r.frequency] ?? r.frequency}, los ${DIAS_SEMANA[r.weekday ?? 0]?.toLowerCase()} a las ${r.timeLocal}`;
 
   async function addActivity(e: React.FormEvent) {
     e.preventDefault();
@@ -621,6 +788,147 @@ export default function CustomerFichaPage() {
         </Modal>
       )}
 
+      {consumo && (
+        <Modal title="Agregar consumo a la cuenta del mes" description="Un producto del catálogo o algo libre (descripción y precio). Se factura junto con el resto al cierre." onClose={() => setConsumo(null)} size="sm">
+          <form className="space-y-3" onSubmit={(e) => void guardarConsumo(e)}>
+            <Field label="Del catálogo (o dejá vacío para cargar algo libre)">
+              <select className={inputClass} value={consumo.service_id} onChange={(e) => setConsumo({ ...consumo, service_id: e.target.value })}>
+                <option value="">— consumo libre —</option>
+                {servicios.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            {!consumo.service_id && (
+              <div className="grid grid-cols-[1fr_110px_90px] gap-2">
+                <Field label="Descripción *">
+                  <input className={inputClass} required value={consumo.description} onChange={(e) => setConsumo({ ...consumo, description: e.target.value })} placeholder="Ej: Shampoo 500 ml" />
+                </Field>
+                <Field label="Precio (Gs) *">
+                  <MoneyInput required value={consumo.unit_price} onChange={(unit_price) => setConsumo({ ...consumo, unit_price })} />
+                </Field>
+                <Field label="IVA">
+                  <select className={inputClass} value={consumo.tax_rate} onChange={(e) => setConsumo({ ...consumo, tax_rate: e.target.value })}>
+                    <option value="10">10%</option>
+                    <option value="5">5%</option>
+                    <option value="0">Exento</option>
+                  </select>
+                </Field>
+              </div>
+            )}
+            <div className="grid grid-cols-[90px_1fr] gap-2">
+              <Field label="Cantidad">
+                <input className={inputClass} type="number" min="0.5" step="0.5" value={consumo.quantity} onChange={(e) => setConsumo({ ...consumo, quantity: e.target.value })} />
+              </Field>
+              <Field label="Nota (opcional)">
+                <input className={inputClass} value={consumo.notes} onChange={(e) => setConsumo({ ...consumo, notes: e.target.value })} />
+              </Field>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setConsumo(null)}>
+                Volver
+              </Button>
+              <Button variant="primary" type="submit" loading={guardandoExtra}>
+                Agregar
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {recurrente && (
+        <Modal
+          title="Nuevo servicio recurrente"
+          description={`El sistema va a agendar el turno con anticipación (Ajustes → Horarios) y a pedirle a ${customer.firstName} que confirme por WhatsApp.`}
+          onClose={() => setRecurrente(null)}
+          size="lg"
+        >
+          <form className="space-y-3" onSubmit={(e) => void guardarRecurrente(e)}>
+            <Field label="Servicios *">
+              <div className="max-h-36 space-y-0.5 overflow-y-auto rounded-md border border-slate-300 p-1.5">
+                {servicios
+                  .filter((s) => s.kind === 'servicio')
+                  .map((s) => (
+                    <label key={s.id} className="flex items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-slate-50">
+                      <input
+                        type="checkbox"
+                        checked={recurrente.service_ids.includes(s.id)}
+                        onChange={(e) =>
+                          setRecurrente({ ...recurrente, service_ids: e.target.checked ? [...recurrente.service_ids, s.id] : recurrente.service_ids.filter((x) => x !== s.id) })
+                        }
+                      />
+                      <span className="flex-1">{s.name}</span>
+                      <span className="text-xs text-slate-400">{s.durationMin ?? 30} min</span>
+                    </label>
+                  ))}
+              </div>
+            </Field>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Field label="Frecuencia">
+                <select className={inputClass} value={recurrente.frequency} onChange={(e) => setRecurrente({ ...recurrente, frequency: e.target.value })}>
+                  <option value="weekly">Cada semana</option>
+                  <option value="biweekly">Cada dos semanas</option>
+                  <option value="monthly">Cada mes</option>
+                </select>
+              </Field>
+              {recurrente.frequency === 'monthly' ? (
+                <Field label="Día del mes (1 a 28)">
+                  <input className={inputClass} type="number" min={1} max={28} value={recurrente.day_of_month} onChange={(e) => setRecurrente({ ...recurrente, day_of_month: e.target.value })} />
+                </Field>
+              ) : (
+                <Field label="Día de la semana">
+                  <select className={inputClass} value={recurrente.weekday} onChange={(e) => setRecurrente({ ...recurrente, weekday: e.target.value })}>
+                    {[1, 2, 3, 4, 5, 6, 0].map((d) => (
+                      <option key={d} value={d}>
+                        {DIAS_SEMANA[d]}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              )}
+              <Field label="Hora">
+                <input className={inputClass} type="time" value={recurrente.time_local} onChange={(e) => setRecurrente({ ...recurrente, time_local: e.target.value })} required />
+              </Field>
+              <Field label="Duración (min; vacío = la de los servicios)">
+                <input className={inputClass} type="number" min={5} max={720} step={5} value={recurrente.duration_min} onChange={(e) => setRecurrente({ ...recurrente, duration_min: e.target.value })} />
+              </Field>
+              {empleados.length > 0 && (
+                <Field label="Atiende">
+                  <select className={inputClass} value={recurrente.employee_id} onChange={(e) => setRecurrente({ ...recurrente, employee_id: e.target.value })}>
+                    <option value="">Cualquiera</option>
+                    {empleados.map((e) => (
+                      <option key={e.id} value={e.id}>
+                        {e.firstName} {e.lastName}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              )}
+              <Field label="Desde">
+                <input className={inputClass} type="date" value={recurrente.starts_on} onChange={(e) => setRecurrente({ ...recurrente, starts_on: e.target.value })} required />
+              </Field>
+              <Field label="Hasta (opcional)">
+                <input className={inputClass} type="date" value={recurrente.ends_on} onChange={(e) => setRecurrente({ ...recurrente, ends_on: e.target.value })} />
+              </Field>
+            </div>
+            <Field label="Nota para el equipo (opcional)">
+              <input className={inputClass} value={recurrente.notes} onChange={(e) => setRecurrente({ ...recurrente, notes: e.target.value })} />
+            </Field>
+            {!customer.phoneE164 && <p className="text-xs text-amber-700">Este cliente no tiene celular: los turnos se van a crear, pero no se le puede pedir confirmación por WhatsApp.</p>}
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setRecurrente(null)}>
+                Volver
+              </Button>
+              <Button variant="primary" type="submit" loading={guardandoExtra} disabled={recurrente.service_ids.length === 0 || !branchId}>
+                Crear recurrente
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
       <div className="grid gap-5 lg:grid-cols-3">
         <div className="space-y-5 lg:col-span-2">
           <Card title="Datos del cliente">
@@ -771,7 +1079,19 @@ export default function CustomerFichaPage() {
                 </>
               )}
 
-              <GroupTitle>Preferencias de contacto</GroupTitle>
+              <GroupTitle>Facturación y avisos</GroupTitle>
+              <Field label="Cómo se le factura">
+                <select className={inputClass} value={form.billing_mode} onChange={(e) => setForm({ ...form, billing_mode: e.target.value })}>
+                  <option value="per_service">Por servicio (cada vez que se atiende)</option>
+                  <option value="monthly">Cuenta mensual (acumula y se factura al cierre)</option>
+                </select>
+              </Field>
+              <Field label="Recibe las facturas y resúmenes por">
+                <select className={inputClass} value={form.invoice_channel} onChange={(e) => setForm({ ...form, invoice_channel: e.target.value })}>
+                  <option value="whatsapp">WhatsApp</option>
+                  <option value="email">Email</option>
+                </select>
+              </Field>
               <div className="col-span-2 flex flex-wrap items-center gap-4 md:col-span-4">
                 <label className="flex items-center gap-2 text-sm">
                   <input type="checkbox" checked={form.notify_whatsapp} onChange={(e) => setForm({ ...form, notify_whatsapp: e.target.checked })} />
@@ -905,6 +1225,69 @@ export default function CustomerFichaPage() {
                   {customer.docNumber ? 'Mientras no cargues ninguno, las facturas salen con su documento personal.' : 'Al crear una factura se van a pedir.'}
                 </li>
               )}
+            </ul>
+          </Card>
+
+          {(customer.billingMode === 'monthly' || consumos.length > 0) && (
+            <Card
+              title={`Cuenta del mes${consumos.length ? ` · ${money(consumos.reduce((a, c) => a + Number(c.lineTotal), 0))} pendientes` : ''}`}
+              description="Lo atendido entra solo al marcar el turno como Atendido. Las compras y extras se cargan acá. Se factura todo junto desde Facturación → Cuentas del mes o en el cierre automático."
+              actions={
+                <Button variant="soft" onClick={() => setConsumo(CONSUMO_VACIO)}>
+                  Agregar consumo
+                </Button>
+              }
+            >
+              <ul className="divide-y divide-slate-100 text-sm">
+                {consumos.map((c) => (
+                  <li key={c.id} className="flex flex-wrap items-center gap-2 py-1.5">
+                    <span className="w-20 text-xs text-slate-400">{new Date(c.chargedOn).toLocaleDateString(undefined, { timeZone: 'UTC' })}</span>
+                    <span className="flex-1">
+                      {c.description}
+                      {Number(c.quantity) !== 1 && <span className="text-xs text-slate-400"> x{Number(c.quantity)}</span>}
+                      <span className="ml-1 text-xs text-slate-400">{c.source === 'appointment' ? '· turno' : '· a mano'}</span>
+                    </span>
+                    <span className="tabular-nums">{money(c.lineTotal)}</span>
+                    <button type="button" className="text-xs text-red-600 hover:underline" onClick={() => void anularConsumo(c)}>
+                      Anular
+                    </button>
+                  </li>
+                ))}
+                {consumos.length === 0 && <li className="py-1.5 text-slate-400">Sin consumos pendientes este mes.</li>}
+              </ul>
+            </Card>
+          )}
+
+          <Card
+            title="Servicios recurrentes"
+            description="Lo que toma siempre igual (cada semana, cada dos semanas o cada mes). El sistema agenda el turno con anticipación y le pide por WhatsApp que confirme con SÍ o NO."
+            actions={
+              <Button variant="soft" onClick={() => setRecurrente({ ...RECURRENTE_VACIO, starts_on: new Date().toISOString().slice(0, 10) })}>
+                Nuevo recurrente
+              </Button>
+            }
+          >
+            <ul className="divide-y divide-slate-100 text-sm">
+              {recurrentes.map((r) => (
+                <li key={r.id} className={`flex flex-wrap items-center gap-2 py-2 ${r.isActive ? '' : 'opacity-60'}`}>
+                  <span className="flex-1">
+                    <span className="font-medium text-slate-800">{r.services.map((x) => x.name).join(' + ')}</span>
+                    <span className="block text-xs text-slate-500">
+                      {describirRecurrente(r)} · {r.durationMin} min{r.employee ? ` · con ${r.employee.firstName} ${r.employee.lastName}` : ''}
+                      {r.endsOn ? ` · hasta ${new Date(r.endsOn).toLocaleDateString(undefined, { timeZone: 'UTC' })}` : ''}
+                    </span>
+                    {r.lastError && <span className="block text-xs text-amber-700">Último intento: {r.lastError}</span>}
+                  </span>
+                  {!r.isActive && <Badge tone="slate">pausado</Badge>}
+                  <button type="button" className={buttonGhost} onClick={() => void toggleRecurrente(r)}>
+                    {r.isActive ? 'Pausar' : 'Reactivar'}
+                  </button>
+                  <button type="button" className="text-xs text-red-600 hover:underline" onClick={() => void quitarRecurrente(r)}>
+                    Quitar
+                  </button>
+                </li>
+              ))}
+              {recurrentes.length === 0 && <li className="py-1.5 text-slate-400">Sin servicios recurrentes.</li>}
             </ul>
           </Card>
 

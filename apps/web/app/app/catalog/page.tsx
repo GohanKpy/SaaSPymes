@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { API_URL, api, apiImageUrl, getToken } from '../../../lib/api';
 import { useConfirm, useToast } from '../../../lib/feedback';
 import { errorMessage } from '../../../lib/labels';
+import { MoneyInput } from '../../../lib/money-input';
 import {
   Badge,
   Button,
@@ -273,7 +274,7 @@ function ProductoModal({
           </Field>
           <div className="grid grid-cols-[1fr_auto] gap-2">
             <Field label="Precio (Gs, con IVA) *">
-              <input className={inputClass} inputMode="numeric" placeholder="150000" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} required />
+              <MoneyInput placeholder="150.000" value={form.price} onChange={(price) => setForm({ ...form, price })} required />
             </Field>
             <Field label="IVA">
               <select className={inputClass} value={form.tax_rate} onChange={(e) => setForm({ ...form, tax_rate: e.target.value as ProductoForm['tax_rate'] })}>

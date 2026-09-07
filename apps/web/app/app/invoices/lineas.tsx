@@ -1,5 +1,6 @@
 'use client';
 
+import { MoneyInput } from '../../../lib/money-input';
 import { Field, buttonGhost, inputClass, money } from '../../../lib/ui';
 
 // Constructor de lineas compartido por facturas y presupuestos (fase 2
@@ -104,7 +105,7 @@ export function LineasEditor({
                   </Field>
                 </div>
                 <Field label={i === 0 ? 'Precio (Gs)' : ''}>
-                  <input className={`${inputClass} w-28`} inputMode="numeric" placeholder="50000" value={l.unit_price} onChange={(e) => set(i, { unit_price: e.target.value })} />
+                  <MoneyInput className="w-28" placeholder="50.000" value={l.unit_price} onChange={(unit_price) => set(i, { unit_price })} />
                 </Field>
                 <Field label={i === 0 ? 'IVA' : ''}>
                   <select className={`${inputClass} w-24`} value={l.tax_rate} onChange={(e) => set(i, { tax_rate: e.target.value as Linea['tax_rate'] })}>

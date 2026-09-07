@@ -27,6 +27,12 @@ import { INVOICING_PROVIDER, InvoicesService } from './invoicing/invoices.servic
 import { KudeService } from './invoicing/kude.service';
 import { QuotesController } from './invoicing/quotes.controller';
 import { QuotesService } from './invoicing/quotes.service';
+import { BillingController } from './invoicing/billing.controller';
+import { BillingService } from './invoicing/billing.service';
+import { PublicKudeController } from './invoicing/public-kude.controller';
+import { NotifierService } from './notifications/notifier.service';
+import { RecurringController } from './scheduling/recurring.controller';
+import { RecurringService } from './scheduling/recurring.service';
 import { PlatformModule } from './platform/platform.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { AppointmentsController } from './scheduling/appointments.controller';
@@ -57,6 +63,9 @@ import { UsersController } from './tenant/users.controller';
     IntegrationsController,
     InvoicesController,
     QuotesController,
+    BillingController,
+    PublicKudeController,
+    RecurringController,
   ],
   providers: [
     CryptoService,
@@ -74,6 +83,9 @@ import { UsersController } from './tenant/users.controller';
     InvoicesService,
     KudeService,
     QuotesService,
+    NotifierService,
+    BillingService,
+    RecurringService,
     {
       provide: INVOICING_PROVIDER,
       useFactory: (env: Env) => createInvoicingProvider(env.INVOICING_PROVIDER),

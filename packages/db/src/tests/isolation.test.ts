@@ -53,6 +53,10 @@ const APP_TABLES = [
   'quote_items',
   'appointment_services',
   'customer_fiscal_ids',
+  'tenant_settings',
+  'recurring_bookings',
+  'customer_charges',
+  'billing_statements',
   'audit_log',
 ] as const;
 
@@ -222,6 +226,37 @@ async function seedTenant(name: string, phone: string): Promise<SeededTenant> {
         isDefault: true,
       },
     });
+    // Cuenta mensual y recurrentes (2026-09-07): una fila por tabla nueva.
+    await tx.tenantSettings.create({ data: { tenantId: tenant.id, monthlyCloseDay: 1 } });
+    await tx.recurringBooking.create({
+      data: {
+        tenantId: tenant.id,
+        customerId: customer.id,
+        branchId: branch.id,
+        serviceIds: [service.id],
+        frequency: 'weekly',
+        weekday: 1,
+        timeLocal: '10:00',
+        durationMin: 60,
+        startsOn: new Date('2026-09-01'),
+      },
+    });
+    await tx.customerCharge.create({
+      data: {
+        tenantId: tenant.id,
+        customerId: customer.id,
+        serviceId: service.id,
+        appointmentId: appointment.id,
+        description: `Servicio ${name}`,
+        unitPrice: 100000n,
+        taxRate: 10,
+        lineTotal: 100000n,
+        source: 'appointment',
+      },
+    });
+    await tx.billingStatement.create({
+      data: { tenantId: tenant.id, customerId: customer.id, period: '2026-08', total: 100000n, chargesCount: 1 },
+    });
     return {
       id: tenant.id,
       branchId: branch.id,
@@ -247,10 +282,14 @@ async function wipeTenant(tenantId: string): Promise<void> {
       'quote_items',
       'quotes',
       'invoice_items',
+      'billing_statements',
+      'customer_charges',
       'appointment_services',
       'appointments',
+      'recurring_bookings',
       'invoices',
       'customer_fiscal_ids',
+      'tenant_settings',
       'service_photos',
       'services',
       'service_categories',

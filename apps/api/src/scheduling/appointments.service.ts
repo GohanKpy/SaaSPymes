@@ -8,6 +8,8 @@ import type {
 } from '@pymes/shared';
 import { MIN_APPOINTMENT_MIN } from '@pymes/shared';
 
+import { crearConsumosDeTurno } from '../invoicing/charges';
+
 import { AppPrisma } from '../prisma/app-prisma.service';
 
 export const DEFAULT_DURATION_MIN = 30;
@@ -53,7 +55,7 @@ function ordenar<T extends { id: string }>(rows: T[], ids: string[]): T[] {
 
 /** Lo que devuelve la API por turno: cliente, servicio principal, empleado y todos los servicios. */
 const APPT_INCLUDE = {
-  customer: { select: { id: true, firstName: true, lastName: true, phoneE164: true } },
+  customer: { select: { id: true, firstName: true, lastName: true, phoneE164: true, billingMode: true } },
   service: { select: { id: true, name: true, durationMin: true } },
   employee: { select: { id: true, firstName: true, lastName: true } },
   services: {
@@ -63,8 +65,12 @@ const APPT_INCLUDE = {
 } as const;
 
 /** Aplana appointment_services a services: [{ id, name, durationMin }]. */
-function conServicios<T extends { services: { durationMin: number; service: { id: string; name: string } }[] }>(a: T) {
-  return { ...a, services: a.services.map((x) => ({ id: x.service.id, name: x.service.name, durationMin: x.durationMin })) };
+type ServicioPlano = { id: string; name: string; durationMin: number };
+function conServicios<T extends { services: { durationMin: number; service: { id: string; name: string } }[] }>(
+  a: T,
+): Omit<T, 'services'> & { services: ServicioPlano[] } {
+  const { services, ...rest } = a;
+  return { ...rest, services: services.map((x) => ({ id: x.service.id, name: x.service.name, durationMin: x.durationMin })) };
 }
 
 export interface BranchSchedule {
@@ -461,10 +467,14 @@ export class AppointmentsService {
       }
       // "No vino" (fase 1 auditoria 2026-09-05): el estado existia sin boton;
       // marcarlo como cancelado ensuciaba las metricas de ausencias.
-      return tx.appointment.update({
+      const updated = await tx.appointment.update({
         where: { id },
         data: { status: action === 'no_show' ? 'no_show' : 'completed' },
       });
+      // Cuenta mensual (2026-09-07): lo atendido pasa a consumos pendientes
+      // del cliente si factura por mes (no hace nada en los demas).
+      if (action === 'complete') await crearConsumosDeTurno(tx, ctx.tenantId, id);
+      return updated;
     });
   }
 

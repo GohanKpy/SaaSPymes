@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '../../../lib/api';
 import { useToast } from '../../../lib/feedback';
 import { errorMessage } from '../../../lib/labels';
+import { MoneyInput } from '../../../lib/money-input';
 import { Button, EmptyState, ErrorNote, Field, Modal, PageHeader, buttonGhost, inputClass, money } from '../../../lib/ui';
 
 // Planes (fase 3 auditoria de paneles 2026-09-05): alta y edicion en ventana.
@@ -169,7 +170,7 @@ export default function PlanesPage() {
                 />
               </Field>
               <Field label="Precio mensual (Gs)">
-                <input className={inputClass} type="number" min={0} step={1000} value={form.monthly_price} onChange={(e) => setForm({ ...form, monthly_price: e.target.value })} />
+                <MoneyInput value={form.monthly_price} onChange={(monthly_price) => setForm({ ...form, monthly_price })} />
               </Field>
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Máx. usuarios">

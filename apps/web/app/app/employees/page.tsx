@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '../../../lib/api';
 import { useConfirm, useToast } from '../../../lib/feedback';
 import { errorMessage } from '../../../lib/labels';
+import { MoneyInput } from '../../../lib/money-input';
 import {
   Badge,
   Button,
@@ -609,7 +610,7 @@ export default function PersonalPage() {
               </Field>
               {isAdmin && (
                 <Field label={lbl('salary', 'Salario (Gs; solo lo ven dueño y administradores)')}>
-                  <input className={inputClass} inputMode="numeric" required={req('salary')} value={form.salary} onChange={(e) => setForm({ ...form, salary: e.target.value })} />
+                  <MoneyInput required={req('salary')} value={form.salary} onChange={(salary) => setForm({ ...form, salary })} />
                 </Field>
               )}
               <div className="col-span-2">

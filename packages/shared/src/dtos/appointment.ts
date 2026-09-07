@@ -81,3 +81,53 @@ export const appointmentReschedule = z
   })
   .strict();
 export type AppointmentReschedule = z.infer<typeof appointmentReschedule>;
+
+// ---------------- servicios recurrentes (2026-09-07) ----------------
+
+const horaLocal = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'hora HH:MM');
+
+export const recurringCreate = z
+  .object({
+    customer_id: uuid,
+    branch_id: uuid,
+    employee_id: uuid.optional(),
+    service_ids: z.array(uuid).min(1).max(10),
+    frequency: z.enum(['weekly', 'biweekly', 'monthly']),
+    /** 0 = domingo … 6 = sabado (semanal / cada dos semanas). */
+    weekday: z.number().int().min(0).max(6).optional(),
+    /** 1..28 (mensual). */
+    day_of_month: z.number().int().min(1).max(28).optional(),
+    time_local: horaLocal,
+    /** Ausente = la calculada con los servicios. */
+    duration_min: z.number().int().min(MIN_APPOINTMENT_MIN).max(MAX_APPOINTMENT_MIN).optional(),
+    starts_on: z.iso.date(),
+    ends_on: z.iso.date().optional(),
+    notes: z.string().max(500).optional(),
+  })
+  .strict()
+  .refine((r) => (r.frequency === 'monthly' ? r.day_of_month !== undefined : r.weekday !== undefined), {
+    message: 'Falta el dia (de la semana o del mes)',
+    path: ['weekday'],
+  });
+export type RecurringCreate = z.infer<typeof recurringCreate>;
+
+export const recurringUpdate = z
+  .object({
+    employee_id: uuid.nullable(),
+    weekday: z.number().int().min(0).max(6),
+    day_of_month: z.number().int().min(1).max(28),
+    time_local: horaLocal,
+    duration_min: z.number().int().min(MIN_APPOINTMENT_MIN).max(MAX_APPOINTMENT_MIN),
+    ends_on: z.iso.date().nullable(),
+    is_active: z.boolean(),
+    notes: z.string().max(500).nullable(),
+  })
+  .partial()
+  .strict();
+export type RecurringUpdate = z.infer<typeof recurringUpdate>;
+
+export const recurringListQuery = z.object({
+  customer_id: uuid.optional(),
+  active: z.enum(['true', 'false']).optional(),
+});
+export type RecurringListQuery = z.infer<typeof recurringListQuery>;

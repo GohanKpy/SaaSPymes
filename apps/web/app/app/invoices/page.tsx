@@ -7,6 +7,7 @@ import { API_URL, api, getToken } from '../../../lib/api';
 import { CustomerPicker, customerName, type PickedCustomer } from '../../../lib/customer-picker';
 import { useAskText, useConfirm, useToast } from '../../../lib/feedback';
 import { INVOICE_STATUS, errorMessage, statusOf } from '../../../lib/labels';
+import { MoneyInput, soloDigitos } from '../../../lib/money-input';
 import {
   Badge,
   Button,
@@ -28,6 +29,7 @@ import {
 
 import { FacturarA, billingCompleto, billingPayload, documentoTexto, type BillingChoice } from './facturar-a';
 import { LINEA_VACIA, LineasEditor, aItems, type Linea, type ServicioOption } from './lineas';
+import { CuentasSection } from './cuentas';
 import { QuotesSection } from './quotes';
 
 // Facturacion (fase 2 auditoria de paneles 2026-09-05): pestañas Facturas |
@@ -295,6 +297,17 @@ export default function InvoicesPage() {
     }
   }
 
+  /** Reenvia la factura por el canal del cliente (WhatsApp con link o email con PDF). */
+  async function enviarAlCliente(i: Invoice) {
+    try {
+      const r = await api<{ ok: boolean; channel: string; detail?: string }>(`/invoices/${i.id}/send`, { method: 'POST', json: {} });
+      if (r.ok) toast.success(`Factura enviada por ${r.channel === 'email' ? 'email' : 'WhatsApp'}`);
+      else toast.error(`No se pudo enviar: ${r.detail ?? 'sin detalle'}`);
+    } catch (e) {
+      toast.error(errorMessage(e));
+    }
+  }
+
   async function abrirComprobante(i: Invoice) {
     try {
       const res = await fetch(`${API_URL}/api/v1/invoices/${i.id}/kude`, { headers: { Authorization: `Bearer ${getToken() ?? ''}` } });
@@ -318,7 +331,7 @@ export default function InvoicesPage() {
   async function confirmPay() {
     if (!paying) return;
     const debido = saldo(paying);
-    const recibido = Number(payForm.recibido || 0);
+    const recibido = Number(soloDigitos(payForm.recibido) || 0);
     // Se registra lo adeudado (o menos si es parcial); el excedente en efectivo es vuelto.
     const amount = Math.min(recibido, debido);
     if (amount <= 0) return;
@@ -336,8 +349,8 @@ export default function InvoicesPage() {
     }
   }
 
-  const vuelto = paying ? Math.max(0, Number(payForm.recibido || 0) - saldo(paying)) : 0;
-  const parcial = paying ? Math.max(0, saldo(paying) - Number(payForm.recibido || 0)) : 0;
+  const vuelto = paying ? Math.max(0, Number(soloDigitos(payForm.recibido) || 0) - saldo(paying)) : 0;
+  const parcial = paying ? Math.max(0, saldo(paying) - Number(soloDigitos(payForm.recibido) || 0)) : 0;
 
   const acciones = (i: Invoice, enDetalle = false) => (
     <span className={`inline-flex flex-wrap gap-1 ${enDetalle ? '' : 'justify-end'}`}>
@@ -362,6 +375,11 @@ export default function InvoicesPage() {
       {['approved', 'cancelled', 'credited'].includes(i.status) && (
         <button className={buttonGhost} onClick={() => void abrirComprobante(i)}>
           Comprobante (PDF)
+        </button>
+      )}
+      {i.status === 'approved' && (
+        <button className={buttonGhost} onClick={() => void enviarAlCliente(i)}>
+          Enviar al cliente
         </button>
       )}
       {i.status === 'approved' && (
@@ -402,7 +420,15 @@ export default function InvoicesPage() {
         </p>
       )}
 
-      <Tabs value={vista} onChange={setVista} items={[{ key: 'facturas', label: 'Facturas' }, { key: 'presupuestos', label: 'Presupuestos' }]} />
+      <Tabs
+        value={vista}
+        onChange={setVista}
+        items={[
+          { key: 'facturas', label: 'Facturas' },
+          { key: 'presupuestos', label: 'Presupuestos' },
+          { key: 'cuentas', label: 'Cuentas del mes' },
+        ]}
+      />
 
       {vista === 'facturas' && (
         <div className={tableCard}>
@@ -504,6 +530,16 @@ export default function InvoicesPage() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {vista === 'cuentas' && (
+        <CuentasSection
+          onVerFactura={(id) => {
+            setVista('facturas');
+            load();
+            void abrirDetalle(id);
+          }}
+        />
       )}
 
       {vista === 'presupuestos' && (
@@ -665,7 +701,7 @@ export default function InvoicesPage() {
               </select>
             </Field>
             <Field label="Monto recibido (Gs)">
-              <input className={inputClass} type="number" min={0} step={1000} value={payForm.recibido} onChange={(e) => setPayForm({ ...payForm, recibido: e.target.value })} autoFocus />
+              <MoneyInput value={payForm.recibido} onChange={(recibido) => setPayForm({ ...payForm, recibido })} autoFocus />
             </Field>
             {vuelto > 0 && (
               <p className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-800">
@@ -681,7 +717,7 @@ export default function InvoicesPage() {
               <Button variant="ghost" onClick={() => setPaying(null)}>
                 Volver
               </Button>
-              <Button variant="primary" loading={guardando} disabled={Number(payForm.recibido || 0) <= 0} onClick={() => void confirmPay()}>
+              <Button variant="primary" loading={guardando} disabled={Number(soloDigitos(payForm.recibido) || 0) <= 0} onClick={() => void confirmPay()}>
                 Confirmar pago
               </Button>
             </div>

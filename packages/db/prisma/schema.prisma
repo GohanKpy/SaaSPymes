@@ -130,6 +130,10 @@ model Tenant {
 
   appointmentServices AppointmentService[]
   customerFiscalIds   CustomerFiscalId[]
+  settings            TenantSettings?
+  charges             CustomerCharge[]
+  statements          BillingStatement[]
+  recurringBookings   RecurringBooking[]
   @@map("tenants")
   @@schema("control")
 }
@@ -244,6 +248,7 @@ model Branch {
   invoices     Invoice[]
   quotes       Quote[]
 
+  recurringBookings RecurringBooking[]
   @@id([id])
   @@unique([tenantId, id]) // habilita FKs compuestas
   @@map("branches")
@@ -338,6 +343,10 @@ model Customer {
   tags           String[]  @default([])
   assignedUserId String?   @map("assigned_user_id") @db.Uuid
   marketingOptIn Boolean   @default(true) @map("marketing_opt_in")
+  // Cuenta mensual (2026-09-07): per_service = factura por servicio (hoy);
+  // monthly = los consumos se acumulan y se facturan al cierre del mes.
+  billingMode    String    @default("per_service") @map("billing_mode")
+  invoiceChannel String    @default("whatsapp") @map("invoice_channel") // whatsapp|email
   rating         Int?      @db.SmallInt
   deletedAt      DateTime? @map("deleted_at") @db.Timestamptz(6)
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -352,6 +361,9 @@ model Customer {
   activities    CustomerActivity[]
   fiscalIds     CustomerFiscalId[]
 
+  charges          CustomerCharge[]
+  statements       BillingStatement[]
+  recurringBookings RecurringBooking[]
   @@id([id])
   @@unique([tenantId, id])
   @@map("customers")
@@ -425,6 +437,117 @@ model CustomerFiscalId {
   @@unique([tenantId, id])
   @@index([tenantId, customerId], map: "customer_fiscal_ids_customer_idx")
   @@map("customer_fiscal_ids")
+  @@schema("app")
+}
+
+/// Ajustes del negocio que no son del bot ni de una integracion (2026-09-07):
+/// cierre de la cuenta mensual y anticipacion de los turnos recurrentes.
+/// Una fila por tenant (PK = tenant_id), mismo patron que bot_settings.
+model TenantSettings {
+  tenantId           String   @id @map("tenant_id") @db.Uuid
+  monthlyCloseDay    Int      @default(1) @map("monthly_close_day") @db.SmallInt
+  monthlyAutoInvoice Boolean  @default(false) @map("monthly_auto_invoice")
+  recurringLeadDays  Int      @default(7) @map("recurring_lead_days") @db.SmallInt
+  updatedBy          String?  @map("updated_by") @db.Uuid
+  updatedAt          DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@map("tenant_settings")
+  @@schema("app")
+}
+
+/// Consumos pendientes de un cliente con cuenta mensual (2026-09-07): lo
+/// atendido y lo comprado en el mes, a facturar de una vez al cierre.
+model CustomerCharge {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String    @map("tenant_id") @db.Uuid
+  customerId    String    @map("customer_id") @db.Uuid
+  serviceId     String?   @map("service_id") @db.Uuid
+  appointmentId String?   @map("appointment_id") @db.Uuid
+  description   String
+  quantity      Decimal   @default(1) @db.Decimal(10, 2)
+  unitPrice     BigInt    @map("unit_price")
+  taxRate       Int       @map("tax_rate") @db.SmallInt
+  lineTotal     BigInt    @map("line_total")
+  source        String // appointment|manual
+  status        String    @default("pending") // pending|invoiced|void
+  invoiceId     String?   @map("invoice_id") @db.Uuid
+  chargedOn     DateTime  @default(dbgenerated("CURRENT_DATE")) @map("charged_on") @db.Date
+  notes         String?
+  createdBy     String?   @map("created_by") @db.Uuid
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant      Tenant       @relation(fields: [tenantId], references: [id])
+  customer    Customer     @relation(fields: [tenantId, customerId], references: [tenantId, id])
+  service     Service?     @relation(fields: [tenantId, serviceId], references: [tenantId, id])
+  appointment Appointment? @relation(fields: [tenantId, appointmentId], references: [tenantId, id])
+  invoice     Invoice?     @relation(fields: [tenantId, invoiceId], references: [tenantId, id])
+
+  @@unique([tenantId, id])
+  @@index([tenantId, customerId, status], map: "customer_charges_pending_idx")
+  @@map("customer_charges")
+  @@schema("app")
+}
+
+/// Resumen del mes por cliente (2026-09-07): uno por cliente y periodo; hace
+/// idempotente el cierre automatico y guarda a quien se aviso y que factura salio.
+model BillingStatement {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId           String    @map("tenant_id") @db.Uuid
+  customerId         String    @map("customer_id") @db.Uuid
+  period             String    @db.Char(7) // 'YYYY-MM'
+  total              BigInt
+  chargesCount       Int       @map("charges_count")
+  notifiedCustomerAt DateTime? @map("notified_customer_at") @db.Timestamptz(6)
+  notifiedOwnerAt    DateTime? @map("notified_owner_at") @db.Timestamptz(6)
+  invoiceId          String?   @map("invoice_id") @db.Uuid
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id])
+  customer Customer @relation(fields: [tenantId, customerId], references: [tenantId, id])
+  invoice  Invoice? @relation(fields: [tenantId, invoiceId], references: [tenantId, id])
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, customerId, period])
+  @@map("billing_statements")
+  @@schema("app")
+}
+
+/// Servicios recurrentes (2026-09-07): el cliente toma lo mismo cada semana,
+/// cada dos semanas o cada mes; el sistema genera el turno con anticipacion y
+/// le pide confirmacion por WhatsApp.
+model RecurringBooking {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  customerId      String    @map("customer_id") @db.Uuid
+  branchId        String    @map("branch_id") @db.Uuid
+  employeeId      String?   @map("employee_id") @db.Uuid
+  serviceIds      String[]  @map("service_ids") @db.Uuid
+  frequency       String // weekly|biweekly|monthly
+  weekday         Int?      @db.SmallInt // 0=domingo..6 (weekly/biweekly)
+  dayOfMonth      Int?      @map("day_of_month") @db.SmallInt // 1..28 (monthly)
+  timeLocal       String    @map("time_local") @db.Char(5) // 'HH:MM' hora del negocio
+  durationMin     Int       @map("duration_min")
+  startsOn        DateTime  @map("starts_on") @db.Date
+  endsOn          DateTime? @map("ends_on") @db.Date
+  isActive        Boolean   @default(true) @map("is_active")
+  lastGeneratedOn DateTime? @map("last_generated_on") @db.Date
+  lastError       String?   @map("last_error")
+  notes           String?
+  createdBy       String?   @map("created_by") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id])
+  customer     Customer      @relation(fields: [tenantId, customerId], references: [tenantId, id])
+  branch       Branch        @relation(fields: [tenantId, branchId], references: [tenantId, id])
+  employee     Employee?     @relation(fields: [tenantId, employeeId], references: [tenantId, id])
+  appointments Appointment[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, customerId], map: "recurring_bookings_customer_idx")
+  @@map("recurring_bookings")
   @@schema("app")
 }
 
@@ -530,6 +653,7 @@ model Service {
   quoteItems   QuoteItem[]
   photos       ServicePhoto[]
 
+  charges      CustomerCharge[]
   @@id([id])
   @@unique([tenantId, id])
   @@map("services")
@@ -577,6 +701,10 @@ model Appointment {
   employeeGoogleEventId String? @map("employee_google_event_id")
   // Recordatorio WhatsApp enviado (P1 2026-08-28): no se repite.
   reminderSentAt DateTime? @map("reminder_sent_at") @db.Timestamptz(6)
+  // Turnos recurrentes (2026-09-07): de que regla nacio y si se le pidio al
+  // cliente que confirme (SI/NO por WhatsApp, resuelto sin el bot).
+  recurringBookingId      String?   @map("recurring_booking_id") @db.Uuid
+  confirmationRequestedAt DateTime? @map("confirmation_requested_at") @db.Timestamptz(6)
   notes         String?
   deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(6)
   createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -589,6 +717,8 @@ model Appointment {
   employee Employee? @relation(fields: [tenantId, employeeId], references: [tenantId, id])
   /// Todos los servicios del turno (2026-09-07); service_id es el principal.
   services AppointmentService[]
+  recurringBooking RecurringBooking? @relation(fields: [tenantId, recurringBookingId], references: [tenantId, id])
+  charges  CustomerCharge[]
 
   @@id([id])
   @@unique([tenantId, id])
@@ -687,6 +817,8 @@ model Invoice {
   payments       Payment[]
   quotes         Quote[]
 
+  charges        CustomerCharge[]
+  statements     BillingStatement[]
   @@id([id])
   @@unique([tenantId, id])
   @@map("invoices")
@@ -874,6 +1006,7 @@ model Employee {
   calendarBlocks CalendarBlock[]
   credentials    IntegrationCredential[]
 
+  recurringBookings RecurringBooking[]
   @@unique([tenantId, id])
   @@index([tenantId, isActive, bookable], map: "employees_tenant_idx")
   @@map("employees")

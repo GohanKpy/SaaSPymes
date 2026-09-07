@@ -37,6 +37,7 @@ const NAV: { title: string; items: Item[] }[] = [
       { href: '/platform/settings/bot', label: 'Motor del bot (IA)' },
       { href: '/platform/settings/seguridad', label: 'Seguridad' },
       { href: '/platform/settings/google', label: 'Google Calendar' },
+      { href: '/platform/settings/mail', label: 'Correo saliente' },
     ],
   },
   {

@@ -60,6 +60,7 @@ tema (antes era una sola página larga con anclas; los links viejos con
 | Motor del bot (IA) | /platform/settings/bot | admin y agente |
 | Seguridad | /platform/settings/seguridad | admin y agente |
 | Google Calendar | /platform/settings/google | admin y agente |
+| Correo saliente | /platform/settings/mail | admin y agente (guarda solo admin) |
 | Usuarios del portal | /platform/team | solo admin |
 | Mi perfil | /platform/profile | todos |
 
@@ -145,6 +146,14 @@ intentarlo ven "La plataforma aun no tiene configurada la app de Google
 (avisale al administrador del sistema)". Además, mientras la app de Google
 esté en modo prueba, solo cuentas invitadas como testers pueden conectarse.
 
+### 2.6b Correo saliente (SMTP del sistema, 2026-09-07)
+
+Por acá salen los **resúmenes de cuenta y las facturas por email** de todos los
+negocios. Servidor, puerto, cifrado, usuario, contraseña (cifrada) y remitente.
+Botón "Enviarme un correo de prueba". Sin configurar, en el laboratorio los
+correos van a Mailpit (http://localhost:4307) y NO se entregan. Error "No se
+pudo enviar: …": credenciales o puerto mal; probar con el botón de prueba.
+
 ### 2.7 Usuarios del portal (operadores)
 
 Solo el rol admin los administra. Alta con contraseña temporal mostrada UNA
@@ -222,6 +231,18 @@ completa). Esa duración se puede ajustar a mano antes de buscar horario. Al
 reprogramar se conservan los servicios y la duración. "Cobrar" desde la
 agenda precarga todos los servicios del turno en la factura.
 
+**Turnos recurrentes (2026-09-07):** en la ficha del cliente se define un
+servicio recurrente (servicios, cada semana / cada dos semanas / cada mes,
+día y hora, profesional, desde/hasta). El sistema crea el turno con la
+anticipación configurada en Ajustes → Horarios → "Turnos recurrentes" (por
+defecto 7 días), estado *a confirmar*, marcado "recurrente", y le escribe por
+WhatsApp al cliente pidiendo que confirme con **SÍ** o **NO**. Esa respuesta
+la resuelve el sistema (no el bot): SÍ confirma, NO cancela, y en la Agenda el
+turno muestra "esperando al cliente" mientras no responde. Si el horario ya no
+está libre, el turno no se crea y queda una tarea para el dueño con el motivo
+(también se ve en la ficha, bajo el recurrente, como "Último intento").
+Botón "Generar ahora" no existe en pantalla; el barrido corre cada hora.
+
 ### 3.4 Tareas
 
 Bandeja de pendientes del equipo. Se crean a mano desde la ficha de un
@@ -258,6 +279,14 @@ bloque "Documento y datos personales" es el personal; si no hay datos de
 facturación cargados, las facturas salen con ese documento. Error "Ese
 documento ya esta cargado en la ficha de este cliente": duplicado, editar el
 existente.
+
+**Facturación y avisos (2026-09-07):** en la ficha, bloque "Facturación y
+avisos": **Cómo se le factura** (por servicio, o **cuenta mensual**: acumula lo
+atendido y lo comprado y se factura todo al cierre) y **Recibe las facturas y
+resúmenes por** (WhatsApp o email), además de los avisos por WhatsApp/email.
+Con cuenta mensual aparece la tarjeta **Cuenta del mes** (consumos pendientes;
+"Agregar consumo" para compras y extras; "Anular" para lo cargado por error) y
+la Agenda muestra "En su cuenta del mes" en vez de "Cobrar" al marcar Atendido.
 
 ### 3.6 Catálogo
 
@@ -323,6 +352,22 @@ puede cambiar con "Facturar a…"; una emitida no (se anula). Errores:
   falta pagar.
 - Los totales y el IVA los calcula SIEMPRE el sistema; no se cargan a mano.
 
+**Cuentas del mes (2026-09-07):** tercera pestaña de Facturación. Lista los
+clientes con consumos pendientes (total, cantidad, desde cuándo, canal), con
+"Ver consumos", "Enviar resumen" (por su canal) y **"Facturar el mes"**: una
+sola factura con todos los consumos, a nombre del RUC predeterminado o el que
+se elija, con opciones "Emitir ahora" y "Enviar al cliente" (email con el PDF
+adjunto; WhatsApp con un link al comprobante que vale 30 días). Abajo, los
+**cierres de mes** generados. El cierre automático se configura en Ajustes →
+Facturación → "Cuenta mensual: cierre automático" (día 1 a 28; "Facturar
+automáticamente" apagado por defecto). En la fecha de cierre el sistema arma el
+resumen del mes anterior por cliente, se lo envía, avisa al dueño (tarea en
+Tareas + correo a los emails de aviso) y, si está activado, emite y envía la
+factura. Una factura emitida también se puede reenviar con "Enviar al
+cliente" desde la lista. Errores: "Este cliente no tiene consumos pendientes";
+"El cliente no tiene email cargado" / "no tiene celular cargado" (el canal
+elegido no tiene dato en la ficha).
+
 ### 3.8 Presupuestos
 
 Presupuestos formales sin valor fiscal, numerados P-0001, P-0002…
@@ -373,6 +418,10 @@ redirige acá): las cuentas con las que la gente entra al panel.
   cierra las sesiones de ese usuario.
 - El usuario root no se elimina ni puede ser tocado por un admin.
 - Acceso por sucursal: a una cuenta se le puede limitar qué sucursales ve.
+
+**Campos de dinero (2026-09-07):** todos los campos de monto (precio del
+catálogo, líneas de factura y presupuesto, monto recibido, salario, consumo)
+muestran los puntos de miles mientras se escribe (150000 → 150.000).
 
 ### 3.10 Ajustes (ruta /app/settings/…)
 

@@ -117,6 +117,25 @@ export default function HorariosPage() {
 
   if (!week) return <ErrorNote error={error} />;
 
+  // Turnos recurrentes (2026-09-07): con cuanta anticipacion se crean y se pide confirmacion.
+  const [leadDays, setLeadDays] = useState(7);
+  const [guardandoLead, setGuardandoLead] = useState(false);
+  useEffect(() => {
+    void api<{ recurring_lead_days: number }>('/tenant/settings').then((r) => setLeadDays(r.recurring_lead_days)).catch(() => undefined);
+  }, []);
+  async function saveLead(e: React.FormEvent) {
+    e.preventDefault();
+    setGuardandoLead(true);
+    try {
+      await api('/tenant/settings', { method: 'PUT', json: { recurring_lead_days: leadDays } });
+      toast.success('Turnos recurrentes guardados');
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setGuardandoLead(false);
+    }
+  }
+
   return (
     <>
       <ErrorNote error={error} />
@@ -236,6 +255,20 @@ export default function HorariosPage() {
             </div>
           </div>
         </div>
+      </Card>
+
+      <Card
+        title="Turnos recurrentes"
+        description="Para los clientes que toman lo mismo cada semana, cada dos semanas o cada mes (se configura en su ficha): el sistema crea el turno con anticipación y le pide por WhatsApp que lo confirme con SÍ o NO."
+      >
+        <form className="flex flex-wrap items-end gap-3" onSubmit={(e) => void saveLead(e)}>
+          <Field label="Crear el turno y pedir confirmación (días antes)">
+            <input className={inputClass} type="number" min={1} max={60} value={leadDays} onChange={(e) => setLeadDays(Number(e.target.value))} />
+          </Field>
+          <Button variant="primary" type="submit" loading={guardandoLead}>
+            Guardar
+          </Button>
+        </form>
       </Card>
 
       {conflicts && (
