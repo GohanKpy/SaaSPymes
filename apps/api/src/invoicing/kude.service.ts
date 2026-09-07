@@ -4,6 +4,7 @@ import PDFDocument from 'pdfkit';
 import { toBuffer } from 'qrcode';
 
 import { AppPrisma } from '../prisma/app-prisma.service';
+import { billingEfectivo } from './invoices.service';
 import { numeroALetras } from './letras';
 
 const money = (v: bigint | number) => new Intl.NumberFormat('es-PY').format(Number(v));
@@ -136,15 +137,18 @@ export class KudeService {
 
     const issued = invoice.issuedAt ?? invoice.createdAt;
     const c = invoice.customer;
+    // A nombre de quien salio (2026-09-07): el snapshot de la factura; en
+    // facturas anteriores, el documento del cliente.
+    const receptor = billingEfectivo(invoice);
     const docCliente =
-      c.docNumber != null
-        ? `${(c.docType ?? 'ci').toUpperCase()}: ${c.docNumber}${c.rucDv ? `-${c.rucDv}` : ''}`
+      receptor.docNumber != null
+        ? `${(receptor.docType ?? 'ci').toUpperCase()}: ${receptor.docNumber}${receptor.rucDv ? `-${receptor.rucDv}` : ''}`
         : null;
 
     doc.font('Helvetica').fontSize(8.5).fillColor('#111111');
     const rowsL: [string, string][] = [
       ['Fecha', issued.toLocaleString('es-PY', { timeZone: tz, hour12: false })],
-      ['Nombre o Razon Social', `${c.firstName} ${c.lastName ?? ''}`.trim()],
+      ['Nombre o Razon Social', receptor.name],
       ['Direccion', c.address ?? '—'],
       ['Email', c.email ?? '—'],
     ];

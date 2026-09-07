@@ -128,6 +128,8 @@ model Tenant {
   integrationCreds   IntegrationCredential[]
   notificationEmails NotificationEmail[]
 
+  appointmentServices AppointmentService[]
+  customerFiscalIds   CustomerFiscalId[]
   @@map("tenants")
   @@schema("control")
 }
@@ -348,6 +350,7 @@ model Customer {
   quotes        Quote[]
   contactPoints CustomerContactPoint[]
   activities    CustomerActivity[]
+  fiscalIds     CustomerFiscalId[]
 
   @@id([id])
   @@unique([tenantId, id])
@@ -374,6 +377,54 @@ model CustomerContactPoint {
   @@unique([tenantId, id])
   @@index([tenantId, customerId, kind], map: "contact_points_customer_idx")
   @@map("customer_contact_points")
+  @@schema("app")
+}
+
+/// Servicios de un turno (2026-09-07): un turno puede combinar varios. El de
+/// sort 0 es tambien appointments.service_id (compatibilidad con bot,
+/// historial y facturar desde la agenda). duration_min queda congelado.
+model AppointmentService {
+  id            String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String @map("tenant_id") @db.Uuid
+  appointmentId String @map("appointment_id") @db.Uuid
+  serviceId     String @map("service_id") @db.Uuid
+  sort          Int    @default(0)
+  durationMin   Int    @map("duration_min")
+
+  tenant      Tenant      @relation(fields: [tenantId], references: [id])
+  appointment Appointment @relation(fields: [tenantId, appointmentId], references: [tenantId, id], onDelete: Cascade)
+  service     Service     @relation(fields: [tenantId, serviceId], references: [tenantId, id])
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, appointmentId, serviceId])
+  @@index([tenantId, appointmentId], map: "appointment_services_appt_idx")
+  @@map("appointment_services")
+  @@schema("app")
+}
+
+/// Identidades fiscales de un cliente (2026-09-07): a nombre de quien
+/// factura (RUC o CI + razon social / nombre). Un cliente puede tener varias
+/// y pedir cada factura a un nombre distinto.
+model CustomerFiscalId {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String    @map("tenant_id") @db.Uuid
+  customerId String    @map("customer_id") @db.Uuid
+  docType    String    @map("doc_type") // ruc|ci|pasaporte
+  docNumber  String    @map("doc_number")
+  rucDv      String?   @map("ruc_dv")
+  legalName  String    @map("legal_name")
+  isDefault  Boolean   @default(false) @map("is_default")
+  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id])
+  customer Customer  @relation(fields: [tenantId, customerId], references: [tenantId, id])
+  invoices Invoice[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, customerId], map: "customer_fiscal_ids_customer_idx")
+  @@map("customer_fiscal_ids")
   @@schema("app")
 }
 
@@ -461,6 +512,9 @@ model Service {
   // de meetingMin minutos).
   kind            String  @default("servicio")
   durationMin     Int?    @map("duration_min")
+  /// Minutos que aporta cuando se combina con otro servicio en el mismo turno
+  /// (2026-09-07). NULL = la duracion completa.
+  comboDurationMin Int?   @map("combo_duration_min")
   requiresMeeting Boolean @default(false) @map("requires_meeting")
   meetingMin      Int?    @map("meeting_min")
   isActive      Boolean   @default(true) @map("is_active")
@@ -471,6 +525,7 @@ model Service {
   tenant       Tenant          @relation(fields: [tenantId], references: [id])
   category     ServiceCategory @relation(fields: [tenantId, categoryId], references: [tenantId, id])
   appointments Appointment[]
+  appointmentServices AppointmentService[]
   invoiceItems InvoiceItem[]
   quoteItems   QuoteItem[]
   photos       ServicePhoto[]
@@ -532,6 +587,8 @@ model Appointment {
   customer Customer  @relation(fields: [tenantId, customerId], references: [tenantId, id])
   service  Service?  @relation(fields: [tenantId, serviceId], references: [tenantId, id])
   employee Employee? @relation(fields: [tenantId, employeeId], references: [tenantId, id])
+  /// Todos los servicios del turno (2026-09-07); service_id es el principal.
+  services AppointmentService[]
 
   @@id([id])
   @@unique([tenantId, id])
@@ -609,6 +666,13 @@ model Invoice {
   cancelledAt       DateTime? @map("cancelled_at") @db.Timestamptz(6)
   kudePdfKey        String?   @map("kude_pdf_key")
   relatedInvoiceId  String?   @map("related_invoice_id") @db.Uuid
+  // A nombre de quien sale la factura (2026-09-07): congelado al crear el
+  // borrador; NULL en facturas viejas = el documento del cliente.
+  fiscalIdId        String?   @map("fiscal_id_id") @db.Uuid
+  billingName       String?   @map("billing_name")
+  billingDocType    String?   @map("billing_doc_type") // ruc|ci|pasaporte
+  billingDocNumber  String?   @map("billing_doc_number")
+  billingRucDv      String?   @map("billing_ruc_dv")
   createdBy         String?   @map("created_by") @db.Uuid
   createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
@@ -616,6 +680,7 @@ model Invoice {
   tenant         Tenant        @relation(fields: [tenantId], references: [id])
   branch         Branch        @relation(fields: [tenantId, branchId], references: [tenantId, id])
   customer       Customer      @relation(fields: [tenantId, customerId], references: [tenantId, id])
+  fiscalId       CustomerFiscalId? @relation(fields: [tenantId, fiscalIdId], references: [tenantId, id])
   relatedInvoice Invoice?      @relation("credit", fields: [tenantId, relatedInvoiceId], references: [tenantId, id])
   creditNotes    Invoice[]     @relation("credit")
   items          InvoiceItem[]

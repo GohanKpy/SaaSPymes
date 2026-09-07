@@ -213,6 +213,15 @@ Turnos del negocio, por día y por empleado.
 - "El empleado elegido no existe o no es agendable": el empleado está
   dado de baja o no tiene tildado "Atiende clientes con turno" en Personal.
 
+**Varios servicios en un turno (desde el 2026-09-07):** en "Nuevo turno" los
+servicios se tildan (uno o varios); en la Agenda solo aparecen los productos
+de tipo *servicio* (los ítems no se agendan a mano). La duración total la
+calcula el sistema: el servicio más largo cuenta entero y cada otro suma su
+"duración cuando se combina" (campo del Catálogo; si está vacío, suma la
+completa). Esa duración se puede ajustar a mano antes de buscar horario. Al
+reprogramar se conservan los servicios y la duración. "Cobrar" desde la
+agenda precarga todos los servicios del turno en la factura.
+
 ### 3.4 Tareas
 
 Bandeja de pendientes del equipo. Se crean a mano desde la ficha de un
@@ -242,6 +251,14 @@ ejemplo "pasar presupuesto"). Cada tarea tiene vencimiento y responsable.
   la ficha (texto, número, fecha, sí/no, lista de opciones, monto, enlace).
   Se desactivan, no se borran, para no perder datos cargados.
 
+**Datos de facturación (2026-09-07):** la ficha tiene la tarjeta "Datos de
+facturación (RUC / razón social)": varios por cliente (su empresa, otra
+persona), con uno predeterminado que se propone al facturar. El documento del
+bloque "Documento y datos personales" es el personal; si no hay datos de
+facturación cargados, las facturas salen con ese documento. Error "Ese
+documento ya esta cargado en la ficha de este cliente": duplicado, editar el
+existente.
+
 ### 3.6 Catálogo
 
 Primero las **categorías**, después los productos.
@@ -270,7 +287,27 @@ Primero las **categorías**, después los productos.
   - Si una categoría del archivo no existe en el sistema, la fila se marca
     con error: crearla primero y volver a subir.
 
+**Duración cuando se combina (2026-09-07):** cada servicio puede tener,
+además de su duración, los minutos que suma cuando se hace junto con otro en
+el mismo turno (ej: un tratamiento de 60 min que solo agrega 15 si se hace
+durante una coloración). Vacío = suma la duración completa.
+
 ### 3.7 Facturación
+
+**Facturar a (2026-09-07):** al crear la factura hay que elegir a nombre de
+quién sale: una identidad guardada en la ficha del cliente (RUC o cédula +
+razón social), su documento personal, u "Otra persona o empresa" cargando los
+datos ahí mismo (con la opción de guardarlos en la ficha). Si el cliente no
+tiene nada cargado, el formulario pide los datos directamente. Lo elegido
+queda congelado en la factura y sale así en el comprobante. Un borrador se
+puede cambiar con "Facturar a…"; una emitida no (se anula). Errores:
+- "Falta a nombre de quien sale la factura: carga RUC o cedula y nombre desde
+  el detalle del borrador": el borrador no tiene receptor (típico de un
+  presupuesto convertido cuando el cliente no tenía documento). Solución:
+  abrir el detalle → "Cargar datos".
+- "Esa identidad fiscal no esta en la ficha del cliente": se eligió una que
+  ya fue quitada; volver a elegir.
+
 
 - Flujo de una factura: **borrador** → **emitir** → queda `approved`
   (aprobada por SIFEN; en el laboratorio el timbrado es de prueba) → se
@@ -326,7 +363,10 @@ pantallas separadas, "Empleados" y "Equipo"):
 **Pestaña Accesos al panel** (`?vista=accesos`; la URL vieja /app/team
 redirige acá): las cuentas con las que la gente entra al panel.
 
-- Alta con contraseña temporal mostrada UNA sola vez (botón Copiar).
+- Alta con contraseña temporal mostrada UNA sola vez, en una línea lista para
+  pegar ("Usuario: ana@… | Contraseña: AsQ123") con botón Copiar. Si el
+  navegador no permite copiar (pasa entrando por http en la red local), el
+  texto queda seleccionado y avisa que se copie con Ctrl+C.
 - Roles: Personal (staff: agenda, chat, clientes, facturación) y
   Administrador (además catálogo, personal y ajustes). El dueño es root.
 - "Nueva contraseña" genera una temporal nueva (también una sola vez) y

@@ -1,5 +1,6 @@
 import {
   Body,
+  ConflictException,
   Controller,
   Delete,
   Get,
@@ -19,6 +20,8 @@ import {
   contactPointUpdate,
   customFieldDefCreate,
   customFieldDefUpdate,
+  fiscalIdCreate,
+  fiscalIdUpdate,
   uuid,
   type ActivityCreate,
   type ActivityUpdate,
@@ -26,6 +29,8 @@ import {
   type ContactPointUpdate,
   type CustomFieldDefCreate,
   type CustomFieldDefUpdate,
+  type FiscalIdCreate,
+  type FiscalIdUpdate,
 } from '@pymes/shared';
 import type { FastifyRequest } from 'fastify';
 import { z } from 'zod';
@@ -141,6 +146,102 @@ export class CrmExtrasController {
     await this.appDb.tx(tenantCtx(req), (tx) =>
       tx.customerContactPoint.deleteMany({ where: { id: cpId, customerId } }),
     );
+  }
+
+  // --------------------- identidades fiscales (2026-09-07) ---------------------
+  // A nombre de quien factura el cliente: RUC o CI + razon social. Puede
+  // tener varias y elegir una distinta en cada factura.
+
+  @Get('customers/:id/fiscal-ids')
+  listFiscalIds(@Param('id', new ZodPipe(uuid)) customerId: string, @Req() req: FastifyRequest & AuthRequest) {
+    return this.appDb.tx(tenantCtx(req), (tx) =>
+      tx.customerFiscalId.findMany({
+        where: { customerId, deletedAt: null },
+        orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
+      }),
+    );
+  }
+
+  @Post('customers/:id/fiscal-ids')
+  addFiscalId(
+    @Param('id', new ZodPipe(uuid)) customerId: string,
+    @Body(new ZodPipe(fiscalIdCreate)) dto: FiscalIdCreate,
+    @Req() req: FastifyRequest & AuthRequest,
+  ) {
+    const ctx = tenantCtx(req);
+    return this.appDb.tx(ctx, async (tx) => {
+      const customer = await tx.customer.findFirst({ where: { id: customerId, deletedAt: null } });
+      if (!customer) throw new NotFoundException();
+      const repetido = await tx.customerFiscalId.findFirst({
+        where: { customerId, docType: dto.doc_type, docNumber: dto.doc_number, deletedAt: null },
+      });
+      if (repetido) {
+        throw new ConflictException({ title: 'Ese documento ya esta cargado en la ficha de este cliente' });
+      }
+      const cuantas = await tx.customerFiscalId.count({ where: { customerId, deletedAt: null } });
+      // La primera queda como predeterminada; si piden otra, desplaza a la anterior.
+      const isDefault = dto.is_default || cuantas === 0;
+      if (isDefault) {
+        await tx.customerFiscalId.updateMany({ where: { customerId, isDefault: true }, data: { isDefault: false } });
+      }
+      return tx.customerFiscalId.create({
+        data: {
+          tenantId: ctx.tenantId,
+          customerId,
+          docType: dto.doc_type,
+          docNumber: dto.doc_number,
+          rucDv: dto.doc_type === 'ruc' ? (dto.ruc_dv ?? null) : null,
+          legalName: dto.legal_name,
+          isDefault,
+        },
+      });
+    });
+  }
+
+  @Patch('customers/:id/fiscal-ids/:fid')
+  updateFiscalId(
+    @Param('id', new ZodPipe(uuid)) customerId: string,
+    @Param('fid', new ZodPipe(uuid)) fid: string,
+    @Body(new ZodPipe(fiscalIdUpdate)) dto: FiscalIdUpdate,
+    @Req() req: FastifyRequest & AuthRequest,
+  ) {
+    return this.appDb.tx(tenantCtx(req), async (tx) => {
+      const existing = await tx.customerFiscalId.findFirst({ where: { id: fid, customerId, deletedAt: null } });
+      if (!existing) throw new NotFoundException();
+      if (dto.is_default) {
+        await tx.customerFiscalId.updateMany({ where: { customerId, isDefault: true }, data: { isDefault: false } });
+      }
+      const docType = dto.doc_type ?? existing.docType;
+      return tx.customerFiscalId.update({
+        where: { id: fid },
+        data: {
+          docType,
+          docNumber: dto.doc_number,
+          rucDv: docType === 'ruc' ? (dto.ruc_dv !== undefined ? dto.ruc_dv : existing.rucDv) : null,
+          legalName: dto.legal_name,
+          isDefault: dto.is_default,
+        },
+      });
+    });
+  }
+
+  /** Quitar de la ficha: baja logica (las facturas ya emitidas la siguen referenciando). */
+  @Delete('customers/:id/fiscal-ids/:fid')
+  @HttpCode(204)
+  async removeFiscalId(
+    @Param('id', new ZodPipe(uuid)) customerId: string,
+    @Param('fid', new ZodPipe(uuid)) fid: string,
+    @Req() req: FastifyRequest & AuthRequest,
+  ) {
+    await this.appDb.tx(tenantCtx(req), async (tx) => {
+      const existing = await tx.customerFiscalId.findFirst({ where: { id: fid, customerId, deletedAt: null } });
+      if (!existing) throw new NotFoundException();
+      await tx.customerFiscalId.update({ where: { id: fid }, data: { deletedAt: new Date(), isDefault: false } });
+      if (existing.isDefault) {
+        const siguiente = await tx.customerFiscalId.findFirst({ where: { customerId, deletedAt: null }, orderBy: { createdAt: 'asc' } });
+        if (siguiente) await tx.customerFiscalId.update({ where: { id: siguiente.id }, data: { isDefault: true } });
+      }
+    });
   }
 
   // --------------------- bandeja de tareas (todo el negocio) ---------------------

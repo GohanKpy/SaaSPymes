@@ -33,6 +33,9 @@ export const serviceCreate = z
     kind: catalogKind.optional(),
     // Servicio: duracion de la tarea. null explicito = volver al default (30).
     duration_min: z.number().int().positive().nullable().optional(),
+    // Servicio: minutos que aporta cuando se combina con otro en el mismo
+    // turno (2026-09-07). null = la duracion completa.
+    combo_duration_min: z.number().int().positive().nullable().optional(),
     // Item: coordinar una reunion inicial para tratarlo, y su duracion.
     requires_meeting: z.boolean().optional(),
     meeting_min: z.number().int().positive().nullable().optional(),

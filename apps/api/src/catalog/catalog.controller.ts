@@ -167,6 +167,7 @@ export class CatalogController {
           isActive: dto.is_active,
           kind,
           durationMin: kind === 'servicio' ? dto.duration_min : null,
+          comboDurationMin: kind === 'servicio' ? dto.combo_duration_min : null,
           requiresMeeting: kind === 'item' ? (dto.requires_meeting ?? true) : false,
           meetingMin: kind === 'item' ? dto.meeting_min : null,
         },
@@ -187,6 +188,8 @@ export class CatalogController {
       // datos de reunion y un item no tiene duracion de tarea.
       const kind = dto.kind ?? existing.kind;
       const durationMin = dto.duration_min !== undefined ? dto.duration_min : existing.durationMin;
+      const comboDurationMin =
+        dto.combo_duration_min !== undefined ? dto.combo_duration_min : existing.comboDurationMin;
       const requiresMeeting =
         dto.requires_meeting !== undefined ? dto.requires_meeting : existing.requiresMeeting;
       const meetingMin = dto.meeting_min !== undefined ? dto.meeting_min : existing.meetingMin;
@@ -202,6 +205,7 @@ export class CatalogController {
           isActive: dto.is_active,
           kind,
           durationMin: kind === 'servicio' ? durationMin : null,
+          comboDurationMin: kind === 'servicio' ? comboDurationMin : null,
           requiresMeeting: kind === 'item' ? requiresMeeting : false,
           meetingMin: kind === 'item' ? meetingMin : null,
         },

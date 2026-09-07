@@ -109,6 +109,23 @@ export type ContactPointCreate = z.infer<typeof contactPointCreate>;
 export const contactPointUpdate = contactPointCreate.partial().strict();
 export type ContactPointUpdate = z.infer<typeof contactPointUpdate>;
 
+// ------------------- identidades fiscales (2026-09-07) -------------------
+
+/** A nombre de quien factura el cliente: RUC o CI + razon social / nombre. */
+export const fiscalIdCreate = z
+  .object({
+    doc_type: z.enum(['ruc', 'ci', 'pasaporte']),
+    doc_number: z.string().min(1).max(20),
+    ruc_dv: z.string().max(2).optional(),
+    legal_name: z.string().min(1).max(200),
+    is_default: z.boolean().default(false),
+  })
+  .strict();
+export type FiscalIdCreate = z.infer<typeof fiscalIdCreate>;
+
+export const fiscalIdUpdate = fiscalIdCreate.partial().strict();
+export type FiscalIdUpdate = z.infer<typeof fiscalIdUpdate>;
+
 // ------------------- campos personalizados del tenant -------------------
 
 export const customFieldDefCreate = z

@@ -23,11 +23,15 @@ import {
 
 // Agenda del negocio (fase 1 auditoria de paneles 2026-09-05): la agenda del
 // dia arriba y con fecha, alta en una ventana con la fecha adentro y un
-// buscador de clientes (adios al desplegable de 50), y todas las acciones
-// por turno: confirmar, atendido, no vino, reprogramar y cancelar con motivo.
-// Los horarios de atencion viven en Ajustes → Horarios (fase 2).
+// buscador de clientes, y todas las acciones por turno: confirmar, atendido,
+// no vino, reprogramar y cancelar con motivo.
+// 2026-09-07 (pedido de Johan): solo se agendan SERVICIOS (los items del
+// catalogo no aparecen), un turno puede combinar varios servicios y la
+// duracion total se calcula (el mas largo entero + lo que suma cada otro) y
+// se puede ajustar a mano antes de buscar horario.
 
 const TZ = 'America/Asuncion';
+const DURACION_DEFAULT = 30;
 
 interface Appointment {
   id: string;
@@ -38,11 +42,15 @@ interface Appointment {
   notes: string | null;
   customer: { id: string; firstName: string; lastName: string | null; phoneE164: string | null };
   service: { id: string; name: string; durationMin: number | null } | null;
+  services: { id: string; name: string; durationMin: number }[];
   employee: { id: string; firstName: string; lastName: string } | null;
 }
 interface Service {
   id: string;
   name: string;
+  kind: string;
+  durationMin: number | null;
+  comboDurationMin: number | null;
   isActive?: boolean;
 }
 interface Employee {
@@ -56,7 +64,6 @@ interface Employee {
 // Input compacto: inputClass trae w-full y para la fecha un ancho fijo es lo correcto.
 const dateInput =
   'w-40 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm focus:border-sky-500 focus:outline-none';
-
 
 function today(): string {
   return new Date().toLocaleDateString('en-CA', { timeZone: TZ });
@@ -81,37 +88,129 @@ function fechaLarga(d: string): string {
 const nombreEmpleado = (e: { firstName: string; lastName: string } | null) =>
   e ? `${e.firstName} ${e.lastName}` : null;
 
-/** Horarios libres para servicio + fecha (+ profesional). Dice por que esta vacio. */
+/** Nombres de los servicios del turno ("Corte + Color"); cae al principal en turnos viejos. */
+const nombreServicios = (a: Appointment) =>
+  a.services?.length ? a.services.map((s) => s.name).join(' + ') : (a.service?.name ?? null);
+
+const idsServicios = (a: Appointment) => (a.services?.length ? a.services.map((s) => s.id) : a.service ? [a.service.id] : []);
+
+const minutosTurno = (a: Appointment) => Math.max(5, Math.round((new Date(a.endsAt).getTime() - new Date(a.startsAt).getTime()) / 60_000));
+
+/**
+ * Misma regla que el servidor (que es quien manda): el servicio mas largo
+ * cuenta entero; los demas suman su "duracion cuando se combina" o la completa.
+ */
+function duracionCalculada(elegidos: Service[]): number {
+  if (elegidos.length === 0) return 0;
+  const full = elegidos.map((s) => s.durationMin ?? DURACION_DEFAULT);
+  const principal = full.indexOf(Math.max(...full));
+  return elegidos.reduce((acc, s, i) => acc + (i === principal ? full[i]! : (s.comboDurationMin ?? full[i]!)), 0);
+}
+
+/** Elegir uno o varios servicios y ver/ajustar la duracion total. */
+function ServiciosPicker({
+  services,
+  value,
+  duracion,
+  onChange,
+}: {
+  services: Service[];
+  value: string[];
+  /** '' = usar la calculada */
+  duracion: string;
+  onChange: (ids: string[], duracion: string) => void;
+}) {
+  const elegidos = value.map((id) => services.find((s) => s.id === id)).filter((s): s is Service => Boolean(s));
+  const calculada = duracionCalculada(elegidos);
+  const ajustada = duracion !== '' && Number(duracion) !== calculada;
+  return (
+    <div className="space-y-2">
+      <Field label={`Servicios${value.length > 1 ? ` (${value.length})` : ''} *`}>
+        <div className="max-h-44 space-y-0.5 overflow-y-auto rounded-md border border-slate-300 p-1.5">
+          {services.map((s) => {
+            const marcado = value.includes(s.id);
+            return (
+              <label key={s.id} className={`flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-slate-50 ${marcado ? 'bg-sky-50' : ''}`}>
+                <input
+                  type="checkbox"
+                  checked={marcado}
+                  onChange={(e) => onChange(e.target.checked ? [...value, s.id] : value.filter((id) => id !== s.id), '')}
+                />
+                <span className="flex-1">{s.name}</span>
+                <span className="text-xs text-slate-400">
+                  {s.durationMin ?? DURACION_DEFAULT} min
+                  {s.comboDurationMin ? ` · ${s.comboDurationMin} si se combina` : ''}
+                </span>
+              </label>
+            );
+          })}
+          {services.length === 0 && <p className="px-1.5 py-2 text-sm text-slate-400">No hay servicios activos en el catálogo.</p>}
+        </div>
+      </Field>
+      {value.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <span className="text-slate-600">Duración total</span>
+          <input
+            type="number"
+            min={5}
+            max={720}
+            step={5}
+            className="w-20 rounded-md border border-slate-300 px-2 py-1 text-sm"
+            value={duracion === '' ? calculada : duracion}
+            onChange={(e) => onChange(value, e.target.value)}
+            aria-label="Duración total en minutos"
+          />
+          <span className="text-slate-600">min</span>
+          {ajustada ? (
+            <button type="button" className="text-xs text-sky-700 hover:underline" onClick={() => onChange(value, '')}>
+              Volver a la calculada ({calculada} min)
+            </button>
+          ) : (
+            <span className="text-xs text-slate-400">
+              {value.length > 1 ? 'calculada: el más largo entero + lo que suma cada otro; podés ajustarla' : 'la del servicio; podés ajustarla'}
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Horarios libres para servicios + duracion + fecha (+ profesional). Dice por que esta vacio. */
 function SlotSelect({
   branch,
-  serviceId,
+  serviceIds,
+  durationMin,
   date,
   employeeId,
   value,
   onChange,
 }: {
   branch: string | undefined;
-  serviceId: string;
+  serviceIds: string[];
+  durationMin: number | null;
   date: string;
   employeeId: string;
   value: string;
   onChange: (iso: string) => void;
 }) {
   const [slots, setSlots] = useState<string[] | null>([]);
+  const idsKey = serviceIds.join(',');
   useEffect(() => {
-    if (!branch || !serviceId || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    if (!branch || !idsKey || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       setSlots([]);
       return;
     }
     setSlots(null);
-    const params = new URLSearchParams({ branch_id: branch, service_id: serviceId, date });
+    const params = new URLSearchParams({ branch_id: branch, service_ids: idsKey, date });
     if (employeeId) params.set('employee_id', employeeId);
+    if (durationMin) params.set('duration_min', String(durationMin));
     api<string[]>(`/appointments/availability?${params.toString()}`)
       .then(setSlots)
       .catch(() => setSlots([]));
-  }, [branch, serviceId, date, employeeId]);
+  }, [branch, idsKey, durationMin, date, employeeId]);
 
-  const sinServicio = !serviceId;
+  const sinServicio = !idsKey;
   const cargando = slots === null;
   const vacio = !cargando && slots.length === 0;
   return (
@@ -150,6 +249,16 @@ function SlotSelect({
   );
 }
 
+const NUEVO_VACIO = {
+  date: today(),
+  customer: null as PickedCustomer | null,
+  service_ids: [] as string[],
+  duracion: '',
+  employee_id: '',
+  slot: '',
+  notes: '',
+};
+
 export default function SchedulePage() {
   const confirmar = useConfirm();
   const askText = useAskText();
@@ -168,14 +277,7 @@ export default function SchedulePage() {
 
   // --- alta ---
   const [nuevo, setNuevo] = useState(false);
-  const [nuevoForm, setNuevoForm] = useState({
-    date: today(),
-    customer: null as PickedCustomer | null,
-    service_id: '',
-    employee_id: '',
-    slot: '',
-    notes: '',
-  });
+  const [nuevoForm, setNuevoForm] = useState(NUEVO_VACIO);
   const [guardando, setGuardando] = useState(false);
 
   // --- reprogramar ---
@@ -202,8 +304,9 @@ export default function SchedulePage() {
 
   useEffect(() => {
     void api<{ id: string }[]>('/branches').then(setBranches).catch(() => setError('No se pudieron cargar las sucursales.'));
+    // Solo servicios: los items (productos) no se agendan desde el panel.
     void api<Service[]>('/catalog/services')
-      .then((s) => setServices(s.filter((x) => x.isActive !== false)))
+      .then((s) => setServices(s.filter((x) => x.isActive !== false && x.kind === 'servicio')))
       .catch(() => undefined);
     void api<Employee[]>('/employees')
       .then((r) => setEmployees(r.filter((e) => e.bookable && e.isActive)))
@@ -211,7 +314,7 @@ export default function SchedulePage() {
   }, []);
   useEffect(() => load(), [load]);
 
-  // Links desde otras pantallas: ?nuevo=1&customer=<id>&fecha=YYYY-MM-DD, ?horarios=1
+  // Links desde otras pantallas: ?nuevo=1&customer=<id>&fecha=YYYY-MM-DD
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
     const fecha = q.get('fecha');
@@ -251,11 +354,17 @@ export default function SchedulePage() {
     };
   }, [rows]);
 
+  const duracionNuevo = useMemo(() => {
+    if (nuevoForm.duracion !== '') return Number(nuevoForm.duracion) || null;
+    const elegidos = nuevoForm.service_ids.map((id) => services.find((s) => s.id === id)).filter((s): s is Service => Boolean(s));
+    return elegidos.length ? duracionCalculada(elegidos) : null;
+  }, [nuevoForm.duracion, nuevoForm.service_ids, services]);
+
   // ------------------------------- acciones -------------------------------
 
   async function crearTurno(e: React.FormEvent) {
     e.preventDefault();
-    if (!branch || !nuevoForm.customer) return;
+    if (!branch || !nuevoForm.customer || nuevoForm.service_ids.length === 0) return;
     setGuardando(true);
     try {
       const created = await api<Appointment>('/appointments', {
@@ -263,17 +372,20 @@ export default function SchedulePage() {
         json: {
           branch_id: branch,
           customer_id: nuevoForm.customer.id,
-          service_id: nuevoForm.service_id,
+          service_ids: nuevoForm.service_ids,
+          ...(nuevoForm.duracion !== '' ? { duration_min: Number(nuevoForm.duracion) } : {}),
           starts_at: nuevoForm.slot,
           ...(nuevoForm.employee_id ? { employee_id: nuevoForm.employee_id } : {}),
           ...(nuevoForm.notes.trim() ? { notes: nuevoForm.notes.trim() } : {}),
         },
       });
       toast.success(
-        `Turno agendado: ${customerName(nuevoForm.customer)}, ${fechaLarga(nuevoForm.date)} a las ${hora(nuevoForm.slot)}`,
+        `Turno agendado: ${customerName(nuevoForm.customer)}, ${fechaLarga(nuevoForm.date)} a las ${hora(nuevoForm.slot)}${
+          nuevoForm.service_ids.length > 1 ? ` (${nuevoForm.service_ids.length} servicios)` : ''
+        }`,
       );
       setNuevo(false);
-      setNuevoForm({ date: nuevoForm.date, customer: null, service_id: '', employee_id: '', slot: '', notes: '' });
+      setNuevoForm({ ...NUEVO_VACIO, date: nuevoForm.date });
       setHighlight(created.id);
       setTimeout(() => setHighlight(null), 6000);
       if (nuevoForm.date !== date) setDate(nuevoForm.date);
@@ -313,7 +425,7 @@ export default function SchedulePage() {
   async function cancelar(a: Appointment) {
     const reason = await askText({
       title: `Cancelar el turno de ${customerName(a.customer)}`,
-      message: `${a.service?.name ?? 'Turno'} del ${fechaLarga(date)} a las ${hora(a.startsAt)}. El horario queda libre; el motivo queda en el historial.`,
+      message: `${nombreServicios(a) ?? 'Turno'} del ${fechaLarga(date)} a las ${hora(a.startsAt)}. El horario queda libre; el motivo queda en el historial.`,
       label: 'Motivo (opcional)',
       placeholder: 'Ej: el cliente avisó que no llega',
       required: false,
@@ -389,7 +501,7 @@ export default function SchedulePage() {
       {a.status === 'completed' && (
         <Link
           className={buttonSoft}
-          href={`/app/invoices?nueva=1&customer=${a.customer.id}${a.service ? `&service=${a.service.id}` : ''}`}
+          href={`/app/invoices?nueva=1&customer=${a.customer.id}${idsServicios(a).length ? `&services=${idsServicios(a).join(',')}` : ''}`}
         >
           Cobrar
         </Link>
@@ -473,7 +585,7 @@ export default function SchedulePage() {
               <tr>
                 <th>Hora</th>
                 <th>Cliente</th>
-                <th>Servicio</th>
+                <th>Servicios</th>
                 <th>Atiende</th>
                 <th>Estado</th>
                 <th>Origen</th>
@@ -493,6 +605,7 @@ export default function SchedulePage() {
                     <td className="whitespace-nowrap tabular-nums">
                       {hora(a.startsAt)}
                       <span className="text-slate-400"> – {hora(a.endsAt)}</span>
+                      <span className="block text-xs text-slate-400">{minutosTurno(a)} min</span>
                     </td>
                     <td>
                       <Link className="font-medium text-sky-700 hover:underline" href={`/app/customers/${a.customer.id}`}>
@@ -501,7 +614,7 @@ export default function SchedulePage() {
                       {a.customer.phoneE164 && <span className="block text-xs text-slate-400">{a.customer.phoneE164}</span>}
                     </td>
                     <td>
-                      {a.service?.name ?? '—'}
+                      {nombreServicios(a) ?? '—'}
                       {a.notes && <span className="block max-w-[16rem] truncate text-xs text-slate-400" title={a.notes}>{a.notes}</span>}
                     </td>
                     <td>{nombreEmpleado(a.employee) ?? '—'}</td>
@@ -562,7 +675,7 @@ export default function SchedulePage() {
                       <Link className="text-sky-700 hover:underline" href={`/app/customers/${a.customer.id}`}>
                         {customerName(a.customer)}
                       </Link>
-                      <span className="block text-xs text-slate-500">{a.service?.name ?? '—'}</span>
+                      <span className="block text-xs text-slate-500">{nombreServicios(a) ?? '—'}</span>
                       <div className="mt-2 text-right">{acciones(a)}</div>
                     </li>
                   );
@@ -578,11 +691,28 @@ export default function SchedulePage() {
       {nuevo && (
         <Modal
           title="Nuevo turno"
-          description="Elegí cliente, servicio y horario. Si el cliente no existe, lo creás desde el buscador."
+          description="Elegí cliente, uno o más servicios y horario. Si el cliente no existe, lo creás desde el buscador."
           onClose={() => setNuevo(false)}
           size="lg"
         >
           <form className="grid gap-3 md:grid-cols-2" onSubmit={(e) => void crearTurno(e)}>
+            <div className="md:col-span-2">
+              <Field label="Cliente *">
+                <CustomerPicker
+                  value={nuevoForm.customer}
+                  onChange={(c) => setNuevoForm({ ...nuevoForm, customer: c })}
+                  autoFocus={!nuevoForm.customer}
+                />
+              </Field>
+            </div>
+            <div className="md:col-span-2">
+              <ServiciosPicker
+                services={services}
+                value={nuevoForm.service_ids}
+                duracion={nuevoForm.duracion}
+                onChange={(service_ids, duracion) => setNuevoForm({ ...nuevoForm, service_ids, duracion, slot: '' })}
+              />
+            </div>
             <Field label="Fecha">
               <input
                 type="date"
@@ -591,30 +721,6 @@ export default function SchedulePage() {
                 onChange={(e) => setNuevoForm({ ...nuevoForm, date: e.target.value, slot: '' })}
                 required
               />
-            </Field>
-            <div className="md:col-span-2 md:-order-1">
-              <Field label="Cliente">
-                <CustomerPicker
-                  value={nuevoForm.customer}
-                  onChange={(c) => setNuevoForm({ ...nuevoForm, customer: c })}
-                  autoFocus={!nuevoForm.customer}
-                />
-              </Field>
-            </div>
-            <Field label="Servicio">
-              <select
-                className={inputClass}
-                value={nuevoForm.service_id}
-                onChange={(e) => setNuevoForm({ ...nuevoForm, service_id: e.target.value, slot: '' })}
-                required
-              >
-                <option value="">Elegí un servicio…</option>
-                {services.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
             </Field>
             {employees.length > 0 && (
               <Field label="Atiende">
@@ -632,14 +738,17 @@ export default function SchedulePage() {
                 </select>
               </Field>
             )}
-            <SlotSelect
-              branch={branch}
-              serviceId={nuevoForm.service_id}
-              date={nuevoForm.date}
-              employeeId={nuevoForm.employee_id}
-              value={nuevoForm.slot}
-              onChange={(slot) => setNuevoForm({ ...nuevoForm, slot })}
-            />
+            <div className="md:col-span-2">
+              <SlotSelect
+                branch={branch}
+                serviceIds={nuevoForm.service_ids}
+                durationMin={duracionNuevo}
+                date={nuevoForm.date}
+                employeeId={nuevoForm.employee_id}
+                value={nuevoForm.slot}
+                onChange={(slot) => setNuevoForm({ ...nuevoForm, slot })}
+              />
+            </div>
             <div className="md:col-span-2">
               <Field label="Nota para el equipo (opcional)">
                 <input
@@ -654,7 +763,12 @@ export default function SchedulePage() {
               <Button variant="ghost" onClick={() => setNuevo(false)}>
                 Volver
               </Button>
-              <Button variant="primary" type="submit" loading={guardando} disabled={!nuevoForm.customer || !nuevoForm.slot}>
+              <Button
+                variant="primary"
+                type="submit"
+                loading={guardando}
+                disabled={!nuevoForm.customer || nuevoForm.service_ids.length === 0 || !nuevoForm.slot}
+              >
                 Agendar
               </Button>
             </div>
@@ -666,9 +780,9 @@ export default function SchedulePage() {
       {reprog && (
         <Modal
           title={`Reprogramar a ${customerName(reprog.customer)}`}
-          description={`${reprog.service?.name ?? 'Turno'} · hoy ${fechaLarga(date)} a las ${hora(reprog.startsAt)}${
+          description={`${nombreServicios(reprog) ?? 'Turno'} (${minutosTurno(reprog)} min) · hoy ${fechaLarga(date)} a las ${hora(reprog.startsAt)}${
             reprog.employee ? ` con ${nombreEmpleado(reprog.employee)}` : ''
-          }. Se cancela el actual y se crea el nuevo; si algo falla, el original queda como está.`}
+          }. Se cancela el actual y se crea el nuevo con los mismos servicios y duración; si algo falla, el original queda como está.`}
           onClose={() => setReprog(null)}
         >
           <form className="grid gap-3 md:grid-cols-2" onSubmit={(e) => void reprogramar(e)}>
@@ -700,7 +814,8 @@ export default function SchedulePage() {
             <div className="md:col-span-2">
               <SlotSelect
                 branch={branch}
-                serviceId={reprog.service?.id ?? ''}
+                serviceIds={idsServicios(reprog)}
+                durationMin={minutosTurno(reprog)}
                 date={reprogForm.date}
                 employeeId={reprogForm.employee_id}
                 value={reprogForm.slot}
@@ -718,7 +833,6 @@ export default function SchedulePage() {
           </form>
         </Modal>
       )}
-
     </div>
   );
 }

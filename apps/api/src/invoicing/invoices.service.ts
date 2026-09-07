@@ -8,6 +8,8 @@ import {
 import type { TenantContext, TenantTx } from '@pymes/db';
 import type { InvoicingProvider } from '@pymes/invoicing';
 import type {
+  InvoiceBillingInput,
+  InvoiceBillingUpdate,
   InvoiceCancel,
   InvoiceCreate,
   InvoiceItemInput,
@@ -73,6 +75,105 @@ export async function resolveItems(tx: TenantTx, inputs: InvoiceItemInput[]): Pr
   return items;
 }
 
+// ------------- a nombre de quien sale la factura (2026-09-07) -------------
+
+export interface BillingSnapshot {
+  fiscalIdId: string | null;
+  billingName: string | null;
+  billingDocType: string | null;
+  billingDocNumber: string | null;
+  billingRucDv: string | null;
+}
+
+const SIN_BILLING: BillingSnapshot = {
+  fiscalIdId: null,
+  billingName: null,
+  billingDocType: null,
+  billingDocNumber: null,
+  billingRucDv: null,
+};
+
+function snapshotDe(f: { id: string; legalName: string; docType: string; docNumber: string; rucDv: string | null }): BillingSnapshot {
+  return { fiscalIdId: f.id, billingName: f.legalName, billingDocType: f.docType, billingDocNumber: f.docNumber, billingRucDv: f.rucDv };
+}
+
+/**
+ * Sin eleccion explicita: la identidad predeterminada de la ficha (o la mas
+ * vieja) y, si no hay ninguna, el documento propio del cliente. Puede quedar
+ * vacio: un borrador se crea igual y se completa antes de emitir.
+ */
+export async function defaultBillingFor(tx: TenantTx, customerId: string): Promise<BillingSnapshot> {
+  const f = await tx.customerFiscalId.findFirst({
+    where: { customerId, deletedAt: null },
+    orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
+  });
+  if (f) return snapshotDe(f);
+  const c = await tx.customer.findFirst({ where: { id: customerId } });
+  if (c?.docNumber) {
+    return {
+      fiscalIdId: null,
+      billingName: `${c.firstName} ${c.lastName ?? ''}`.trim(),
+      billingDocType: c.docType ?? 'ci',
+      billingDocNumber: c.docNumber,
+      billingRucDv: c.docType === 'ruc' ? c.rucDv : null,
+    };
+  }
+  return SIN_BILLING;
+}
+
+/** Resuelve fiscal_id | billing | (nada) al snapshot que se congela en la factura. */
+export async function resolveBilling(
+  tx: TenantTx,
+  tenantId: string,
+  customerId: string,
+  input: { fiscal_id?: string; billing?: InvoiceBillingInput },
+): Promise<BillingSnapshot> {
+  if (input.fiscal_id) {
+    const f = await tx.customerFiscalId.findFirst({ where: { id: input.fiscal_id, customerId, deletedAt: null } });
+    if (!f) throw new NotFoundException({ title: 'Esa identidad fiscal no esta en la ficha del cliente' });
+    return snapshotDe(f);
+  }
+  if (input.billing) {
+    const b = input.billing;
+    const dv = b.doc_type === 'ruc' ? (b.ruc_dv ?? null) : null;
+    if (!b.save_to_customer) {
+      return { fiscalIdId: null, billingName: b.legal_name, billingDocType: b.doc_type, billingDocNumber: b.doc_number, billingRucDv: dv };
+    }
+    // Se guarda en la ficha para la proxima vez (mismo documento = se actualiza el nombre).
+    const existente = await tx.customerFiscalId.findFirst({
+      where: { customerId, docType: b.doc_type, docNumber: b.doc_number, deletedAt: null },
+    });
+    const cuantas = await tx.customerFiscalId.count({ where: { customerId, deletedAt: null } });
+    const f = existente
+      ? await tx.customerFiscalId.update({ where: { id: existente.id }, data: { legalName: b.legal_name, rucDv: dv } })
+      : await tx.customerFiscalId.create({
+          data: { tenantId, customerId, docType: b.doc_type, docNumber: b.doc_number, rucDv: dv, legalName: b.legal_name, isDefault: cuantas === 0 },
+        });
+    return snapshotDe(f);
+  }
+  return defaultBillingFor(tx, customerId);
+}
+
+/** Receptor efectivo: el snapshot de la factura o, en facturas viejas, el documento del cliente. */
+export function billingEfectivo(invoice: {
+  billingName: string | null;
+  billingDocType: string | null;
+  billingDocNumber: string | null;
+  billingRucDv: string | null;
+  customer: { firstName: string; lastName: string | null; docType: string | null; docNumber: string | null; rucDv: string | null };
+}) {
+  const c = invoice.customer;
+  if (invoice.billingDocNumber) {
+    return {
+      name: invoice.billingName ?? `${c.firstName} ${c.lastName ?? ''}`.trim(),
+      docType: invoice.billingDocType,
+      docNumber: invoice.billingDocNumber,
+      rucDv: invoice.billingRucDv,
+    };
+  }
+  return { name: `${c.firstName} ${c.lastName ?? ''}`.trim(), docType: c.docType, docNumber: c.docNumber, rucDv: c.rucDv };
+}
+
 @Injectable()
 export class InvoicesService {
   constructor(
@@ -127,9 +228,13 @@ export class InvoicesService {
   /** Borrador con totales SIEMPRE recalculados en el server (doc 04 §5). */
   async createDraft(ctx: TenantContext, dto: InvoiceCreate) {
     return this.appDb.tx(ctx, async (tx) => {
+      const customer = await tx.customer.findFirst({ where: { id: dto.customer_id, deletedAt: null } });
+      if (!customer) throw new NotFoundException({ title: 'El cliente no existe' });
       const items = await resolveItems(tx, dto.items);
       const total = items.reduce((acc, i) => acc + i.lineTotal, 0n);
       const taxTotal = items.reduce((acc, i) => acc + taxPortion(i.lineTotal, i.taxRate), 0n);
+      // A nombre de quien sale (2026-09-07): se congela ahora, es dato fiscal.
+      const billing = await resolveBilling(tx, ctx.tenantId, dto.customer_id, dto);
       const invoice = await tx.invoice.create({
         data: {
           tenantId: ctx.tenantId,
@@ -139,6 +244,7 @@ export class InvoicesService {
           subtotal: total - taxTotal,
           taxTotal,
           total,
+          ...billing,
         },
       });
       // Items por createMany: el create anidado de Prisma no admite fijar
@@ -159,6 +265,19 @@ export class InvoicesService {
     });
   }
 
+  /** Cambiar a nombre de quien sale un BORRADOR (2026-09-07). */
+  async updateBilling(ctx: TenantContext, id: string, dto: InvoiceBillingUpdate) {
+    return this.appDb.tx(ctx, async (tx) => {
+      const invoice = await tx.invoice.findFirst({ where: { id } });
+      if (!invoice) throw new NotFoundException();
+      if (invoice.status !== 'draft') {
+        throw new ConflictException({ title: 'Solo se cambia el receptor de un borrador; una factura emitida se anula' });
+      }
+      const billing = await resolveBilling(tx, ctx.tenantId, invoice.customerId, dto);
+      return tx.invoice.update({ where: { id }, data: billing, include: { items: true, payments: true, customer: true } });
+    });
+  }
+
   /**
    * Emision (doc 04 §3.9): numeracion correlativa con lock por punto de
    * expedicion y transmision via InvoicingProvider. Con el provider fake la
@@ -173,6 +292,14 @@ export class InvoicesService {
       if (!invoice) throw new NotFoundException();
       if (invoice.status !== 'draft') {
         throw new ConflictException({ title: 'Solo se emiten borradores' });
+      }
+      // Sin receptor no hay factura valida (2026-09-07): RUC o cedula y nombre.
+      const receptor = billingEfectivo(invoice);
+      if (!receptor.docNumber || !receptor.name) {
+        throw new UnprocessableEntityException({
+          type: 'https://docs.pymes.local/errors/billing-missing',
+          title: 'Falta a nombre de quien sale la factura: carga RUC o cedula y nombre desde el detalle del borrador',
+        });
       }
 
       const sifen = await tx.integrationCredential.findFirst({
@@ -219,9 +346,9 @@ export class InvoicesService {
           expeditionPoint: fiscal.expedition_point,
         },
         customer: {
-          name: `${invoice.customer.firstName} ${invoice.customer.lastName ?? ''}`.trim(),
-          ruc: invoice.customer.docType === 'ruc' ? invoice.customer.docNumber : null,
-          docNumber: invoice.customer.docNumber,
+          name: receptor.name,
+          ruc: receptor.docType === 'ruc' ? receptor.docNumber : null,
+          docNumber: receptor.docNumber,
         },
         items: invoice.items.map((i) => ({
           description: i.description,

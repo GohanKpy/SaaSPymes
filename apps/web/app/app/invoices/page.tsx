@@ -26,6 +26,7 @@ import {
   useUrlParam,
 } from '../../../lib/ui';
 
+import { FacturarA, billingCompleto, billingPayload, documentoTexto, type BillingChoice } from './facturar-a';
 import { LINEA_VACIA, LineasEditor, aItems, type Linea, type ServicioOption } from './lineas';
 import { QuotesSection } from './quotes';
 
@@ -46,7 +47,12 @@ interface Invoice {
   taxTotal?: string | null;
   createdAt: string;
   issuedAt?: string | null;
-  customer: { id?: string; firstName: string; lastName: string | null; docNumber?: string | null };
+  customer: { id?: string; firstName: string; lastName: string | null; docType?: string | null; docNumber?: string | null; rucDv?: string | null };
+  // A nombre de quien sale (2026-09-07); null en facturas viejas = el documento del cliente.
+  billingName?: string | null;
+  billingDocType?: string | null;
+  billingDocNumber?: string | null;
+  billingRucDv?: string | null;
   payments: { id?: string; amount: string; method?: string; createdAt?: string }[];
   items?: { description: string; quantity: string; unitPrice: string; lineTotal?: string; taxRate: number }[];
 }
@@ -56,6 +62,13 @@ const saldo = (i: Invoice) => Number(i.total) - pagado(i);
 const numeroFactura = (i: Invoice) => (i.docNumber ? `${i.establishment}-${i.expeditionPoint}-${i.docNumber}` : null);
 
 const METODO: Record<string, string> = { efectivo: 'Efectivo', transferencia: 'Transferencia', tarjeta: 'Tarjeta', qr: 'QR', otro: 'Otro' };
+
+/** "Razon social · RUC 80012345-7" con el snapshot de la factura, o el documento del cliente en facturas viejas. */
+function receptor(i: Invoice): { nombre: string; documento: string } | null {
+  if (i.billingDocNumber) return { nombre: i.billingName ?? customerName(i.customer), documento: documentoTexto(i.billingDocType, i.billingDocNumber, i.billingRucDv) };
+  if (i.customer.docNumber) return { nombre: customerName(i.customer), documento: documentoTexto(i.customer.docType ?? 'ci', i.customer.docNumber, i.customer.rucDv) };
+  return null;
+}
 
 export default function InvoicesPage() {
   const askText = useAskText();
@@ -76,8 +89,12 @@ export default function InvoicesPage() {
   const [nueva, setNueva] = useState(false);
   const [nuevaCliente, setNuevaCliente] = useState<PickedCustomer | null>(null);
   const [lines, setLines] = useState<Linea[]>([LINEA_VACIA]);
+  const [billing, setBilling] = useState<BillingChoice>({ kind: 'none' });
   const [guardando, setGuardando] = useState(false);
   const [detalle, setDetalle] = useState<Invoice | null>(null);
+  // Cambiar a nombre de quien sale un borrador (desde el detalle o al intentar emitir sin datos).
+  const [receptorDe, setReceptorDe] = useState<Invoice | null>(null);
+  const [receptorNuevo, setReceptorNuevo] = useState<BillingChoice>({ kind: 'none' });
   const [highlight, setHighlight] = useState<string | null>(null);
 
   const [paying, setPaying] = useState<Invoice | null>(null);
@@ -119,8 +136,9 @@ export default function InvoicesPage() {
     if (q.get('nueva') === '1') {
       void cargarCliente.then((c) => {
         setNuevaCliente(c);
-        const serviceId = q.get('service');
-        setLines([{ ...LINEA_VACIA, service_id: serviceId ?? '' }]);
+        // Desde la Agenda (turno con varios servicios): ?services=id1,id2; compatibilidad: ?service=
+        const ids = (q.get('services') ?? q.get('service') ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+        setLines(ids.length ? ids.map((id) => ({ ...LINEA_VACIA, service_id: id })) : [LINEA_VACIA]);
         setNueva(true);
       });
     }
@@ -165,12 +183,20 @@ export default function InvoicesPage() {
       toast.error('Agregá al menos un ítem a la factura.');
       return;
     }
+    if (!billingCompleto(billing)) {
+      toast.error('Falta a nombre de quién sale la factura: elegí una opción o cargá RUC o cédula y nombre.');
+      return;
+    }
     setGuardando(true);
     try {
-      const created = await api<Invoice>('/invoices', { method: 'POST', json: { customer_id: nuevaCliente.id, branch_id: branchId, items } });
+      const created = await api<Invoice>('/invoices', {
+        method: 'POST',
+        json: { customer_id: nuevaCliente.id, branch_id: branchId, items, ...billingPayload(billing) },
+      });
       toast.success(`Borrador creado para ${customerName(nuevaCliente)}. Revisalo y emitilo cuando esté listo.`);
       setNueva(false);
       setNuevaCliente(null);
+      setBilling({ kind: 'none' });
       setLines([LINEA_VACIA]);
       setHighlight(created.id);
       setTimeout(() => setHighlight(null), 6000);
@@ -188,6 +214,13 @@ export default function InvoicesPage() {
       toast.error('Antes de emitir hay que configurar la facturación electrónica en Ajustes.');
       return;
     }
+    // Sin RUC o cedula no hay factura valida: se piden antes de emitir.
+    const completa = i.items ? i : await api<Invoice>(`/invoices/${i.id}`).catch(() => i);
+    if (!receptor(completa)) {
+      toast.error('Falta a nombre de quién sale la factura. Cargá RUC o cédula y nombre.');
+      abrirReceptor(completa);
+      return;
+    }
     const ok = await confirmar({
       title: `Emitir la factura de ${customerName(i.customer)} por ${money(i.total)}`,
       message: 'Toma el siguiente número correlativo y se declara electrónicamente. No se puede volver a borrador: después solo se anula (dentro de las 48 horas).',
@@ -202,6 +235,31 @@ export default function InvoicesPage() {
       load();
     } catch (e) {
       toast.error(errorMessage(e));
+    }
+  }
+
+  function abrirReceptor(i: Invoice) {
+    setReceptorNuevo({ kind: 'none' });
+    setReceptorDe(i);
+  }
+
+  async function guardarReceptor() {
+    if (!receptorDe) return;
+    if (!billingCompleto(receptorNuevo)) {
+      toast.error('Completá RUC o cédula y nombre.');
+      return;
+    }
+    setGuardando(true);
+    try {
+      const updated = await api<Invoice>(`/invoices/${receptorDe.id}/billing`, { method: 'PATCH', json: billingPayload(receptorNuevo) });
+      toast.success(`Factura a nombre de ${updated.billingName ?? customerName(updated.customer)}`);
+      setReceptorDe(null);
+      if (detalle && detalle.id === updated.id) setDetalle(updated);
+      load();
+    } catch (e) {
+      toast.error(errorMessage(e));
+    } finally {
+      setGuardando(false);
     }
   }
 
@@ -287,6 +345,9 @@ export default function InvoicesPage() {
         <>
           <button className={buttonSoft} onClick={() => void emitir(i)}>
             Emitir
+          </button>
+          <button className={buttonGhost} onClick={() => abrirReceptor(i)}>
+            Facturar a…
           </button>
           <button className={buttonDanger} onClick={() => void borrar(i)}>
             Borrar
@@ -396,7 +457,13 @@ export default function InvoicesPage() {
                 return (
                   <tr key={i.id} className={`cursor-pointer ${highlight === i.id ? 'bg-emerald-50' : 'hover:bg-slate-50'}`} onClick={() => void abrirDetalle(i.id)}>
                     <td className="font-mono text-xs">{numeroFactura(i) ?? <span className="text-slate-400">sin número</span>}</td>
-                    <td>{customerName(i.customer)}</td>
+                    <td>
+                      {customerName(i.customer)}
+                      {i.billingName && i.billingName !== customerName(i.customer) && (
+                        <span className="block text-xs text-slate-400">a nombre de {i.billingName}</span>
+                      )}
+                      {i.status === 'draft' && !i.billingDocNumber && <span className="block text-xs text-amber-700">falta RUC o cédula</span>}
+                    </td>
                     <td className="text-right tabular-nums">{money(i.total)}</td>
                     <td>
                       <span className="inline-flex items-center gap-1.5">
@@ -463,12 +530,13 @@ export default function InvoicesPage() {
             <Field label="Cliente *">
               <CustomerPicker value={nuevaCliente} onChange={setNuevaCliente} autoFocus={!nuevaCliente} />
             </Field>
+            <FacturarA customer={nuevaCliente} value={billing} onChange={setBilling} />
             <LineasEditor lines={lines} services={services} onChange={setLines} />
             <div className="flex justify-end gap-2">
               <Button variant="ghost" onClick={() => setNueva(false)}>
                 Volver
               </Button>
-              <Button variant="primary" type="submit" loading={guardando} disabled={!nuevaCliente}>
+              <Button variant="primary" type="submit" loading={guardando} disabled={!nuevaCliente || !billingCompleto(billing)}>
                 Crear borrador
               </Button>
             </div>
@@ -488,6 +556,26 @@ export default function InvoicesPage() {
             {detalle.status === 'approved' && saldo(detalle) > 0 && <Badge tone="amber">saldo {money(saldo(detalle))}</Badge>}
             {detalle.status === 'approved' && saldo(detalle) <= 0 && <Badge tone="emerald">pagada</Badge>}
           </div>
+          {(() => {
+            const r = receptor(detalle);
+            return (
+              <p className={`mb-3 rounded-md px-3 py-2 text-sm ${r ? 'bg-slate-50 text-slate-700' : 'border border-amber-200 bg-amber-50 text-amber-900'}`}>
+                <span className="text-xs uppercase tracking-wide text-slate-400">Facturada a </span>
+                {r ? (
+                  <>
+                    <b>{r.nombre}</b> <span className="text-slate-500">· {r.documento}</span>
+                  </>
+                ) : (
+                  <>Falta RUC o cédula y nombre. Sin eso no se puede emitir.</>
+                )}
+                {detalle.status === 'draft' && (
+                  <button type="button" className="ml-2 text-sky-700 hover:underline" onClick={() => abrirReceptor(detalle)}>
+                    {r ? 'Cambiar' : 'Cargar datos'}
+                  </button>
+                )}
+              </p>
+            );
+          })()}
           <table className="tbl">
             <thead>
               <tr>
@@ -540,6 +628,26 @@ export default function InvoicesPage() {
               Cerrar
             </Button>
             {acciones(detalle, true)}
+          </div>
+        </Modal>
+      )}
+
+      {receptorDe && (
+        <Modal
+          title="A nombre de quién sale la factura"
+          description={`Borrador de ${customerName(receptorDe.customer)}. Elegí una identidad guardada en su ficha o cargá otra.`}
+          onClose={() => setReceptorDe(null)}
+        >
+          <div className="space-y-3">
+            <FacturarA customer={{ id: receptorDe.customer.id ?? '' }} value={receptorNuevo} onChange={setReceptorNuevo} />
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setReceptorDe(null)}>
+                Volver
+              </Button>
+              <Button variant="primary" loading={guardando} disabled={!billingCompleto(receptorNuevo)} onClick={() => void guardarReceptor()}>
+                Guardar
+              </Button>
+            </div>
           </div>
         </Modal>
       )}

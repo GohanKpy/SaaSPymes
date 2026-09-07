@@ -4,7 +4,7 @@ import type { QuoteCreate, QuoteListQuery, QuoteUpdate } from '@pymes/shared';
 import PDFDocument from 'pdfkit';
 
 import { AppPrisma } from '../prisma/app-prisma.service';
-import { resolveItems, taxPortion, type ResolvedItem } from './invoices.service';
+import { defaultBillingFor, resolveItems, taxPortion, type ResolvedItem } from './invoices.service';
 
 const money = (v: bigint | number) => new Intl.NumberFormat('es-PY').format(Number(v));
 
@@ -140,6 +140,10 @@ export class QuotesService {
       if (quote.status === 'rejected') {
         throw new ConflictException({ title: 'Un presupuesto rechazado no se factura' });
       }
+      // A nombre de quien sale (2026-09-07): la identidad predeterminada del
+      // cliente; si no tiene, el borrador queda sin receptor y se completa
+      // desde el detalle antes de emitir.
+      const billing = await defaultBillingFor(tx, quote.customerId);
       const invoice = await tx.invoice.create({
         data: {
           tenantId: ctx.tenantId,
@@ -149,6 +153,7 @@ export class QuotesService {
           subtotal: quote.subtotal,
           taxTotal: quote.taxTotal,
           total: quote.total,
+          ...billing,
         },
       });
       await tx.invoiceItem.createMany({

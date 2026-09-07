@@ -81,6 +81,8 @@ export class CustomersService {
         where: { id, deletedAt: null },
         include: {
           contactPoints: { orderBy: [{ kind: 'asc' }, { sort: 'asc' }] },
+          // A nombre de quien factura (2026-09-07): la ficha las administra.
+          fiscalIds: { where: { deletedAt: null }, orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }] },
         },
       }),
     );

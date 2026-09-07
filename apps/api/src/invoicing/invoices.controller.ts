@@ -1,10 +1,12 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Post, Query, Req, Res } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query, Req, Res } from '@nestjs/common';
 import {
+  invoiceBillingUpdate,
   invoiceCancel,
   invoiceCreate,
   invoiceListQuery,
   paymentCreate,
   uuid,
+  type InvoiceBillingUpdate,
   type InvoiceCancel,
   type InvoiceCreate,
   type InvoiceListQuery,
@@ -61,6 +63,16 @@ export class InvoicesController {
   @HttpCode(204)
   async remove(@Param('id', new ZodPipe(uuid)) id: string, @Req() req: FastifyRequest & AuthRequest) {
     await this.invoices.removeDraft(tenantCtx(req), id);
+  }
+
+  /** A nombre de quien sale un borrador (2026-09-07): identidad de la ficha o datos sueltos. */
+  @Patch(':id/billing')
+  updateBilling(
+    @Param('id', new ZodPipe(uuid)) id: string,
+    @Body(new ZodPipe(invoiceBillingUpdate)) dto: InvoiceBillingUpdate,
+    @Req() req: FastifyRequest & AuthRequest,
+  ) {
+    return this.invoices.updateBilling(tenantCtx(req), id, dto);
   }
 
   @Get(':id')

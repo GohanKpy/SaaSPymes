@@ -46,6 +46,7 @@ interface Service {
   taxRate: number;
   kind: Kind;
   durationMin: number | null;
+  comboDurationMin: number | null;
   requiresMeeting: boolean;
   meetingMin: number | null;
   isActive: boolean;
@@ -106,6 +107,7 @@ interface ProductoForm {
   price: string;
   tax_rate: '10' | '5' | '0';
   duration_min: string;
+  combo_duration_min: string;
   requires_meeting: boolean;
   meeting_min: string;
   is_active: boolean;
@@ -135,6 +137,7 @@ function ProductoModal({
           price: initial.price,
           tax_rate: String(initial.taxRate) as ProductoForm['tax_rate'],
           duration_min: initial.durationMin ? String(initial.durationMin) : '',
+          combo_duration_min: initial.comboDurationMin ? String(initial.comboDurationMin) : '',
           requires_meeting: initial.requiresMeeting,
           meeting_min: initial.meetingMin ? String(initial.meetingMin) : '',
           is_active: initial.isActive,
@@ -147,6 +150,7 @@ function ProductoModal({
           price: '',
           tax_rate: '10',
           duration_min: '',
+          combo_duration_min: '',
           requires_meeting: true,
           meeting_min: '',
           is_active: true,
@@ -212,7 +216,10 @@ function ProductoModal({
       price: form.price.trim(),
       tax_rate: Number(form.tax_rate),
       ...(form.kind === 'servicio'
-        ? { duration_min: Number(form.duration_min) || (initial ? null : undefined) }
+        ? {
+            duration_min: Number(form.duration_min) || (initial ? null : undefined),
+            combo_duration_min: Number(form.combo_duration_min) || (initial ? null : undefined),
+          }
         : { requires_meeting: form.requires_meeting, meeting_min: Number(form.meeting_min) || (initial ? null : undefined) }),
       ...(initial ? { is_active: form.is_active } : {}),
     };
@@ -278,9 +285,17 @@ function ProductoModal({
           </div>
         </div>
         {form.kind === 'servicio' ? (
-          <Field label={`Duración del turno en minutos (vacío = ${DURACION_DEFAULT})`}>
-            <input className={inputClass} type="number" min="5" step="5" placeholder={String(DURACION_DEFAULT)} value={form.duration_min} onChange={(e) => setForm({ ...form, duration_min: e.target.value })} />
-          </Field>
+          <div className="grid gap-3 md:grid-cols-2">
+            <Field label={`Duración del turno en minutos (vacío = ${DURACION_DEFAULT})`}>
+              <input className={inputClass} type="number" min="5" step="5" placeholder={String(DURACION_DEFAULT)} value={form.duration_min} onChange={(e) => setForm({ ...form, duration_min: e.target.value })} />
+            </Field>
+            <Field label="Si se combina con otro servicio, suma solo (min; vacío = la completa)">
+              <input className={inputClass} type="number" min="5" step="5" placeholder="ej: 15" value={form.combo_duration_min} onChange={(e) => setForm({ ...form, combo_duration_min: e.target.value })} />
+              <span className="mt-0.5 block text-xs text-slate-400">
+                En un turno con varios servicios, el más largo cuenta entero y los demás suman este tiempo (se hacen en paralelo o se solapan).
+              </span>
+            </Field>
+          </div>
         ) : (
           <div className="space-y-2 rounded-md border border-amber-200 bg-amber-50 p-3">
             <label className="flex items-start gap-2 text-sm">
@@ -686,7 +701,11 @@ export default function CatalogPage() {
                   <td className="text-right tabular-nums">{money(s.price)}</td>
                   <td className="text-xs text-slate-500">{s.taxRate === 0 ? 'exento' : `${s.taxRate}%`}</td>
                   <td className="text-xs">
-                    {s.kind === 'servicio' ? `${s.durationMin ?? DURACION_DEFAULT} min` : s.requiresMeeting ? `reunión ${s.meetingMin ?? DURACION_DEFAULT} min` : 'venta directa'}
+                    {s.kind === 'servicio'
+                      ? `${s.durationMin ?? DURACION_DEFAULT} min${s.comboDurationMin ? ` · ${s.comboDurationMin} si se combina` : ''}`
+                      : s.requiresMeeting
+                        ? `reunión ${s.meetingMin ?? DURACION_DEFAULT} min`
+                        : 'venta directa'}
                   </td>
                   <td>
                     <label className="inline-flex items-center gap-1.5 text-xs">

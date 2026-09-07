@@ -51,6 +51,8 @@ const APP_TABLES = [
   'service_photos',
   'quotes',
   'quote_items',
+  'appointment_services',
+  'customer_fiscal_ids',
   'audit_log',
 ] as const;
 
@@ -205,7 +207,21 @@ async function seedTenant(name: string, phone: string): Promise<SeededTenant> {
         invoiceId: invoice.id,
       },
     });
-    void appointment;
+    // Turnos multi-servicio y RUCs multiples (2026-09-07): una fila por tabla nueva.
+    await tx.appointmentService.create({
+      data: { tenantId: tenant.id, appointmentId: appointment.id, serviceId: service.id, durationMin: 60 },
+    });
+    await tx.customerFiscalId.create({
+      data: {
+        tenantId: tenant.id,
+        customerId: customer.id,
+        docType: 'ruc',
+        docNumber: '80012345',
+        rucDv: '7',
+        legalName: `Empresa ${name}`,
+        isDefault: true,
+      },
+    });
     return {
       id: tenant.id,
       branchId: branch.id,
@@ -231,8 +247,10 @@ async function wipeTenant(tenantId: string): Promise<void> {
       'quote_items',
       'quotes',
       'invoice_items',
+      'appointment_services',
       'appointments',
       'invoices',
+      'customer_fiscal_ids',
       'service_photos',
       'services',
       'service_categories',
@@ -323,6 +341,19 @@ describe('aislamiento multitenant (SQL, rol app_rw)', () => {
             startsAt: new Date('2026-09-02T13:00:00Z'),
             endsAt: new Date('2026-09-02T14:00:00Z'),
           },
+        }),
+      ),
+    ).rejects.toThrow();
+  });
+
+  it('caso 3c: colgar un servicio de B de un turno de A es imposible (FK compuesta)', async () => {
+    const turnoA = await tenantTx(appRw, { tenantId: A.id }, (tx) =>
+      tx.appointment.findFirstOrThrow({ select: { id: true } }),
+    );
+    await expect(
+      tenantTx(appRw, { tenantId: A.id }, (tx) =>
+        tx.appointmentService.create({
+          data: { tenantId: A.id, appointmentId: turnoA.id, serviceId: B.serviceId, durationMin: 30 },
         }),
       ),
     ).rejects.toThrow();

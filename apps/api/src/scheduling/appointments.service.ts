@@ -6,6 +6,7 @@ import type {
   AppointmentReschedule,
   AvailabilityQuery,
 } from '@pymes/shared';
+import { MIN_APPOINTMENT_MIN } from '@pymes/shared';
 
 import { AppPrisma } from '../prisma/app-prisma.service';
 
@@ -24,6 +25,46 @@ export const DEFAULT_SLOT_STEP_MIN = 30;
  *  la reunion inicial cuando el producto es un item. */
 function slotDurationMin(s: { kind: string; durationMin: number | null; meetingMin: number | null }): number {
   return (s.kind === 'item' ? s.meetingMin : s.durationMin) ?? DEFAULT_DURATION_MIN;
+}
+
+type ServicioTurno = { id: string; kind: string; durationMin: number | null; meetingMin: number | null; comboDurationMin: number | null };
+
+/**
+ * Minutos que aporta cada servicio de un turno combinado (2026-09-07): el mas
+ * largo cuenta entero; los demas, su "duracion cuando se combina" (o la
+ * completa si no la tienen). El total del turno es la suma.
+ */
+export function minutosPorServicio(services: ServicioTurno[]): number[] {
+  const full = services.map((s) => slotDurationMin(s));
+  if (full.length <= 1) return full;
+  const principal = full.indexOf(Math.max(...full));
+  return services.map((s, i) => (i === principal ? full[i]! : (s.comboDurationMin ?? full[i]!)));
+}
+
+export function duracionTurnoMin(services: ServicioTurno[]): number {
+  if (services.length === 0) return DEFAULT_DURATION_MIN;
+  return minutosPorServicio(services).reduce((a, b) => a + b, 0);
+}
+
+/** Servicios en el orden pedido (el primero es el principal). */
+function ordenar<T extends { id: string }>(rows: T[], ids: string[]): T[] {
+  return ids.map((id) => rows.find((r) => r.id === id)).filter((r): r is T => Boolean(r));
+}
+
+/** Lo que devuelve la API por turno: cliente, servicio principal, empleado y todos los servicios. */
+const APPT_INCLUDE = {
+  customer: { select: { id: true, firstName: true, lastName: true, phoneE164: true } },
+  service: { select: { id: true, name: true, durationMin: true } },
+  employee: { select: { id: true, firstName: true, lastName: true } },
+  services: {
+    orderBy: { sort: 'asc' as const },
+    select: { durationMin: true, service: { select: { id: true, name: true } } },
+  },
+} as const;
+
+/** Aplana appointment_services a services: [{ id, name, durationMin }]. */
+function conServicios<T extends { services: { durationMin: number; service: { id: string; name: string } }[] }>(a: T) {
+  return { ...a, services: a.services.map((x) => ({ id: x.service.id, name: x.service.name, durationMin: x.durationMin })) };
 }
 
 export interface BranchSchedule {
@@ -89,8 +130,9 @@ export class AppointmentsService {
   constructor(private readonly appDb: AppPrisma) {}
 
   list(ctx: TenantContext, query: AppointmentListQuery) {
-    return this.appDb.tx(ctx, (tx) =>
-      tx.appointment.findMany({
+    return this.appDb.tx(ctx, async (tx) =>
+      (
+        await tx.appointment.findMany({
         where: {
           deletedAt: null,
           ...(query.branch_id ? { branchId: query.branch_id } : {}),
@@ -105,28 +147,28 @@ export class AppointmentsService {
               }
             : {}),
         },
-        include: {
-          customer: { select: { id: true, firstName: true, lastName: true, phoneE164: true } },
-          service: { select: { id: true, name: true, durationMin: true } },
-          employee: { select: { id: true, firstName: true, lastName: true } },
-        },
+        include: APPT_INCLUDE,
         orderBy: { startsAt: 'asc' },
         take: 500,
-      }),
+        })
+      ).map(conServicios),
     );
   }
 
   /** Slots libres segun duracion del servicio y horario (doc 04 §3.6). */
   async availability(ctx: TenantContext, query: AvailabilityQuery): Promise<string[]> {
     return this.appDb.tx(ctx, async (tx) => {
-      const [service, branch, tenant] = await Promise.all([
-        tx.service.findFirst({ where: { id: query.service_id, deletedAt: null, isActive: true } }),
+      const ids = [...new Set(query.service_ids ?? (query.service_id ? [query.service_id] : []))];
+      const [encontrados, branch, tenant] = await Promise.all([
+        tx.service.findMany({ where: { id: { in: ids }, deletedAt: null, isActive: true } }),
         tx.branch.findFirst({ where: { id: query.branch_id, deletedAt: null } }),
         tx.tenant.findUnique({ where: { id: ctx.tenantId }, select: { timezone: true } }),
       ]);
-      if (!service || !branch) throw new NotFoundException();
+      if (encontrados.length !== ids.length || !branch) throw new NotFoundException();
       const timezone = tenant?.timezone ?? 'America/Asuncion';
-      const duration = slotDurationMin(service);
+      // Varios servicios (2026-09-07): el total lo calcula el servidor y el
+      // panel puede ajustarlo a mano (duration_min).
+      const duration = query.duration_min ?? duracionTurnoMin(ordenar(encontrados, ids));
 
       // Franjas configuradas por la sucursal (almuerzo = hueco entre franjas;
       // dia cerrado = sin franjas). Sin configuracion: 08-18.
@@ -233,15 +275,16 @@ export class AppointmentsService {
     source: 'panel' | 'bot',
     autoConfirm: boolean,
   ) {
-    const service = dto.service_id
-      ? await tx.service.findFirst({ where: { id: dto.service_id, deletedAt: null } })
-      : null;
-    if (dto.service_id && !service) throw new NotFoundException();
+    // Uno o varios servicios (2026-09-07); el primero es el principal.
+    const ids = [...new Set(dto.service_ids ?? (dto.service_id ? [dto.service_id] : []))];
+    const encontrados = ids.length ? await tx.service.findMany({ where: { id: { in: ids }, deletedAt: null } }) : [];
+    if (encontrados.length !== ids.length) throw new NotFoundException();
+    const services = ordenar(encontrados, ids);
+    const minutos = minutosPorServicio(services);
+    const duracion = dto.duration_min ?? (services.length ? minutos.reduce((a, b) => a + b, 0) : DEFAULT_DURATION_MIN);
 
     const startsAt = new Date(dto.starts_at);
-    const endsAt = dto.ends_at
-      ? new Date(dto.ends_at)
-      : new Date(startsAt.getTime() + (service ? slotDurationMin(service) : DEFAULT_DURATION_MIN) * 60_000);
+    const endsAt = dto.ends_at ? new Date(dto.ends_at) : new Date(startsAt.getTime() + duracion * 60_000);
 
     // Asignacion de empleado (ADR 0009): con empleados agendables, cada
     // reserva queda asignada a uno libre. El advisory lock por tenant
@@ -350,12 +393,12 @@ export class AppointmentsService {
     // Turnos por bot nacen pending o confirmed segun auto_confirm_bookings
     // (doc 01 §3.3); los del panel nacen pending hasta confirmar.
     const status = source === 'bot' && autoConfirm ? 'confirmed' : 'pending';
-    return tx.appointment.create({
+    const created = await tx.appointment.create({
       data: {
         tenantId: ctx.tenantId,
         branchId: dto.branch_id,
         customerId: dto.customer_id,
-        serviceId: dto.service_id,
+        serviceId: ids[0] ?? null,
         employeeId,
         startsAt,
         endsAt,
@@ -364,11 +407,22 @@ export class AppointmentsService {
         notes: dto.notes,
         ...(status === 'confirmed' ? { confirmedAt: new Date() } : {}),
       },
-      include: {
-        service: { select: { name: true } },
-        employee: { select: { firstName: true, lastName: true } },
-      },
     });
+    // Todos los servicios del turno, con los minutos que aporta cada uno.
+    // createMany: el create anidado no fija tenant_id con FK compuesta y RLS lo exige.
+    if (services.length > 0) {
+      await tx.appointmentService.createMany({
+        data: services.map((svc, i) => ({
+          tenantId: ctx.tenantId,
+          appointmentId: created.id,
+          serviceId: svc.id,
+          sort: i,
+          durationMin: minutos[i] ?? slotDurationMin(svc),
+        })),
+      });
+    }
+    const full = await tx.appointment.findFirstOrThrow({ where: { id: created.id }, include: APPT_INCLUDE });
+    return conServicios(full);
   }
 
   async transition(
@@ -423,7 +477,10 @@ export class AppointmentsService {
    */
   async reschedule(ctx: TenantContext, id: string, dto: AppointmentReschedule) {
     return this.appDb.tx(ctx, async (tx) => {
-      const old = await tx.appointment.findFirst({ where: { id, deletedAt: null } });
+      const old = await tx.appointment.findFirst({
+        where: { id, deletedAt: null },
+        include: { services: { orderBy: { sort: 'asc' }, select: { serviceId: true } } },
+      });
       if (!old) throw new NotFoundException();
       if (!['pending', 'confirmed'].includes(old.status)) {
         throw new ConflictException({ title: 'Solo se reprograman turnos pendientes o confirmados' });
@@ -442,7 +499,11 @@ export class AppointmentsService {
         {
           branch_id: old.branchId,
           customer_id: old.customerId,
-          service_id: old.serviceId ?? undefined,
+          ...(old.services.length > 0
+            ? { service_ids: old.services.map((x) => x.serviceId) }
+            : { service_id: old.serviceId ?? undefined }),
+          // Misma duracion que tenia (puede haber sido ajustada a mano).
+          duration_min: Math.max(MIN_APPOINTMENT_MIN, Math.round((old.endsAt.getTime() - old.startsAt.getTime()) / 60_000)),
           employee_id: dto.employee_id ?? old.employeeId ?? undefined,
           starts_at: dto.starts_at,
           notes: old.notes?.trim() || undefined,
@@ -452,15 +513,13 @@ export class AppointmentsService {
       );
       const final =
         old.status === 'confirmed'
-          ? await tx.appointment.update({
-              where: { id: nuevo.id },
-              data: { status: 'confirmed', confirmedBy: ctx.userId, confirmedAt: new Date() },
-              include: {
-                customer: { select: { id: true, firstName: true, lastName: true, phoneE164: true } },
-                service: { select: { id: true, name: true, durationMin: true } },
-                employee: { select: { id: true, firstName: true, lastName: true } },
-              },
-            })
+          ? conServicios(
+              await tx.appointment.update({
+                where: { id: nuevo.id },
+                data: { status: 'confirmed', confirmedBy: ctx.userId, confirmedAt: new Date() },
+                include: APPT_INCLUDE,
+              }),
+            )
           : nuevo;
       return { nuevo: final, anterior };
     });

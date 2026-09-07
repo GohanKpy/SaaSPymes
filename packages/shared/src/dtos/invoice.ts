@@ -16,14 +16,43 @@ export const invoiceItemInput = z
   });
 export type InvoiceItemInput = z.infer<typeof invoiceItemInput>;
 
+/**
+ * A nombre de quien sale la factura (2026-09-07). Se elige UNA de tres formas:
+ * fiscal_id (identidad guardada en la ficha), billing (datos sueltos; con
+ * save_to_customer quedan en la ficha) o ninguna (el documento propio del
+ * cliente, si lo tiene). Emitir exige que haya datos.
+ */
+export const invoiceBillingInput = z
+  .object({
+    doc_type: z.enum(['ruc', 'ci', 'pasaporte']),
+    doc_number: z.string().min(1).max(20),
+    ruc_dv: z.string().max(2).optional(),
+    legal_name: z.string().min(1).max(200),
+    save_to_customer: z.boolean().default(true),
+  })
+  .strict();
+export type InvoiceBillingInput = z.infer<typeof invoiceBillingInput>;
+
 export const invoiceCreate = z
   .object({
     customer_id: uuid,
     branch_id: uuid,
+    fiscal_id: uuid.optional(),
+    billing: invoiceBillingInput.optional(),
     items: z.array(invoiceItemInput).min(1),
   })
   .strict();
 export type InvoiceCreate = z.infer<typeof invoiceCreate>;
+
+/** Cambiar a nombre de quien sale un BORRADOR (desde el detalle). */
+export const invoiceBillingUpdate = z
+  .object({
+    fiscal_id: uuid.optional(),
+    billing: invoiceBillingInput.optional(),
+  })
+  .strict()
+  .refine((b) => b.fiscal_id || b.billing, { message: 'Falta fiscal_id o billing' });
+export type InvoiceBillingUpdate = z.infer<typeof invoiceBillingUpdate>;
 
 export const invoiceListQuery = paginationQuery.extend({
   status: z.enum(['draft', 'issuing', 'approved', 'rejected', 'cancelled', 'credited']).optional(),

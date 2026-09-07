@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { api } from '../../../lib/api';
+import { OneTimeCredentials } from '../../../lib/credentials';
 import { useConfirm, useToast } from '../../../lib/feedback';
 import { errorMessage, roleLabel } from '../../../lib/labels';
 import { Badge, Button, EmptyRow, Field, Modal, buttonDanger, buttonGhost, dt, inputClass, tableCard } from '../../../lib/ui';
@@ -38,7 +39,6 @@ export function AccesosSection({ prefill, onPrefillUsed, onUsers }: { prefill: P
   const [users, setUsers] = useState<TeamUser[] | null>(null);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [creds, setCreds] = useState<{ email: string; pass: string } | null>(null);
-  const [copiado, setCopiado] = useState(false);
   const [nueva, setNueva] = useState(false);
   const [form, setForm] = useState({ email: '', full_name: '', role: 'staff', branch_ids: [] as string[] });
   const [guardando, setGuardando] = useState(false);
@@ -131,33 +131,7 @@ export function AccesosSection({ prefill, onPrefillUsed, onUsers }: { prefill: P
 
   return (
     <>
-      {creds && (
-        <div className="rounded-md border border-amber-300 bg-amber-50 p-4 text-sm">
-          <p className="font-medium">Datos de acceso. Se muestran UNA sola vez: copialos y pasáselos a la persona por un canal seguro.</p>
-          <div className="mt-2 flex flex-wrap items-center gap-3 font-mono">
-            <span>
-              <span className="text-xs text-amber-800">Usuario:</span> {creds.email}
-            </span>
-            <span>
-              <span className="text-xs text-amber-800">Contraseña:</span> {creds.pass}
-            </span>
-            <Button
-              variant="ghost"
-              onClick={() => {
-                void navigator.clipboard.writeText(`Usuario: ${creds.email}\nContraseña: ${creds.pass}`).then(() => {
-                  setCopiado(true);
-                  setTimeout(() => setCopiado(false), 2000);
-                });
-              }}
-            >
-              {copiado ? '✓ Copiado' : 'Copiar'}
-            </Button>
-          </div>
-          <button className="mt-2 text-amber-700 underline" onClick={() => setCreds(null)}>
-            Ya lo guardé, ocultar
-          </button>
-        </div>
-      )}
+      {creds && <OneTimeCredentials title="Datos de acceso al panel:" email={creds.email} password={creds.pass} onHide={() => setCreds(null)} />}
 
       <div className={tableCard}>
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 p-3">

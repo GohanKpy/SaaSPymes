@@ -32,6 +32,15 @@ interface ContactPoint {
   value: string;
   isPrimary: boolean;
 }
+/** A nombre de quien factura (2026-09-07): RUC o CI + razon social; varias por cliente. */
+interface FiscalId {
+  id: string;
+  docType: string;
+  docNumber: string;
+  rucDv: string | null;
+  legalName: string;
+  isDefault: boolean;
+}
 interface CustomerDetail {
   id: string;
   firstName: string;
@@ -59,6 +68,7 @@ interface CustomerDetail {
   lastConversationSummary: string | null;
   lastSummaryAt: string | null;
   contactPoints: ContactPoint[];
+  fiscalIds: FiscalId[];
 }
 interface Activity {
   id: string;
@@ -159,6 +169,10 @@ export default function CustomerFichaPage() {
   const [act, setAct] = useState(EMPTY_ACT);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  // Identidades fiscales (RUC / razon social) de la ficha.
+  const [fiscal, setFiscal] = useState<FiscalId | 'nueva' | null>(null);
+  const [fiscalForm, setFiscalForm] = useState({ doc_type: 'ruc', doc_number: '', ruc_dv: '', legal_name: '', is_default: false });
+  const [guardandoFiscal, setGuardandoFiscal] = useState(false);
 
   const load = useCallback(() => {
     void api<CustomerDetail>(`/customers/${id}`)
@@ -338,6 +352,65 @@ export default function CustomerFichaPage() {
     }
   }
 
+  function abrirFiscal(f: FiscalId | 'nueva') {
+    setFiscalForm(
+      f === 'nueva'
+        ? { doc_type: 'ruc', doc_number: '', ruc_dv: '', legal_name: `${customer?.firstName ?? ''} ${customer?.lastName ?? ''}`.trim(), is_default: (customer?.fiscalIds.length ?? 0) === 0 }
+        : { doc_type: f.docType, doc_number: f.docNumber, ruc_dv: f.rucDv ?? '', legal_name: f.legalName, is_default: f.isDefault },
+    );
+    setFiscal(f);
+  }
+
+  async function guardarFiscal(e: React.FormEvent) {
+    e.preventDefault();
+    if (!fiscal) return;
+    setGuardandoFiscal(true);
+    const json = {
+      doc_type: fiscalForm.doc_type,
+      doc_number: fiscalForm.doc_number.trim(),
+      ...(fiscalForm.doc_type === 'ruc' && fiscalForm.ruc_dv ? { ruc_dv: fiscalForm.ruc_dv } : {}),
+      legal_name: fiscalForm.legal_name.trim(),
+      is_default: fiscalForm.is_default,
+    };
+    try {
+      if (fiscal === 'nueva') await api(`/customers/${id}/fiscal-ids`, { method: 'POST', json });
+      else await api(`/customers/${id}/fiscal-ids/${fiscal.id}`, { method: 'PATCH', json });
+      toast.success(fiscal === 'nueva' ? 'Datos de facturación agregados' : 'Datos de facturación guardados');
+      setFiscal(null);
+      load();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setGuardandoFiscal(false);
+    }
+  }
+
+  async function predeterminarFiscal(f: FiscalId) {
+    try {
+      await api(`/customers/${id}/fiscal-ids/${f.id}`, { method: 'PATCH', json: { is_default: true } });
+      toast.success(`Las facturas salen a nombre de ${f.legalName} salvo que elijas otro`);
+      load();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  }
+
+  async function quitarFiscal(f: FiscalId) {
+    const ok = await confirmar({
+      title: `Quitar "${f.legalName}" de la ficha`,
+      message: 'Las facturas ya emitidas a ese nombre no cambian. Podés volver a cargarlo cuando quieras.',
+      confirmLabel: 'Quitar',
+    });
+    if (!ok) return;
+    try {
+      await api(`/customers/${id}/fiscal-ids/${f.id}`, { method: 'DELETE' });
+      toast.success('Quitado de la ficha');
+      load();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  }
+
   async function addActivity(e: React.FormEvent) {
     e.preventDefault();
     const isTask = ACTIVITY_TYPES.find((t) => t.value === act.activity_type)?.task;
@@ -481,6 +554,70 @@ export default function CustomerFichaPage() {
               Unir
             </Button>
           </div>
+        </Modal>
+      )}
+
+      {fiscal && (
+        <Modal
+          title={fiscal === 'nueva' ? 'Agregar RUC o cédula para facturar' : `Editar "${fiscal.legalName}"`}
+          description="RUC o cédula y a nombre de quién sale la factura (razón social o nombre completo)."
+          onClose={() => setFiscal(null)}
+          size="sm"
+        >
+          <form className="space-y-3" onSubmit={(e) => void guardarFiscal(e)}>
+            <div className="grid grid-cols-[110px_1fr_70px] gap-2">
+              <Field label="Documento">
+                <select
+                  className={inputClass}
+                  value={fiscalForm.doc_type}
+                  onChange={(e) => {
+                    const doc_type = e.target.value;
+                    setFiscalForm({ ...fiscalForm, doc_type, ruc_dv: doc_type === 'ruc' ? (dvRuc(fiscalForm.doc_number) ?? '') : '' });
+                  }}
+                >
+                  <option value="ruc">RUC</option>
+                  <option value="ci">Cédula</option>
+                  <option value="pasaporte">Pasaporte</option>
+                </select>
+              </Field>
+              <Field label="Número *">
+                <input
+                  className={inputClass}
+                  inputMode="numeric"
+                  autoFocus
+                  required
+                  placeholder={fiscalForm.doc_type === 'ruc' ? '80012345 (sin el DV)' : '1234567'}
+                  value={fiscalForm.doc_number}
+                  onChange={(e) => {
+                    const doc_number = e.target.value;
+                    setFiscalForm({ ...fiscalForm, doc_number, ruc_dv: fiscalForm.doc_type === 'ruc' ? (dvRuc(doc_number) ?? '') : '' });
+                  }}
+                />
+              </Field>
+              {fiscalForm.doc_type === 'ruc' ? (
+                <Field label="DV">
+                  <input className={`${inputClass} bg-slate-100`} readOnly value={fiscalForm.ruc_dv} title="Se calcula solo" />
+                </Field>
+              ) : (
+                <span />
+              )}
+            </div>
+            <Field label="Razón social o nombre completo *">
+              <input className={inputClass} required value={fiscalForm.legal_name} onChange={(e) => setFiscalForm({ ...fiscalForm, legal_name: e.target.value })} placeholder="Ej: Estudio Creativo S.A." />
+            </Field>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={fiscalForm.is_default} onChange={(e) => setFiscalForm({ ...fiscalForm, is_default: e.target.checked })} />
+              Usar por defecto en las facturas nuevas
+            </label>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setFiscal(null)}>
+                Volver
+              </Button>
+              <Button variant="primary" type="submit" loading={guardandoFiscal}>
+                {fiscal === 'nueva' ? 'Agregar' : 'Guardar'}
+              </Button>
+            </div>
+          </form>
         </Modal>
       )}
 
@@ -726,6 +863,49 @@ export default function CustomerFichaPage() {
                 Agregar contacto
               </Button>
             </form>
+          </Card>
+
+          <Card
+            title="Datos de facturación (RUC / razón social)"
+            description="A nombre de quién le facturás. Puede tener varios (su empresa, otra persona) y elegir uno distinto en cada factura. El documento de arriba es el personal; estos son los fiscales."
+            actions={
+              <Button variant="soft" onClick={() => abrirFiscal('nueva')}>
+                Agregar RUC o cédula
+              </Button>
+            }
+          >
+            <ul className="divide-y divide-slate-100">
+              {(customer.fiscalIds ?? []).map((f) => (
+                <li key={f.id} className="flex flex-wrap items-center gap-2 py-2 text-sm">
+                  <span className="font-medium text-slate-800">{f.legalName}</span>
+                  <span className="text-xs text-slate-500">
+                    {f.docType === 'ruc' ? 'RUC' : f.docType === 'ci' ? 'CI' : 'Pasaporte'} {f.docNumber}
+                    {f.rucDv ? `-${f.rucDv}` : ''}
+                  </span>
+                  {f.isDefault ? (
+                    <Badge tone="emerald">predeterminado</Badge>
+                  ) : (
+                    <button type="button" className="text-xs text-sky-700 hover:underline" onClick={() => void predeterminarFiscal(f)}>
+                      Usar por defecto
+                    </button>
+                  )}
+                  <span className="ml-auto inline-flex gap-1">
+                    <button type="button" className={buttonGhost} onClick={() => abrirFiscal(f)}>
+                      Editar
+                    </button>
+                    <button type="button" className="text-xs text-red-600 hover:underline" onClick={() => void quitarFiscal(f)}>
+                      Quitar
+                    </button>
+                  </span>
+                </li>
+              ))}
+              {(customer.fiscalIds ?? []).length === 0 && (
+                <li className="py-2 text-sm text-slate-400">
+                  Sin datos de facturación guardados.{' '}
+                  {customer.docNumber ? 'Mientras no cargues ninguno, las facturas salen con su documento personal.' : 'Al crear una factura se van a pedir.'}
+                </li>
+              )}
+            </ul>
           </Card>
 
           <Card title="Historial de visitas y facturas">
