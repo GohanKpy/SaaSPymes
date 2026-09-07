@@ -352,7 +352,18 @@ rol. Secciones y quién las ve:
 | Mi cuenta (contraseña) | /app/settings/cuenta | todos |
 
 Los horarios de atención antes se editaban desde la Agenda; ahora la Agenda
-tiene un botón que lleva a esta sección. Al re-guardar WhatsApp no hace
+tiene un botón que lleva a esta sección.
+
+**Cómo se guarda (regla única desde el 2026-09-07):** todo formulario con
+campos de texto tiene su botón **Guardar** y al guardar aparece un aviso
+flotante abajo a la derecha ("… guardados" en verde, o el error en rojo).
+Los **interruptores** (Encendido del bot, cada permiso del bot, Activados de
+los recordatorios, "obligatorio" de un campo propio) se aplican al instante
+y también muestran el aviso flotante "Cambio guardado" o el error. Si el
+aviso no aparece, el cambio NO se guardó. En Bot, los campos de texto
+(videollamada, indicaciones, plantilla del recordatorio) van con el botón
+Guardar de su bloque; mientras haya cambios sin guardar el bloque avisa
+"Hay cambios sin guardar". Al re-guardar WhatsApp no hace
 falta retipear el token de acceso ni el verify token: si se dejan vacíos se
 conservan los ya cargados.
 

@@ -1,18 +1,19 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 
 import { api } from '../../../../lib/api';
 import { avisosDeIndicaciones } from '../../../../lib/bot-indicaciones';
 import { useToast } from '../../../../lib/feedback';
 import { errorMessage } from '../../../../lib/labels';
-import { Badge, Card, ErrorNote, Field, inputClass } from '../../../../lib/ui';
+import { Badge, Button, Card, ErrorNote, Field, inputClass } from '../../../../lib/ui';
 
-// Bot de WhatsApp (fase 2 auditoria de paneles 2026-09-05): cada permiso
-// explica que hace y que pasa si se apaga (patron de Empleados); "se confirman
-// solos" cuelga de "puede agendar"; todo se guarda al instante con un aviso
-// visible; el uso de IA es una barra, no una linea gris al pie.
+// Bot de WhatsApp. Flujo de guardado unificado (pedido de Johan 2026-09-07):
+// los interruptores se aplican al instante y avisan con un texto flotante
+// "Cambio guardado" (o el error); los campos de texto se guardan con el
+// boton Guardar de su bloque, como en el resto de Ajustes. Antes todo se
+// guardaba solo al salir del campo, con un chip chico que nadie veia.
 
 interface BotSettings {
   enabled: boolean;
@@ -81,34 +82,83 @@ export default function BotPage() {
   const toast = useToast();
   const [bot, setBot] = useState<BotSettings | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [instrDraft, setInstrDraft] = useState('');
-  const [link, setLink] = useState('');
-  const [plantilla, setPlantilla] = useState({ template: '', lang: 'es' });
-  const [savedAt, setSavedAt] = useState<number | null>(null);
-  const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Bloque "Cómo atiende": se guarda con su boton.
+  const [atencion, setAtencion] = useState({ link: '', instrucciones: '', priorizar: false });
+  const [guardandoAtencion, setGuardandoAtencion] = useState(false);
+  // Bloque "Recordatorios": idem.
+  const [recordatorio, setRecordatorio] = useState({ horas: 24, plantilla: '', idioma: 'es' });
+  const [guardandoRecordatorio, setGuardandoRecordatorio] = useState(false);
+  // Que interruptor esta aplicandose (para deshabilitarlo mientras tanto).
+  const [aplicando, setAplicando] = useState<string | null>(null);
+
+  const hidratar = (b: BotSettings) => {
+    setBot(b);
+    setAtencion({ link: b.virtualMeetingLink ?? '', instrucciones: b.instructionsText ?? '', priorizar: b.instructionsOverride });
+    setRecordatorio({ horas: b.reminderHours, plantilla: b.reminderTemplate ?? '', idioma: b.reminderTemplateLang || 'es' });
+  };
 
   const load = useCallback(() => {
     api<BotSettings>('/bot/settings')
-      .then((b) => {
-        setBot(b);
-        setInstrDraft(b.instructionsText ?? '');
-        setLink(b.virtualMeetingLink ?? '');
-        setPlantilla({ template: b.reminderTemplate ?? '', lang: b.reminderTemplateLang || 'es' });
-      })
+      .then(hidratar)
       .catch((e) => setError(errorMessage(e, 'No se pudo cargar la configuración del bot. Puede que tu plan no incluya el bot.')));
   }, []);
   useEffect(() => load(), [load]);
 
-  async function patch(json: Record<string, unknown>) {
+  /** Interruptores: se aplican al instante y avisan. */
+  async function aplicar(campo: string, valor: boolean, aviso?: string) {
+    setAplicando(campo);
     try {
-      const updated = await api<BotSettings>('/bot/settings', { method: 'PATCH', json });
+      const updated = await api<BotSettings>('/bot/settings', { method: 'PATCH', json: { [campo]: valor } });
       setBot((prev) => (prev ? { ...prev, ...updated } : prev));
-      setSavedAt(Date.now());
-      if (savedTimer.current) clearTimeout(savedTimer.current);
-      savedTimer.current = setTimeout(() => setSavedAt(null), 2500);
+      toast.success(aviso ?? 'Cambio guardado');
     } catch (e) {
-      toast.error(errorMessage(e));
+      toast.error(errorMessage(e, 'No se pudo guardar el cambio.'));
       load();
+    } finally {
+      setAplicando(null);
+    }
+  }
+
+  async function guardarAtencion(e: React.FormEvent) {
+    e.preventDefault();
+    setGuardandoAtencion(true);
+    try {
+      const updated = await api<BotSettings>('/bot/settings', {
+        method: 'PATCH',
+        json: {
+          virtual_meeting_link: atencion.link.trim() || null,
+          instructions_text: atencion.instrucciones.trim() || null,
+          instructions_override: atencion.priorizar,
+        },
+      });
+      setBot((prev) => (prev ? { ...prev, ...updated } : prev));
+      toast.success('Indicaciones del bot guardadas');
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setGuardandoAtencion(false);
+    }
+  }
+
+  async function guardarRecordatorio(e: React.FormEvent) {
+    e.preventDefault();
+    setGuardandoRecordatorio(true);
+    try {
+      const updated = await api<BotSettings>('/bot/settings', {
+        method: 'PATCH',
+        json: {
+          reminder_hours: recordatorio.horas,
+          reminder_template: recordatorio.plantilla.trim() || null,
+          reminder_template_lang: recordatorio.idioma.trim() || 'es',
+        },
+      });
+      setBot((prev) => (prev ? { ...prev, ...updated } : prev));
+      toast.success('Recordatorios guardados');
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setGuardandoRecordatorio(false);
     }
   }
 
@@ -117,7 +167,15 @@ export default function BotPage() {
   const encendido = bot.enabled && bot.engine_available;
   const usado = bot.usage.input_tokens + bot.usage.output_tokens;
   const pct = bot.usage.budget > 0 ? Math.min(100, Math.round((usado / bot.usage.budget) * 100)) : null;
-  const guardado = savedAt ? <span className="text-xs text-emerald-600">Guardado ✓</span> : <span className="text-xs text-slate-400">Se guarda solo</span>;
+  const avisos = avisosDeIndicaciones(atencion.instrucciones);
+  const atencionSucia =
+    atencion.link.trim() !== (bot.virtualMeetingLink ?? '') ||
+    atencion.instrucciones.trim() !== (bot.instructionsText ?? '') ||
+    atencion.priorizar !== bot.instructionsOverride;
+  const recordatorioSucio =
+    recordatorio.horas !== bot.reminderHours ||
+    recordatorio.plantilla.trim() !== (bot.reminderTemplate ?? '') ||
+    (recordatorio.idioma.trim() || 'es') !== (bot.reminderTemplateLang || 'es');
 
   return (
     <>
@@ -131,20 +189,25 @@ export default function BotPage() {
         }
         description={
           bot.engine_available
-            ? 'Responde por WhatsApp como una persona más del equipo, con los datos reales de tu Catálogo y tu Agenda. Marcá qué le permitís hacer.'
+            ? 'Responde por WhatsApp como una persona más del equipo, con los datos reales de tu Catálogo y tu Agenda. Marcá qué le permitís hacer: cada interruptor se aplica al instante.'
             : 'El motor de inteligencia artificial todavía no está configurado por el administrador del sistema: el bot está apagado aunque lo enciendas acá.'
         }
         actions={
           <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={bot.enabled} onChange={(e) => void patch({ enabled: e.target.checked })} />
+            <input
+              type="checkbox"
+              checked={bot.enabled}
+              disabled={aplicando === 'enabled'}
+              onChange={(e) => void aplicar('enabled', e.target.checked, e.target.checked ? 'Cambio guardado: bot encendido' : 'Cambio guardado: bot apagado')}
+            />
             Encendido
-            {guardado}
           </label>
         }
       >
         <ul className="divide-y divide-slate-100">
           {PERMISOS.map((p) => {
             const bloqueado = p.dependeDe ? !bot[p.dependeDe] : false;
+            const campo = snake(p.key);
             return (
               <li key={p.key} className={`py-2 ${p.dependeDe ? 'pl-7' : ''} ${bloqueado ? 'opacity-50' : ''}`}>
                 <label className="flex items-start gap-3 text-sm">
@@ -152,8 +215,8 @@ export default function BotPage() {
                     type="checkbox"
                     className="mt-0.5"
                     checked={Boolean(bot[p.key])}
-                    disabled={bloqueado}
-                    onChange={(e) => void patch({ [snake(p.key)]: e.target.checked })}
+                    disabled={bloqueado || aplicando === campo}
+                    onChange={(e) => void aplicar(campo, e.target.checked)}
                   />
                   <span>
                     <b>{p.titulo}</b>
@@ -167,21 +230,13 @@ export default function BotPage() {
             );
           })}
         </ul>
+      </Card>
 
-        <div className="mt-4 space-y-4 border-t border-slate-100 pt-4">
+      <Card title="Cómo atiende" description="Videollamadas e indicaciones propias de tu negocio. Estos campos se guardan con el botón.">
+        <form className="space-y-4" onSubmit={(e) => void guardarAtencion(e)}>
           <div>
             <Field label="Videollamadas: link fijo de Meet o Zoom (vacío = el bot no ofrece videollamadas)">
-              <input
-                className={inputClass}
-                type="url"
-                value={link}
-                placeholder="https://meet.google.com/xxx-xxxx-xxx"
-                onChange={(e) => setLink(e.target.value)}
-                onBlur={() => {
-                  const v = link.trim() || null;
-                  if (v !== (bot.virtualMeetingLink ?? null)) void patch({ virtual_meeting_link: v });
-                }}
-              />
+              <input className={inputClass} type="url" value={atencion.link} placeholder="https://meet.google.com/xxx-xxxx-xxx" onChange={(e) => setAtencion({ ...atencion, link: e.target.value })} />
             </Field>
             <p className="mt-1 text-xs text-slate-400">
               Con link, el bot ofrece atención virtual y lo entrega al confirmar la reserva. Sin link, si un cliente pide videollamada le aclara que la atención es presencial.
@@ -192,20 +247,16 @@ export default function BotPage() {
             <Field label="Indicaciones del negocio (cómo querés que atienda: tono, políticas, qué recomendar)">
               <textarea
                 className={`${inputClass} h-28`}
-                value={instrDraft}
-                onChange={(e) => setInstrDraft(e.target.value)}
-                onBlur={() => {
-                  const v = instrDraft.trim() || null;
-                  if (v !== (bot.instructionsText ?? null)) void patch({ instructions_text: v });
-                }}
+                value={atencion.instrucciones}
+                onChange={(e) => setAtencion({ ...atencion, instrucciones: e.target.value })}
                 placeholder="Ej: Somos un estudio creativo; tono cercano y profesional; tratá a los clientes de vos; ante consultas de precios ofrecé agendar la reunión de diagnóstico gratuita; los sábados no hacemos coloración."
               />
             </Field>
-            {avisosDeIndicaciones(instrDraft).length > 0 && (
+            {avisos.length > 0 && (
               <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
                 <p className="font-medium">Ojo: hay cosas en este texto que el bot ya toma del sistema. Si quedan las dos versiones, se confunde y responde mal.</p>
                 <ul className="ml-4 mt-1 list-disc space-y-0.5">
-                  {avisosDeIndicaciones(instrDraft).map((a) => (
+                  {avisos.map((a) => (
                     <li key={a}>{a}</li>
                   ))}
                 </ul>
@@ -225,21 +276,20 @@ export default function BotPage() {
               {'{{telefono}}'}, {'{{actividad}}'}, {'{{email}}'}.
             </p>
             <label className="mt-2 flex items-start gap-2 text-sm">
-              <input
-                type="checkbox"
-                className="mt-0.5"
-                checked={bot.instructionsOverride}
-                onChange={(e) => void patch({ instructions_override: e.target.checked })}
-              />
+              <input type="checkbox" className="mt-0.5" checked={atencion.priorizar} onChange={(e) => setAtencion({ ...atencion, priorizar: e.target.checked })} />
               <span>
                 <b>Priorizar mis indicaciones</b> sobre la guía estándar del sistema cuando se contradigan en tono o políticas.{' '}
-                <span className="text-xs text-slate-500">
-                  Los datos del sistema (catálogo, horarios, equipo) y las reglas de seguridad mandan siempre igual.
-                </span>
+                <span className="text-xs text-slate-500">Los datos del sistema (catálogo, horarios, equipo) y las reglas de seguridad mandan siempre igual.</span>
               </span>
             </label>
           </div>
-        </div>
+          <div className="flex items-center justify-end gap-3">
+            {atencionSucia && <span className="text-xs text-amber-700">Hay cambios sin guardar</span>}
+            <Button variant="primary" type="submit" loading={guardandoAtencion}>
+              Guardar
+            </Button>
+          </div>
+        </form>
       </Card>
 
       <Card title="Uso de inteligencia artificial" description={`Lo que el bot consumió en ${bot.usage.period}. El límite mensual lo define el administrador del sistema según tu plan.`}>
@@ -272,53 +322,48 @@ export default function BotPage() {
             <Badge tone={bot.reminderEnabled ? 'emerald' : 'slate'}>{bot.reminderEnabled ? 'activados' : 'desactivados'}</Badge>
           </span>
         }
-        description="El sistema le escribe solo al cliente antes de su turno. El mensaje queda en la bandeja como cualquier conversación; si el cliente responde, se atiende normal."
+        description="El sistema le escribe solo al cliente antes de su turno. El mensaje queda en la bandeja como cualquier conversación; si el cliente responde, se atiende normal. El interruptor se aplica al instante; los demás campos se guardan con el botón."
         actions={
           <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={bot.reminderEnabled} onChange={(e) => void patch({ reminder_enabled: e.target.checked })} />
+            <input
+              type="checkbox"
+              checked={bot.reminderEnabled}
+              disabled={aplicando === 'reminder_enabled'}
+              onChange={(e) => void aplicar('reminder_enabled', e.target.checked, e.target.checked ? 'Cambio guardado: recordatorios activados' : 'Cambio guardado: recordatorios desactivados')}
+            />
             Activados
-            {guardado}
           </label>
         }
       >
         {bot.reminderEnabled ? (
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-            <Field label="Cuánto antes del turno">
-              <select className={inputClass} value={bot.reminderHours} onChange={(e) => void patch({ reminder_hours: Number(e.target.value) })}>
-                <option value={2}>2 horas antes</option>
-                <option value={6}>6 horas antes</option>
-                <option value={12}>12 horas antes</option>
-                <option value={24}>24 horas antes</option>
-                <option value={48}>48 horas antes</option>
-              </select>
-            </Field>
-            <Field label="Plantilla aprobada por Meta (solo con envío real)">
-              <input
-                className={inputClass}
-                placeholder="ej: recordatorio_turno"
-                value={plantilla.template}
-                onChange={(e) => setPlantilla({ ...plantilla, template: e.target.value })}
-                onBlur={() => {
-                  const v = plantilla.template.trim() || null;
-                  if (v !== (bot.reminderTemplate ?? null)) void patch({ reminder_template: v });
-                }}
-              />
-            </Field>
-            <Field label="Idioma de la plantilla">
-              <input
-                className={inputClass}
-                value={plantilla.lang}
-                onChange={(e) => setPlantilla({ ...plantilla, lang: e.target.value })}
-                onBlur={() => {
-                  const v = plantilla.lang.trim() || 'es';
-                  if (v !== bot.reminderTemplateLang) void patch({ reminder_template_lang: v });
-                }}
-              />
-            </Field>
-            <p className="col-span-2 self-end text-xs text-slate-400 md:col-span-1">
-              Con envío real, Meta exige una plantilla aprobada en tu cuenta para escribir primero; sin plantilla el recordatorio solo llega si el cliente escribió en las últimas 24 h.
-            </p>
-          </div>
+          <form className="space-y-3" onSubmit={(e) => void guardarRecordatorio(e)}>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              <Field label="Cuánto antes del turno">
+                <select className={inputClass} value={recordatorio.horas} onChange={(e) => setRecordatorio({ ...recordatorio, horas: Number(e.target.value) })}>
+                  <option value={2}>2 horas antes</option>
+                  <option value={6}>6 horas antes</option>
+                  <option value={12}>12 horas antes</option>
+                  <option value={24}>24 horas antes</option>
+                  <option value={48}>48 horas antes</option>
+                </select>
+              </Field>
+              <Field label="Plantilla aprobada por Meta (solo con envío real)">
+                <input className={inputClass} placeholder="ej: recordatorio_turno" value={recordatorio.plantilla} onChange={(e) => setRecordatorio({ ...recordatorio, plantilla: e.target.value })} />
+              </Field>
+              <Field label="Idioma de la plantilla">
+                <input className={inputClass} value={recordatorio.idioma} onChange={(e) => setRecordatorio({ ...recordatorio, idioma: e.target.value })} />
+              </Field>
+              <p className="col-span-2 self-end text-xs text-slate-400 md:col-span-1">
+                Con envío real, Meta exige una plantilla aprobada en tu cuenta para escribir primero; sin plantilla el recordatorio solo llega si el cliente escribió en las últimas 24 h.
+              </p>
+            </div>
+            <div className="flex items-center justify-end gap-3">
+              {recordatorioSucio && <span className="text-xs text-amber-700">Hay cambios sin guardar</span>}
+              <Button variant="primary" type="submit" loading={guardandoRecordatorio}>
+                Guardar
+              </Button>
+            </div>
+          </form>
         ) : (
           <p className="text-sm text-slate-400">Activalos para que ningún cliente se olvide de su turno.</p>
         )}

@@ -99,7 +99,7 @@ export function CustomFieldsSection({ onError }: { onError: (msg: string) => voi
   async function patch(def: CustomFieldDef, json: Record<string, unknown>) {
     try {
       await api(`/custom-fields/${def.id}`, { method: 'PATCH', json });
-      toast.success('Guardado');
+      toast.success('Cambio guardado');
       load();
     } catch (e) {
       onError(errorMessage(e));
@@ -109,7 +109,7 @@ export function CustomFieldsSection({ onError }: { onError: (msg: string) => voi
   return (
     <Card
       title="Campos del cliente"
-      description="Agregá campos propios a la ficha de tus clientes (ej: tipo de cabello, talle, obra social). Aparecen en la ficha de cada cliente. Desactivar un campo lo oculta sin borrar lo ya cargado."
+      description="Agregá campos propios a la ficha de tus clientes (ej: tipo de cabello, talle, obra social). Aparecen en la ficha de cada cliente. Desactivar un campo lo oculta sin borrar lo ya cargado. Los cambios en la lista se aplican al instante (nombre y opciones, al salir del campo)."
     >
       <ul className="space-y-1">
         {defs.map((def) => (
