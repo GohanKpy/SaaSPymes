@@ -3,7 +3,13 @@ import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 import { loadEnv } from '@pymes/shared';
 
+import { randomUUID } from 'node:crypto';
+
+import type { FastifyReply, FastifyRequest } from 'fastify';
+
 import { AppModule } from './app.module';
+import { ActionLogService } from './audit/action-log.service';
+import type { AuthRequest } from './auth/decorators';
 import { ProblemFilter } from './common/problem.filter';
 
 // Montos bigint (guaranies) serializados como string en JSON (doc 04 §1).
@@ -54,6 +60,20 @@ export async function createApp(): Promise<NestFastifyApplication> {
   // Base /api/v1 (doc 04 §1); /health queda fuera como liveness de infra.
   app.setGlobalPrefix('api/v1', { exclude: ['health'] });
   app.useGlobalFilters(new ProblemFilter());
+
+  // Auditoria de seguridad (2026-09-07): cada pedido recibe un id unico
+  // (trace_id de los errores y llave de app.audit_log) y toda accion que
+  // cambia algo queda registrada al terminar, incluso si un guard la rechazo.
+  const actionLog = app.get(ActionLogService);
+  const fastify = app.getHttpAdapter().getInstance();
+  fastify.addHook('onRequest', (req: FastifyRequest, _reply: FastifyReply, done: () => void) => {
+    (req as FastifyRequest & AuthRequest).requestId = randomUUID();
+    done();
+  });
+  fastify.addHook('onResponse', (req: FastifyRequest, reply: FastifyReply, done: () => void) => {
+    actionLog.registrar(req as FastifyRequest & AuthRequest, reply);
+    done();
+  });
   app.enableShutdownHooks();
 
   return app;

@@ -20,4 +20,8 @@ export const RequireFeature = (code: string) => SetMetadata(FEATURE, code);
 /** Claims autenticados colgados del request por JwtAuthGuard. */
 export interface AuthRequest {
   authUser?: AccessTokenClaims;
+  /** Id unico del pedido (hook onRequest): trace_id de los errores y llave de la auditoria. */
+  requestId?: string;
+  /** Titulo del error devuelto (lo deja ProblemFilter para el registro de acciones). */
+  problemTitle?: string;
 }

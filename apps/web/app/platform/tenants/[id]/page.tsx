@@ -250,15 +250,20 @@ export default function TenantDetailPage() {
         }
         actions={
           tenant ? (
-            tenant.status === 'suspended' ? (
-              <Button variant="soft" onClick={() => void cambiarEstado('active')}>
-                Reactivar
-              </Button>
-            ) : (
-              <Button variant="danger" onClick={() => void cambiarEstado('suspended')}>
-                Suspender
-              </Button>
-            )
+            <>
+              <Link className={buttonGhost} href={`/platform/audit?tenant_id=${tenant.id}`}>
+                Ver auditoría
+              </Link>
+              {tenant.status === 'suspended' ? (
+                <Button variant="soft" onClick={() => void cambiarEstado('active')}>
+                  Reactivar
+                </Button>
+              ) : (
+                <Button variant="danger" onClick={() => void cambiarEstado('suspended')}>
+                  Suspender
+                </Button>
+              )}
+            </>
           ) : undefined
         }
       />

@@ -5,8 +5,13 @@ import { PrismaClient, Prisma } from '@prisma/client';
 
 export * from '@prisma/client';
 
+/**
+ * Cliente Prisma. Las transacciones interactivas (tenantTx) tienen un tope
+ * de 20 s (el default de 5 s cortaba la siembra de la suite de aislamiento y
+ * dejaria caer una emision de factura si SIFEN tarda).
+ */
 export function createPrismaClient(url: string): PrismaClient {
-  return new PrismaClient({ datasourceUrl: url });
+  return new PrismaClient({ datasourceUrl: url, transactionOptions: { maxWait: 10_000, timeout: 20_000 } });
 }
 
 /** Cliente transaccional dentro de tenantTx (sin $transaction anidado). */
@@ -21,6 +26,10 @@ export interface TenantContext {
   userId?: string;
   /** user | bot | system | platform (default 'user' en el trigger). */
   actorType?: 'user' | 'bot' | 'system' | 'platform';
+  /** Auditoria de seguridad (2026-09-07): desde donde y en que pedido HTTP. */
+  ip?: string;
+  requestId?: string;
+  userAgent?: string;
 }
 
 /**
@@ -41,6 +50,10 @@ export async function tenantTx<T>(
     if (ctx.actorType) {
       await tx.$executeRaw`SELECT set_config('app.actor_type', ${ctx.actorType}, true)`;
     }
+    // Los triggers de auditoria copian esto en cada fila que cambia.
+    if (ctx.ip) await tx.$executeRaw`SELECT set_config('app.ip', ${ctx.ip}, true)`;
+    if (ctx.requestId) await tx.$executeRaw`SELECT set_config('app.request_id', ${ctx.requestId}, true)`;
+    if (ctx.userAgent) await tx.$executeRaw`SELECT set_config('app.user_agent', ${ctx.userAgent.slice(0, 300)}, true)`;
     return fn(tx as TenantTx);
   });
 }

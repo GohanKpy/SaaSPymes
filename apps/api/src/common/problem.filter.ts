@@ -4,6 +4,7 @@ import { type ArgumentsHost, Catch, type ExceptionFilter, HttpException, HttpSta
 import { Prisma } from '@pymes/db';
 import type { FastifyReply } from 'fastify';
 
+import type { AuthRequest } from '../auth/decorators';
 import { ZodValidationException } from './zod.pipe';
 
 const DOCS = 'https://docs.pymes.local/errors';
@@ -26,7 +27,10 @@ export class ProblemFilter implements ExceptionFilter {
 
   catch(exception: unknown, host: ArgumentsHost): void {
     const reply = host.switchToHttp().getResponse<FastifyReply>();
-    const traceId = randomUUID();
+    // El trace_id que ve el usuario es el id del pedido: con el se encuentra
+    // la accion y sus cambios en el portal admin → Auditoria (2026-09-07).
+    const req = host.switchToHttp().getRequest<AuthRequest>();
+    const traceId = req.requestId ?? randomUUID();
 
     let problem: Problem;
     if (exception instanceof ZodValidationException) {
@@ -66,6 +70,7 @@ export class ProblemFilter implements ExceptionFilter {
       };
     }
 
+    req.problemTitle = problem.title;
     void reply
       .status(problem.status)
       .header('content-type', 'application/problem+json; charset=utf-8')

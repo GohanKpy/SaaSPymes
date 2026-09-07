@@ -41,6 +41,10 @@ const NAV: { title: string; items: Item[] }[] = [
     ],
   },
   {
+    title: 'Seguridad',
+    items: [{ href: '/platform/audit', label: 'Auditoría' }],
+  },
+  {
     title: 'Portal',
     items: [
       { href: '/platform/team', label: 'Usuarios del portal', roles: ['admin'] },

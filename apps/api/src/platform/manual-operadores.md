@@ -61,6 +61,7 @@ tema (antes era una sola página larga con anclas; los links viejos con
 | Seguridad | /platform/settings/seguridad | admin y agente |
 | Google Calendar | /platform/settings/google | admin y agente |
 | Correo saliente | /platform/settings/mail | admin y agente (guarda solo admin) |
+| Auditoría (Seguridad) | /platform/audit | admin y agente |
 | Usuarios del portal | /platform/team | solo admin |
 | Mi perfil | /platform/profile | todos |
 
@@ -153,6 +154,28 @@ negocios. Servidor, puerto, cifrado, usuario, contraseña (cifrada) y remitente.
 Botón "Enviarme un correo de prueba". Sin configurar, en el laboratorio los
 correos van a Mailpit (http://localhost:4307) y NO se entregan. Error "No se
 pudo enviar: …": credenciales o puerto mal; probar con el botón de prueba.
+
+### 2.6c Auditoría (Seguridad → Auditoría, 2026-09-07)
+
+Para rastrear un problema: quién hizo qué, desde qué IP y cuándo, en los
+paneles de los clientes y en este portal, con el **estado anterior y nuevo**
+de cada dato que cambió. Las contraseñas y los tokens nunca se guardan
+(figuran como "[oculto]").
+
+- **Acciones**: toda operación que cambia algo (crear, editar, borrar,
+  emitir, pagar…) y todos los **intentos de login** (exitosos, fallidos,
+  bloqueados), con usuario, IP, navegador, resultado y duración. Filtros por
+  cliente, usuario, texto, fechas, origen y "solo errores". Al abrir una
+  acción se ven los datos que envió y los cambios en la base (antes → después).
+- **Cambios por registro**: la historia de un dato puntual (un cliente, un
+  turno, una factura) dentro de un cliente: elegir el cliente, el tipo y pegar
+  el id del registro (sale en la URL de su ficha).
+- **trace_id**: el código que aparece en cualquier mensaje de error del
+  sistema es el identificador de esa acción en Auditoría. Pedírselo al usuario
+  y buscarlo en el campo "Buscar".
+- Las lecturas (ver una lista, descargar un PDF) no se registran; las acciones
+  del bot por WhatsApp quedan en los cambios (actor "bot") pero no en la lista
+  de acciones.
 
 ### 2.7 Usuarios del portal (operadores)
 

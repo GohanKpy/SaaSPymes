@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { createInvoicingProvider } from '@pymes/invoicing';
 import type { Env } from '@pymes/shared';
 
+import { ActionLogService } from './audit/action-log.service';
 import { AuthModule } from './auth/auth.module';
 import { BotController } from './bot/bot.controller';
 import { CatalogImportService } from './catalog/catalog-import.service';
@@ -68,6 +69,7 @@ import { UsersController } from './tenant/users.controller';
     RecurringController,
   ],
   providers: [
+    ActionLogService,
     CryptoService,
     CatalogImportService,
     GoogleCalendarService,

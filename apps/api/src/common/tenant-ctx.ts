@@ -11,5 +11,13 @@ import type { AuthRequest } from '../auth/decorators';
 export function tenantCtx(req: FastifyRequest & AuthRequest): TenantContext {
   const user = req.authUser;
   if (!user || user.scope !== 'tenant' || !user.tid) throw new ForbiddenException();
-  return { tenantId: user.tid, userId: user.sub, actorType: 'user' };
+  return {
+    tenantId: user.tid,
+    userId: user.sub,
+    actorType: 'user',
+    // Auditoria de seguridad (2026-09-07): la IP y el id del pedido viajan a los triggers.
+    ip: req.ip,
+    requestId: req.requestId,
+    userAgent: typeof req.headers['user-agent'] === 'string' ? req.headers['user-agent'] : undefined,
+  };
 }

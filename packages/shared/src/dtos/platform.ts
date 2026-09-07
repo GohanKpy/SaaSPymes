@@ -133,3 +133,33 @@ export const platformUserUpdate = z
   .partial()
   .strict();
 export type PlatformUserUpdate = z.infer<typeof platformUserUpdate>;
+
+// ---------------- auditoria de seguridad (2026-09-07) ----------------
+
+export const auditActionsQuery = z.object({
+  tenant_id: uuid.optional(),
+  /** Email (contiene) o id del usuario que actuo. */
+  actor: z.string().max(200).optional(),
+  /** Texto en la ruta, la accion o el error. */
+  q: z.string().max(200).optional(),
+  from: z.iso.datetime({ offset: true }).optional(),
+  to: z.iso.datetime({ offset: true }).optional(),
+  only_errors: z.enum(['true', 'false']).optional(),
+  scope: z.enum(['tenant', 'platform', 'anon']).optional(),
+  cursor: z.string().max(40).optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+});
+export type AuditActionsQuery = z.infer<typeof auditActionsQuery>;
+
+export const auditChangesQuery = z.object({
+  tenant_id: uuid,
+  entity: z.string().max(60).optional(),
+  entity_id: uuid.optional(),
+  actor_user_id: uuid.optional(),
+  request_id: uuid.optional(),
+  from: z.iso.datetime({ offset: true }).optional(),
+  to: z.iso.datetime({ offset: true }).optional(),
+  cursor: z.string().max(40).optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+});
+export type AuditChangesQuery = z.infer<typeof auditChangesQuery>;

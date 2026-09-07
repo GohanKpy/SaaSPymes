@@ -6,6 +6,7 @@ import { BotEngineService } from './bot-engine.service';
 import { PlatformNetworkGuard } from './platform-network.guard';
 import { PlatformController } from './platform.controller';
 import { PlansService } from './plans.service';
+import { AuditController } from './audit.controller';
 import { GoogleOauthService } from './google-oauth.service';
 import { MailSettingsService } from './mail-settings.service';
 import { MailerService } from '../common/mailer.service';
@@ -14,7 +15,7 @@ import { SecuritySettingsService } from './security-settings.service';
 import { TenantsService } from './tenants.service';
 
 @Module({
-  controllers: [PlatformController],
+  controllers: [PlatformController, AuditController],
   providers: [
     TenantsService,
     PlatformUsersService,
