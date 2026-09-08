@@ -115,9 +115,8 @@ export default function HorariosPage() {
     }
   }
 
-  if (!week) return <ErrorNote error={error} />;
-
   // Turnos recurrentes (2026-09-07): con cuanta anticipacion se crean y se pide confirmacion.
+  // Va antes del return anticipado de abajo: los hooks no pueden declararse despues de un return.
   const [leadDays, setLeadDays] = useState(7);
   const [guardandoLead, setGuardandoLead] = useState(false);
   useEffect(() => {
@@ -135,6 +134,8 @@ export default function HorariosPage() {
       setGuardandoLead(false);
     }
   }
+
+  if (!week) return <ErrorNote error={error} />;
 
   return (
     <>

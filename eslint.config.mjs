@@ -1,6 +1,7 @@
 // Configuracion compartida de ESLint para todo el monorepo (docs/plan/07 §4).
 import js from '@eslint/js';
 import prettier from 'eslint-config-prettier';
+import reactHooks from 'eslint-plugin-react-hooks';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
@@ -35,6 +36,16 @@ export default tseslint.config(
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
       ],
     },
+  },
+  {
+    // Reglas de hooks de React (2026-09-07): un hook declarado despues de un
+    // return anticipado o dentro de un if rompe la pagina entera en runtime
+    // ("Rendered more hooks than during the previous render") y ni tsc ni
+    // el build lo detectan. Solo rules-of-hooks: exhaustive-deps queda fuera
+    // porque el codigo maneja las dependencias a mano.
+    files: ['apps/web/**/*.tsx'],
+    plugins: { 'react-hooks': reactHooks },
+    rules: { 'react-hooks/rules-of-hooks': 'error' },
   },
   prettier,
 );
