@@ -37,6 +37,7 @@ export class TenantController {
         status: true,
         timezone: true,
         branding: true,
+        devMode: true,
         currentPlan: { select: { code: true, name: true } },
       },
     });

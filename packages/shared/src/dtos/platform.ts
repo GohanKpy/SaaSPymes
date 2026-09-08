@@ -34,6 +34,8 @@ export const tenantPatch = z
     contact_email: z.email().nullable(),
     contact_phone: z.string().max(30).nullable(),
     notes: z.string().max(4000).nullable(),
+    /** DEV (2026-09-08): cuenta en desarrollo → comprobantes simulados sin bloqueos fiscales. */
+    dev_mode: z.boolean(),
   })
   .partial()
   .strict();

@@ -36,6 +36,7 @@ interface TenantDetail {
   contactEmail: string | null;
   contactPhone: string | null;
   notes: string | null;
+  devMode: boolean;
   createdAt: string;
   currentPlan: { code: string; name: string } | null;
   users: TenantUser[];
@@ -64,6 +65,7 @@ const FORM_VACIO = {
   contact_email: '',
   contact_phone: '',
   notes: '',
+  dev_mode: false,
 };
 
 export default function TenantDetailPage() {
@@ -98,6 +100,7 @@ export default function TenantDetailPage() {
           contact_email: t.contactEmail ?? '',
           contact_phone: t.contactPhone ?? '',
           notes: t.notes ?? '',
+          dev_mode: t.devMode,
         });
         setError(null);
       })
@@ -125,6 +128,7 @@ export default function TenantDetailPage() {
           contact_email: form.contact_email || null,
           contact_phone: form.contact_phone || null,
           notes: form.notes || null,
+          dev_mode: form.dev_mode,
         },
       });
       toast.success('Ficha guardada');
@@ -243,6 +247,7 @@ export default function TenantDetailPage() {
           <span className="inline-flex flex-wrap items-center gap-2">
             {tenant ? nombre : 'Ficha del cliente'}
             {st && <Badge tone={st.tone}>{st.label}</Badge>}
+            {tenant?.devMode && <Badge tone="violet">DEV</Badge>}
           </span>
         }
         description={
@@ -310,6 +315,16 @@ export default function TenantDetailPage() {
                 ))}
               </select>
             </Field>
+            <label className="flex items-start gap-2 rounded-md border border-violet-200 bg-violet-50 p-3 text-sm sm:col-span-2 md:col-span-3">
+              <input type="checkbox" className="mt-0.5" checked={form.dev_mode} onChange={(e) => setForm({ ...form, dev_mode: e.target.checked })} />
+              <span>
+                <span className="font-medium">DEV: cuenta en desarrollo</span>
+                <span className="block text-xs text-slate-600">
+                  Tildado, los comprobantes son simulaciones: se emiten sin RUC del receptor ni datos de SIFEN y el KuDE lo dice. Destildado
+                  (producción), el sistema bloquea las pruebas incompletas: exige receptor y timbrado antes de emitir.
+                </span>
+              </span>
+            </label>
             <div className="sm:col-span-2 md:col-span-3">
               <Field label="Notas internas (solo las ve el equipo de la plataforma)">
                 <textarea className={`${inputClass} min-h-20`} placeholder="acuerdos, contexto comercial, recordatorios…" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />

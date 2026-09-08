@@ -163,6 +163,7 @@ export class TenantsService {
         contactEmail: dto.contact_email,
         contactPhone: dto.contact_phone,
         notes: dto.notes,
+        devMode: dto.dev_mode,
       },
     });
     this.features.invalidate(id);

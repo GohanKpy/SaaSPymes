@@ -7,6 +7,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { logout } from '../../lib/api';
 import { FeedbackProvider } from '../../lib/feedback';
 import { roleLabel } from '../../lib/labels';
+import { useTenantInfo } from '../../lib/tenant';
 import { useSession } from '../../lib/ui';
 
 // Iconos inline (trazos estilo lucide) para no sumar dependencias.
@@ -70,6 +71,7 @@ const NAV: { title: string; items: NavItem[] }[] = [
 
 export default function TenantLayout({ children }: { children: ReactNode }) {
   const user = useSession('tenant');
+  const { devMode } = useTenantInfo();
   const pathname = usePathname();
   // Menu movil (fase 4 auditoria de paneles 2026-09-05): panel deslizante con
   // los mismos grupos que el menu lateral; antes eran pastillas con scroll
@@ -176,6 +178,12 @@ export default function TenantLayout({ children }: { children: ReactNode }) {
         </div>
       )}
 
+      {devMode && (
+        <p className="bg-violet-100 px-3 py-1.5 text-center text-xs text-violet-900 lg:ml-56">
+          Cuenta en <strong>modo desarrollo</strong>: los comprobantes son simulaciones sin validez fiscal y se pueden emitir sin datos del
+          receptor. Se cambia desde el portal admin (ficha del cliente, casilla DEV).
+        </p>
+      )}
       <main className="p-4 md:p-6 lg:ml-56">
         <div className="mx-auto max-w-6xl">
           <FeedbackProvider>{children}</FeedbackProvider>

@@ -7,6 +7,7 @@ import { api } from '../../../lib/api';
 import { customerName } from '../../../lib/customer-picker';
 import { useConfirm, useToast } from '../../../lib/feedback';
 import { errorMessage } from '../../../lib/labels';
+import { useTenantInfo } from '../../../lib/tenant';
 import { Badge, Button, EmptyRow, Modal, buttonGhost, buttonSoft, dt, money, tableCard } from '../../../lib/ui';
 
 import { FacturarA, billingCompleto, billingPayload, type BillingChoice } from './facturar-a';
@@ -52,6 +53,7 @@ const periodoLabel = (p: string) => {
 
 export function CuentasSection({ onVerFactura }: { onVerFactura: (invoiceId: string) => void }) {
   const toast = useToast();
+  const { devMode } = useTenantInfo();
   const confirmar = useConfirm();
   const [cuentas, setCuentas] = useState<Cuenta[] | null>(null);
   const [statements, setStatements] = useState<Statement[]>([]);
@@ -125,7 +127,7 @@ export function CuentasSection({ onVerFactura }: { onVerFactura: (invoiceId: str
 
   async function confirmarFacturar() {
     if (!facturar) return;
-    if (!billingCompleto(billing)) {
+    if (!billingCompleto(billing, devMode)) {
       toast.error('Falta a nombre de quién sale la factura.');
       return;
     }
@@ -133,7 +135,7 @@ export function CuentasSection({ onVerFactura }: { onVerFactura: (invoiceId: str
     try {
       const r = await api<{ invoice: { id: string; status: string; establishment: string | null; expeditionPoint: string | null; docNumber: string | null }; sent: { ok: boolean; channel: string; detail?: string } | null }>(
         `/billing/accounts/${facturar.customer.id}/invoice`,
-        { method: 'POST', json: { ...billingPayload(billing), issue: opciones.issue, send: opciones.send } },
+        { method: 'POST', json: { ...billingPayload(billing, devMode), issue: opciones.issue, send: opciones.send } },
       );
       const numero = r.invoice.docNumber ? `${r.invoice.establishment}-${r.invoice.expeditionPoint}-${r.invoice.docNumber}` : 'en borrador';
       if (r.sent?.ok) toast.success(`Factura ${numero} emitida y enviada por ${CANAL[r.sent.channel] ?? r.sent.channel}`);
@@ -323,7 +325,7 @@ export function CuentasSection({ onVerFactura }: { onVerFactura: (invoiceId: str
           size="lg"
         >
           <div className="space-y-3">
-            <FacturarA customer={{ id: facturar.customer.id }} value={billing} onChange={setBilling} />
+            <FacturarA devMode={devMode} customer={{ id: facturar.customer.id }} value={billing} onChange={setBilling} />
             <label className="flex items-start gap-2 text-sm">
               <input type="checkbox" className="mt-0.5" checked={opciones.issue} onChange={(e) => setOpciones({ ...opciones, issue: e.target.checked, send: e.target.checked && opciones.send })} />
               <span>
@@ -343,7 +345,7 @@ export function CuentasSection({ onVerFactura }: { onVerFactura: (invoiceId: str
               <Button variant="ghost" onClick={() => setFacturar(null)}>
                 Volver
               </Button>
-              <Button variant="primary" loading={busy} disabled={!billingCompleto(billing)} onClick={() => void confirmarFacturar()}>
+              <Button variant="primary" loading={busy} disabled={!billingCompleto(billing, devMode)} onClick={() => void confirmarFacturar()}>
                 {opciones.issue ? (opciones.send ? 'Emitir y enviar' : 'Emitir') : 'Crear borrador'}
               </Button>
             </div>

@@ -46,11 +46,17 @@ export function documentoTexto(docType: string | null | undefined, docNumber: st
   return `${DOC_LABEL[docType ?? 'ci'] ?? (docType ?? '').toUpperCase()} ${docNumber}${dv ? `-${dv}` : ''}`;
 }
 
-/** Lo que va al servidor segun la eleccion. */
-export function billingPayload(choice: BillingChoice): Record<string, unknown> {
+/** Datos nuevos completos (documento y nombre). */
+function nuevoCompleto(b: BillingNuevo): boolean {
+  return b.doc_number.trim().length > 0 && b.legal_name.trim().length > 0;
+}
+
+/** Lo que va al servidor segun la eleccion. En modo desarrollo, datos nuevos incompletos = sin receptor. */
+export function billingPayload(choice: BillingChoice, devMode = false): Record<string, unknown> {
   if (choice.kind === 'fiscal') return { fiscal_id: choice.fiscal_id };
   if (choice.kind === 'new') {
     const b = choice.billing;
+    if (devMode && !nuevoCompleto(b)) return {};
     return {
       billing: {
         doc_type: b.doc_type,
@@ -64,10 +70,15 @@ export function billingPayload(choice: BillingChoice): Record<string, unknown> {
   return {};
 }
 
-/** Se puede crear/guardar con esta eleccion (los datos nuevos tienen que estar completos). */
-export function billingCompleto(choice: BillingChoice): boolean {
+/**
+ * Se puede crear/guardar con esta eleccion (los datos nuevos tienen que estar
+ * completos). En modo desarrollo (2026-09-08) todo vale: la factura es una
+ * simulacion y puede salir sin receptor.
+ */
+export function billingCompleto(choice: BillingChoice, devMode = false): boolean {
+  if (devMode) return true;
   if (choice.kind === 'none') return false;
-  if (choice.kind === 'new') return choice.billing.doc_number.trim().length > 0 && choice.billing.legal_name.trim().length > 0;
+  if (choice.kind === 'new') return nuevoCompleto(choice.billing);
   return true;
 }
 
@@ -85,10 +96,13 @@ export function FacturarA({
   customer,
   value,
   onChange,
+  devMode = false,
 }: {
   customer: PickedCustomer | { id: string } | null;
   value: BillingChoice;
   onChange: (choice: BillingChoice) => void;
+  /** Cuenta en desarrollo: los datos del receptor son opcionales. */
+  devMode?: boolean;
 }) {
   const [datos, setDatos] = useState<CustomerFiscal | null>(null);
   const customerId = customer?.id ?? null;
@@ -137,8 +151,12 @@ export function FacturarA({
 
   return (
     <div className="rounded-md border border-slate-200 bg-slate-50/60 p-3">
-      <p className="text-sm font-medium text-slate-700">Facturar a *</p>
-      {opciones === 0 ? (
+      <p className="text-sm font-medium text-slate-700">Facturar a{devMode ? '' : ' *'}</p>
+      {opciones === 0 && devMode ? (
+        <p className="mt-0.5 text-xs text-violet-700">
+          Modo desarrollo: este cliente no tiene RUC ni razón social y la simulación puede salir igual. Si los cargás, se guardan en la ficha.
+        </p>
+      ) : opciones === 0 ? (
         <p className="mt-0.5 text-xs text-amber-700">Este cliente no tiene RUC ni razón social cargados: completalos acá para poder emitir la factura.</p>
       ) : (
         <p className="mt-0.5 text-xs text-slate-500">A nombre de quién sale la factura. Podés elegir otra persona o empresa en cada factura.</p>

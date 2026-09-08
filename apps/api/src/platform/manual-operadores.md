@@ -78,6 +78,12 @@ contraseña correcta. El bloqueo también se limpia si se reinicia el sistema.
 
 ### 2.2 Sección Clientes (dar de alta un negocio)
 
+En la ficha de cada cliente (Datos del cliente) está la casilla **"DEV: cuenta
+en desarrollo"** (2026-09-08): tildada, sus comprobantes son simulaciones sin
+bloqueos fiscales; destildada, el sistema exige receptor y timbrado para
+emitir. En la cabecera de la ficha aparece la etiqueta "DEV" mientras esté
+tildada.
+
 Botón para **crear cliente**: se cargan razón social, nombre de fantasía,
 plan, y el email y nombre del dueño (usuario root del negocio).
 
@@ -399,6 +405,16 @@ el mismo turno (ej: un tratamiento de 60 min que solo agrega 15 si se hace
 durante una coloración). Vacío = suma la duración completa.
 
 ### 3.7 Facturación
+
+**Modo desarrollo (check DEV, desde el 2026-09-08):** cada negocio tiene en su
+ficha del portal admin la casilla "DEV: cuenta en desarrollo". Tildada, los
+comprobantes son simulaciones: se emiten sin RUC/cédula del receptor y sin
+datos de SIFEN (timbrado DEV00000, punto 001-001), el panel muestra la franja
+violeta "Cuenta en modo desarrollo" y el KuDE lleva la leyenda "SIMULACION -
+CUENTA EN MODO DESARROLLO - SIN VALIDEZ FISCAL". Destildada (producción),
+rigen los bloqueos: emitir exige receptor y timbrado. Al 2026-09-08 todos los
+negocios están en DEV; pasar a producción es decisión del dueño de la
+plataforma, cliente por cliente.
 
 **Facturar a (2026-09-07):** al crear la factura hay que elegir a nombre de
 quién sale: una identidad guardada en la ficha del cliente (RUC o cédula +

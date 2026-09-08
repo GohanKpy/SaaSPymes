@@ -155,6 +155,9 @@ export async function resolveBilling(
 }
 
 /** Receptor efectivo: el snapshot de la factura o, en facturas viejas, el documento del cliente. */
+/** Timbrado de las simulaciones en modo desarrollo (sin datos de SIFEN cargados). */
+const DEV_TIMBRADO = 'DEV00000';
+
 export function billingEfectivo(invoice: {
   billingName: string | null;
   billingDocType: string | null;
@@ -293,9 +296,14 @@ export class InvoicesService {
       if (invoice.status !== 'draft') {
         throw new ConflictException({ title: 'Solo se emiten borradores' });
       }
+      // Modo desarrollo (2026-09-08, check DEV en la ficha del cliente en
+      // padmin): las simulaciones se emiten sin receptor ni datos de SIFEN.
+      // En produccion rigen los bloqueos.
+      const tenant = await tx.tenant.findUnique({ where: { id: ctx.tenantId }, select: { devMode: true } });
+      const dev = tenant?.devMode ?? false;
       // Sin receptor no hay factura valida (2026-09-07): RUC o cedula y nombre.
       const receptor = billingEfectivo(invoice);
-      if (!receptor.docNumber || !receptor.name) {
+      if (!dev && (!receptor.docNumber || !receptor.name)) {
         throw new UnprocessableEntityException({
           type: 'https://docs.pymes.local/errors/billing-missing',
           title: 'Falta a nombre de quien sale la factura: carga RUC o cedula y nombre desde el detalle del borrador',
@@ -305,23 +313,27 @@ export class InvoicesService {
       const sifen = await tx.integrationCredential.findFirst({
         where: { type: 'sifen', isActive: true },
       });
-      const fiscal = sifen?.publicConfig as
+      let fiscal = sifen?.publicConfig as
         | { timbrado?: string; establishment?: string; expedition_point?: string }
         | undefined;
       if (!fiscal?.timbrado || !fiscal.establishment || !fiscal.expedition_point) {
-        throw new UnprocessableEntityException({
-          type: 'https://docs.pymes.local/errors/sifen-not-configured',
-          title: 'Configura los datos de SIFEN (timbrado, establecimiento, punto) antes de emitir',
-        });
+        if (!dev) {
+          throw new UnprocessableEntityException({
+            type: 'https://docs.pymes.local/errors/sifen-not-configured',
+            title: 'Configura los datos de SIFEN (timbrado, establecimiento, punto) antes de emitir',
+          });
+        }
+        fiscal = { timbrado: DEV_TIMBRADO, establishment: fiscal?.establishment || '001', expedition_point: fiscal?.expedition_point || '001' };
       }
+      const fiscalOk = fiscal as { timbrado: string; establishment: string; expedition_point: string };
 
       // Lock por punto de expedicion: sin huecos ni duplicados bajo
       // concurrencia (doc 08 §5). Se libera al cerrar la transaccion.
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`${ctx.tenantId}:${fiscal.establishment}:${fiscal.expedition_point}:${invoice.docType}`}, 0))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`${ctx.tenantId}:${fiscalOk.establishment}:${fiscalOk.expedition_point}:${invoice.docType}`}, 0))`;
       const last = await tx.invoice.findFirst({
         where: {
-          establishment: fiscal.establishment,
-          expeditionPoint: fiscal.expedition_point,
+          establishment: fiscalOk.establishment,
+          expeditionPoint: fiscalOk.expedition_point,
           docType: invoice.docType,
           docNumber: { not: null },
         },
@@ -341,14 +353,14 @@ export class InvoicesService {
         docType: invoice.docType as 'factura' | 'nota_credito',
         docNumber: nextNumber,
         fiscal: {
-          timbrado: fiscal.timbrado,
-          establishment: fiscal.establishment,
-          expeditionPoint: fiscal.expedition_point,
+          timbrado: fiscalOk.timbrado,
+          establishment: fiscalOk.establishment,
+          expeditionPoint: fiscalOk.expedition_point,
         },
         customer: {
-          name: receptor.name,
+          name: receptor.name || 'Consumidor final',
           ruc: receptor.docType === 'ruc' ? receptor.docNumber : null,
-          docNumber: receptor.docNumber,
+          docNumber: receptor.docNumber ?? '',
         },
         items: invoice.items.map((i) => ({
           description: i.description,
@@ -371,9 +383,9 @@ export class InvoicesService {
             ? {
                 status: 'approved',
                 docNumber: nextNumber,
-                establishment: fiscal.establishment,
-                expeditionPoint: fiscal.expedition_point,
-                timbrado: fiscal.timbrado,
+                establishment: fiscalOk.establishment,
+                expeditionPoint: fiscalOk.expedition_point,
+                timbrado: fiscalOk.timbrado,
                 cdc: result.cdc,
                 sifenResponseCode: result.responseCode,
                 approvedAt: new Date(),

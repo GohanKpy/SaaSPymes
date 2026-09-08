@@ -7,6 +7,7 @@ import { API_URL, api, getToken } from '../../../lib/api';
 import { CustomerPicker, customerName, type PickedCustomer } from '../../../lib/customer-picker';
 import { useAskText, useConfirm, useToast } from '../../../lib/feedback';
 import { INVOICE_STATUS, errorMessage, statusOf } from '../../../lib/labels';
+import { useTenantInfo } from '../../../lib/tenant';
 import { MoneyInput, soloDigitos } from '../../../lib/money-input';
 import {
   Badge,
@@ -76,6 +77,7 @@ export default function InvoicesPage() {
   const askText = useAskText();
   const confirmar = useConfirm();
   const toast = useToast();
+  const { devMode } = useTenantInfo();
   const [vista, setVista] = useUrlParam('vista', 'facturas');
   const [rows, setRows] = useState<Invoice[] | null>(null);
   const [services, setServices] = useState<ServicioOption[]>([]);
@@ -185,7 +187,7 @@ export default function InvoicesPage() {
       toast.error('Agregá al menos un ítem a la factura.');
       return;
     }
-    if (!billingCompleto(billing)) {
+    if (!billingCompleto(billing, devMode)) {
       toast.error('Falta a nombre de quién sale la factura: elegí una opción o cargá RUC o cédula y nombre.');
       return;
     }
@@ -193,7 +195,7 @@ export default function InvoicesPage() {
     try {
       const created = await api<Invoice>('/invoices', {
         method: 'POST',
-        json: { customer_id: nuevaCliente.id, branch_id: branchId, items, ...billingPayload(billing) },
+        json: { customer_id: nuevaCliente.id, branch_id: branchId, items, ...billingPayload(billing, devMode) },
       });
       toast.success(`Borrador creado para ${customerName(nuevaCliente)}. Revisalo y emitilo cuando esté listo.`);
       setNueva(false);
@@ -247,13 +249,13 @@ export default function InvoicesPage() {
 
   async function guardarReceptor() {
     if (!receptorDe) return;
-    if (!billingCompleto(receptorNuevo)) {
+    if (!billingCompleto(receptorNuevo, devMode)) {
       toast.error('Completá RUC o cédula y nombre.');
       return;
     }
     setGuardando(true);
     try {
-      const updated = await api<Invoice>(`/invoices/${receptorDe.id}/billing`, { method: 'PATCH', json: billingPayload(receptorNuevo) });
+      const updated = await api<Invoice>(`/invoices/${receptorDe.id}/billing`, { method: 'PATCH', json: billingPayload(receptorNuevo, devMode) });
       toast.success(`Factura a nombre de ${updated.billingName ?? customerName(updated.customer)}`);
       setReceptorDe(null);
       if (detalle && detalle.id === updated.id) setDetalle(updated);
@@ -566,13 +568,13 @@ export default function InvoicesPage() {
             <Field label="Cliente *">
               <CustomerPicker value={nuevaCliente} onChange={setNuevaCliente} autoFocus={!nuevaCliente} />
             </Field>
-            <FacturarA customer={nuevaCliente} value={billing} onChange={setBilling} />
+            <FacturarA devMode={devMode} customer={nuevaCliente} value={billing} onChange={setBilling} />
             <LineasEditor lines={lines} services={services} onChange={setLines} />
             <div className="flex justify-end gap-2">
               <Button variant="ghost" onClick={() => setNueva(false)}>
                 Volver
               </Button>
-              <Button variant="primary" type="submit" loading={guardando} disabled={!nuevaCliente || !billingCompleto(billing)}>
+              <Button variant="primary" type="submit" loading={guardando} disabled={!nuevaCliente || !billingCompleto(billing, devMode)}>
                 Crear borrador
               </Button>
             </div>
@@ -675,12 +677,12 @@ export default function InvoicesPage() {
           onClose={() => setReceptorDe(null)}
         >
           <div className="space-y-3">
-            <FacturarA customer={{ id: receptorDe.customer.id ?? '' }} value={receptorNuevo} onChange={setReceptorNuevo} />
+            <FacturarA devMode={devMode} customer={{ id: receptorDe.customer.id ?? '' }} value={receptorNuevo} onChange={setReceptorNuevo} />
             <div className="flex justify-end gap-2">
               <Button variant="ghost" onClick={() => setReceptorDe(null)}>
                 Volver
               </Button>
-              <Button variant="primary" loading={guardando} disabled={!billingCompleto(receptorNuevo)} onClick={() => void guardarReceptor()}>
+              <Button variant="primary" loading={guardando} disabled={!billingCompleto(receptorNuevo, devMode)} onClick={() => void guardarReceptor()}>
                 Guardar
               </Button>
             </div>

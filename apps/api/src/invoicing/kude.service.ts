@@ -49,7 +49,7 @@ export class KudeService {
       if (!invoice) throw new NotFoundException();
       const tenant = await tx.tenant.findUnique({
         where: { id: ctx.tenantId },
-        select: { legalName: true, tradeName: true, ruc: true, timezone: true, branding: true },
+        select: { legalName: true, tradeName: true, ruc: true, timezone: true, branding: true, devMode: true },
       });
       const sifen = await tx.integrationCredential.findFirst({ where: { type: 'sifen' } });
       return { invoice, tenant, sifen };
@@ -95,6 +95,14 @@ export class KudeService {
       .font('Helvetica-Bold')
       .fontSize(11)
       .text('KuDE DE FACTURA ELECTRONICA', LEFT, 46, { width: WIDTH, align: 'center' });
+    // Modo desarrollo (2026-09-08): la simulacion lo dice arriba de todo.
+    if (tenant?.devMode) {
+      doc
+        .fillColor('#b91c1c')
+        .font('Helvetica-Bold')
+        .fontSize(9)
+        .text('SIMULACION - CUENTA EN MODO DESARROLLO - SIN VALIDEZ FISCAL', LEFT, 26, { width: WIDTH, align: 'center' });
+    }
 
     // ---- Caja del emisor + caja de timbrado ------------------------------
     const headTop = 60;
@@ -283,7 +291,9 @@ export class KudeService {
     doc.text(`CDC: ${invoice.cdc}`, fx, doc.y + 6, { width: RIGHT - fx - 10 });
     doc.font('Helvetica').fontSize(7.5).fillColor('#555555');
     doc.text(
-      'ESTE DOCUMENTO ES UNA REPRESENTACION GRAFICA DE UN DOCUMENTO ELECTRONICO (XML). Laboratorio: CDC sintetico del provider fake.',
+      `ESTE DOCUMENTO ES UNA REPRESENTACION GRAFICA DE UN DOCUMENTO ELECTRONICO (XML). ${
+        tenant?.devMode ? 'SIMULACION en modo desarrollo: CDC sintetico, sin validez fiscal.' : 'Laboratorio: CDC sintetico del provider fake.'
+      }`,
       fx,
       doc.y + 6,
       { width: RIGHT - fx - 10 },

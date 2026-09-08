@@ -98,6 +98,8 @@ model Tenant {
   contactEmail  String?  @map("contact_email") @db.Citext
   contactPhone  String?  @map("contact_phone")
   notes         String?
+  /// Cuenta en desarrollo (2026-09-08): comprobantes simulados, sin bloqueos de datos fiscales.
+  devMode       Boolean  @default(false) @map("dev_mode")
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt     DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
 
