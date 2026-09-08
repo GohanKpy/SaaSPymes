@@ -20,3 +20,11 @@ de prueba no los tienen cargados.
 | Panel del negocio | Franja violeta "Cuenta en modo desarrollo…" en todas las pantallas. "Facturar a" deja de ser obligatorio: se puede crear el borrador y emitir sin receptor; si se cargan datos, se guardan igual. |
 | API | `issue`: en DEV no exige receptor (va "Consumidor final" al proveedor) ni configuración de SIFEN (timbrado `DEV00000`, punto 001-001). En producción, los 422 de siempre (`billing-missing`, `sifen-not-configured`). |
 | KuDE | Leyenda roja "SIMULACION - CUENTA EN MODO DESARROLLO - SIN VALIDEZ FISCAL" arriba y en el pie. |
+
+## Ajuste del mismo día (pedido de Johan: "que sea más intuitivo")
+
+El interruptor DEV también vive en el panel del negocio: **Ajustes → Mi
+cuenta** (solo root; `PATCH /tenant { dev_mode }`), junto con los datos de la
+cuenta (nombre editable vía `PATCH /users/me`, email, rol, último acceso,
+negocio, plan) y el cambio de contraseña. La franja violeta del panel remite a
+esa pantalla. El portal admin conserva su casilla.

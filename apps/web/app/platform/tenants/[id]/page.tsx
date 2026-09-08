@@ -321,7 +321,8 @@ export default function TenantDetailPage() {
                 <span className="font-medium">DEV: cuenta en desarrollo</span>
                 <span className="block text-xs text-slate-600">
                   Tildado, los comprobantes son simulaciones: se emiten sin RUC del receptor ni datos de SIFEN y el KuDE lo dice. Destildado
-                  (producción), el sistema bloquea las pruebas incompletas: exige receptor y timbrado antes de emitir.
+                  (producción), el sistema bloquea las pruebas incompletas: exige receptor y timbrado antes de emitir. El root del negocio
+                  también lo cambia desde su panel, en Ajustes → Mi cuenta.
                 </span>
               </span>
             </label>

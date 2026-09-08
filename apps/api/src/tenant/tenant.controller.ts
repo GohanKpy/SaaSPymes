@@ -60,6 +60,7 @@ export class TenantController {
         ruc: dto.ruc,
         timezone: dto.timezone,
         branding: dto.branding as Prisma.InputJsonValue | undefined,
+        devMode: dto.dev_mode,
       },
       // Mismo select que el GET: los campos CRM del dueño del sistema
       // (contacto, notas internas; ADR 0005) jamas salen por el scope tenant.
@@ -71,6 +72,7 @@ export class TenantController {
         status: true,
         timezone: true,
         branding: true,
+        devMode: true,
         currentPlan: { select: { code: true, name: true } },
       },
     });

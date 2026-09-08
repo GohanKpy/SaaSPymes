@@ -18,10 +18,12 @@ import { hash, verify as argonVerify } from '@node-rs/argon2';
 import {
   passwordChange,
   userCreate,
+  userSelfPatch,
   userUpdate,
   uuid,
   type PasswordChange,
   type UserCreate,
+  type UserSelfPatch,
   type UserUpdate,
 } from '@pymes/shared';
 import type { FastifyRequest } from 'fastify';
@@ -53,6 +55,28 @@ export class UsersController {
     return this.appDb.tx(tenantCtx(req), (tx) =>
       tx.user.findMany({ where: { deletedAt: null }, select: SAFE_USER, orderBy: { createdAt: 'asc' } }),
     );
+  }
+
+  /** La propia cuenta (2026-09-08, Ajustes → Mi cuenta): cualquier rol. */
+  @Get('me')
+  @Roles('root', 'admin', 'staff')
+  async me(@Req() req: FastifyRequest & AuthRequest) {
+    const ctx = tenantCtx(req);
+    const user = await this.appDb.tx(ctx, (tx) => tx.user.findFirst({ where: { id: ctx.userId, deletedAt: null }, select: SAFE_USER }));
+    if (!user) throw new NotFoundException();
+    return user;
+  }
+
+  /** Edicion del propio nombre (2026-09-08): cualquier rol; el email lo cambia un admin. */
+  @Patch('me')
+  @Roles('root', 'admin', 'staff')
+  async patchMe(@Body(new ZodPipe(userSelfPatch)) dto: UserSelfPatch, @Req() req: FastifyRequest & AuthRequest) {
+    const ctx = tenantCtx(req);
+    const { count } = await this.appDb.tx(ctx, (tx) =>
+      tx.user.updateMany({ where: { id: ctx.userId, deletedAt: null }, data: { fullName: dto.full_name, updatedAt: new Date() } }),
+    );
+    if (count === 0) throw new NotFoundException();
+    return this.me(req);
   }
 
   /**

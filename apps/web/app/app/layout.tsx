@@ -181,7 +181,7 @@ export default function TenantLayout({ children }: { children: ReactNode }) {
       {devMode && (
         <p className="bg-violet-100 px-3 py-1.5 text-center text-xs text-violet-900 lg:ml-56">
           Cuenta en <strong>modo desarrollo</strong>: los comprobantes son simulaciones sin validez fiscal y se pueden emitir sin datos del
-          receptor. Se cambia desde el portal admin (ficha del cliente, casilla DEV).
+          receptor. Se cambia en Ajustes → Mi cuenta.
         </p>
       )}
       <main className="p-4 md:p-6 lg:ml-56">

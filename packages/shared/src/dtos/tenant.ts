@@ -25,6 +25,8 @@ export const tenantSelfPatch = z
         (b) => JSON.stringify(b).length <= 500_000,
         'branding demasiado grande (logo max ~350 KB)',
       ),
+    /** DEV (2026-09-08): cuenta en desarrollo → comprobantes simulados sin bloqueos fiscales. Lo cambia el root desde Ajustes → Mi cuenta (o padmin). */
+    dev_mode: z.boolean(),
   })
   .partial()
   .strict();
@@ -121,3 +123,7 @@ export const tenantSettingsPut = z
   .partial()
   .strict();
 export type TenantSettingsPut = z.infer<typeof tenantSettingsPut>;
+
+/** Edicion de la PROPIA cuenta (2026-09-08, Ajustes → Mi cuenta): solo el nombre; el email lo cambia un admin. */
+export const userSelfPatch = z.object({ full_name: z.string().trim().min(1).max(200) }).strict();
+export type UserSelfPatch = z.infer<typeof userSelfPatch>;

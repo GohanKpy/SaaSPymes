@@ -82,7 +82,8 @@ En la ficha de cada cliente (Datos del cliente) está la casilla **"DEV: cuenta
 en desarrollo"** (2026-09-08): tildada, sus comprobantes son simulaciones sin
 bloqueos fiscales; destildada, el sistema exige receptor y timbrado para
 emitir. En la cabecera de la ficha aparece la etiqueta "DEV" mientras esté
-tildada.
+tildada. El root del negocio también lo cambia desde su panel (Ajustes → Mi
+cuenta).
 
 Botón para **crear cliente**: se cargan razón social, nombre de fantasía,
 plan, y el email y nombre del dueño (usuario root del negocio).
@@ -412,9 +413,9 @@ comprobantes son simulaciones: se emiten sin RUC/cédula del receptor y sin
 datos de SIFEN (timbrado DEV00000, punto 001-001), el panel muestra la franja
 violeta "Cuenta en modo desarrollo" y el KuDE lleva la leyenda "SIMULACION -
 CUENTA EN MODO DESARROLLO - SIN VALIDEZ FISCAL". Destildada (producción),
-rigen los bloqueos: emitir exige receptor y timbrado. Al 2026-09-08 todos los
-negocios están en DEV; pasar a producción es decisión del dueño de la
-plataforma, cliente por cliente.
+rigen los bloqueos: emitir exige receptor y timbrado. Se cambia desde el
+panel del negocio (Ajustes → Mi cuenta, solo el root) o desde el portal
+admin (ficha del cliente). Al 2026-09-08 todos los negocios están en DEV.
 
 **Facturar a (2026-09-07):** al crear la factura hay que elegir a nombre de
 quién sale: una identidad guardada en la ficha del cliente (RUC o cédula +
@@ -537,10 +538,18 @@ rol. Secciones y quién las ve:
 | Google Calendar | /app/settings/calendario | solo root |
 | Facturación electrónica | /app/settings/facturacion | solo root |
 | Campos personalizados | /app/settings/campos | root, admin |
-| Mi cuenta (contraseña) | /app/settings/cuenta | todos |
+| Mi cuenta (datos, modo DEV, contraseña) | /app/settings/cuenta | todos (el interruptor DEV, solo root) |
 
 Los horarios de atención antes se editaban desde la Agenda; ahora la Agenda
 tiene un botón que lleva a esta sección.
+
+**Mi cuenta (desde el 2026-09-08):** muestra los datos de quien usa el panel
+(nombre editable con Guardar, email de acceso, rol, último acceso), el
+negocio y el plan, con link a Empresa; el bloque **"Modo de la cuenta"** con
+el estado (DEV · cuenta en desarrollo / Producción) y, solo para el root, el
+interruptor "Cuenta en desarrollo (DEV)" que se aplica al instante (aviso
+"Cambio guardado" y la pantalla se refresca); y el cambio de contraseña. El
+mismo DEV se puede cambiar desde el portal admin (ficha del cliente).
 
 **Cómo se guarda (regla única desde el 2026-09-07):** todo formulario con
 campos de texto tiene su botón **Guardar** y al guardar aparece un aviso
