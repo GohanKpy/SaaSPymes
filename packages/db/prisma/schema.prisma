@@ -211,6 +211,40 @@ model PlatformSetting {
   @@schema("control")
 }
 
+/// Padron de contribuyentes de la DNIT (ADR 0012): copia local del listado
+/// publico de RUC (ruc | razon social | dv | ruc anterior | estado) que la
+/// DNIT publica en 10 zips. Dato publico compartido por todos los tenants:
+/// vive en `control`, sin tenant_id ni RLS. Lo mantiene un cron in-process
+/// de la API y lo consultan los formularios al tipear un RUC.
+model RucContribuyente {
+  ruc         String   @id
+  dv          String   @db.Char(1)
+  razonSocial String   @map("razon_social")
+  rucAnterior String?  @map("ruc_anterior")
+  estado      String // ACTIVO | SUSPENSION TEMPORAL | BLOQUEADO | CANCELADO | CANCELADO DEFINITIVO
+  updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@map("ruc_contribuyentes")
+  @@schema("control")
+}
+
+/// Historial de descargas del padron (una fila por corrida; la ve el padmin).
+model RucPadronRun {
+  id          BigInt    @id @default(autoincrement())
+  startedAt   DateTime  @default(now()) @map("started_at") @db.Timestamptz(6)
+  finishedAt  DateTime? @map("finished_at") @db.Timestamptz(6)
+  status      String    @default("running") // running|ok|error
+  triggeredBy String    @map("triggered_by") // cron|manual|startup
+  actorId     String?   @map("actor_id") @db.Uuid
+  filesOk     Int       @default(0) @map("files_ok")
+  rowsRead    Int       @default(0) @map("rows_read")
+  rowsChanged Int       @default(0) @map("rows_changed")
+  error       String?
+
+  @@map("ruc_padron_runs")
+  @@schema("control")
+}
+
 model PlatformAuditLog {
   id        BigInt   @id @default(autoincrement())
   actorId   String?  @map("actor_id") @db.Uuid

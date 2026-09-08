@@ -15,3 +15,4 @@ export * from './dtos/tenant';
 export * from './dtos/appointment';
 export * from './dtos/bot';
 export * from './dtos/platform-settings';
+export * from './dtos/ruc';

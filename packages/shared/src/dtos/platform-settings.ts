@@ -108,3 +108,52 @@ export interface MailSettingsView {
   /** 'panel' si hay registro en base; 'env' si rige SMTP_HOST del entorno. */
   source: 'panel' | 'env';
 }
+
+/**
+ * Padron RUC de la DNIT (ADR 0012): descarga programada del listado publico
+ * de contribuyentes (10 zips) que alimenta el autocompletado de razon social
+ * y DV en clientes y facturas. La DNIT lo publica los dias 1-2 de cada mes;
+ * la corrida es mensual (dia y hora en America/Asuncion) y se recupera sola
+ * si el proceso estaba caido cuando tocaba.
+ */
+export const rucPadronSettingsPut = z
+  .object({
+    enabled: z.boolean(),
+    /** Pagina de la DNIT con los enlaces ruc0..ruc9.zip; null = la del sistema. */
+    page_url: z.url().max(500).nullable().optional(),
+    /** Dia del mes de la corrida (1-28 para que exista en todos los meses). */
+    day_of_month: z.number().int().min(1).max(28),
+    /** Hora local (America/Asuncion) de la corrida. */
+    hour: z.number().int().min(0).max(23),
+  })
+  .strict();
+export type RucPadronSettingsPut = z.infer<typeof rucPadronSettingsPut>;
+
+export interface RucPadronRunView {
+  id: string;
+  started_at: string;
+  finished_at: string | null;
+  status: 'running' | 'ok' | 'error';
+  triggered_by: 'cron' | 'manual' | 'startup';
+  files_ok: number;
+  rows_read: number;
+  rows_changed: number;
+  error: string | null;
+}
+
+export interface RucPadronSettingsView {
+  enabled: boolean;
+  page_url: string;
+  page_url_default: string;
+  day_of_month: number;
+  hour: number;
+  timezone: string;
+  /** Contribuyentes cargados hoy en la base. */
+  contribuyentes: number;
+  last_ok_at: string | null;
+  /** Proxima corrida programada; null si esta apagado. */
+  next_run_at: string | null;
+  running: boolean;
+  /** Ultimas corridas, la mas reciente primero. */
+  runs: RucPadronRunView[];
+}

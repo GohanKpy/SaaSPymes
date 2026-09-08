@@ -8,6 +8,7 @@ import { Prisma, type TenantContext, type TenantTx } from '@pymes/db';
 import type { CustomerCreate, CustomerListQuery, CustomerUpdate, Page } from '@pymes/shared';
 
 import { decodeCursor, encodeCursor } from '../common/pagination';
+import { dvRuc } from '../common/ruc';
 import { AppPrisma } from '../prisma/app-prisma.service';
 
 @Injectable()
@@ -69,9 +70,27 @@ export class CustomersService {
         });
       }
       await this.validateCustomData(tx, dto.custom_data);
-      return tx.customer.create({
-        data: { tenantId: ctx.tenantId, ...mapCustomer(dto), firstName: dto.first_name },
+      const { legal_name, ...datos } = dto;
+      const rucDv = datos.doc_type === 'ruc' && datos.doc_number ? (datos.ruc_dv ?? dvRuc(datos.doc_number) ?? undefined) : datos.ruc_dv;
+      const customer = await tx.customer.create({
+        data: { tenantId: ctx.tenantId, ...mapCustomer(datos), rucDv, firstName: dto.first_name },
       });
+      // Datos de facturacion desde el alta (pedido de Johan 2026-09-08): RUC/cedula
+      // + razon social quedan como identidad fiscal predeterminada de la ficha.
+      if (legal_name && datos.doc_number && datos.doc_type) {
+        await tx.customerFiscalId.create({
+          data: {
+            tenantId: ctx.tenantId,
+            customerId: customer.id,
+            docType: datos.doc_type,
+            docNumber: datos.doc_number,
+            rucDv: datos.doc_type === 'ruc' ? (rucDv ?? null) : null,
+            legalName: legal_name,
+            isDefault: true,
+          },
+        });
+      }
+      return customer;
     });
   }
 

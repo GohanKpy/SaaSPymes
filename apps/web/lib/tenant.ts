@@ -15,10 +15,15 @@ export interface TenantInfo {
   currentPlan: { code: string; name: string } | null;
 }
 
-/** Datos del negocio; devMode vale false hasta que carga. */
-export function useTenantInfo(): { tenant: TenantInfo | null; devMode: boolean } {
+/**
+ * Datos del negocio; devMode vale false hasta que carga. `enabled` = false
+ * pospone la consulta (el layout la hace recien con la sesion lista: antes
+ * daba un 401 en consola y un refresh de mas).
+ */
+export function useTenantInfo(enabled = true): { tenant: TenantInfo | null; devMode: boolean } {
   const [tenant, setTenant] = useState<TenantInfo | null>(null);
   useEffect(() => {
+    if (!enabled) return;
     let alive = true;
     api<TenantInfo>('/tenant')
       .then((t) => {
@@ -28,6 +33,6 @@ export function useTenantInfo(): { tenant: TenantInfo | null; devMode: boolean }
     return () => {
       alive = false;
     };
-  }, []);
+  }, [enabled]);
   return { tenant, devMode: tenant?.devMode ?? false };
 }

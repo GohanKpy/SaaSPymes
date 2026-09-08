@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import { api } from './api';
 import { errorMessage } from './labels';
+import { dvRuc, formatRucConDv } from './ruc';
 import { Button, inputClass } from './ui';
 
 export interface PickedCustomer {
@@ -41,7 +42,7 @@ export function CustomerPicker({
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [nuevo, setNuevo] = useState({ first_name: '', last_name: '', phone_e164: '' });
+  const [nuevo, setNuevo] = useState({ first_name: '', last_name: '', phone_e164: '', doc_number: '', legal_name: '' });
   const [error, setError] = useState<string | null>(null);
   const boxRef = useRef<HTMLDivElement>(null);
 
@@ -71,6 +72,7 @@ export function CustomerPicker({
     e.preventDefault();
     setError(null);
     setBusy(true);
+    const ruc = nuevo.doc_number.trim().split('-')[0] ?? '';
     try {
       const created = await api<PickedCustomer>('/customers', {
         method: 'POST',
@@ -78,12 +80,15 @@ export function CustomerPicker({
           first_name: nuevo.first_name.trim(),
           ...(nuevo.last_name.trim() ? { last_name: nuevo.last_name.trim() } : {}),
           ...(nuevo.phone_e164.trim() ? { phone_e164: nuevo.phone_e164.trim() } : {}),
+          // Datos de facturacion desde el alta (2026-09-08), opcionales.
+          ...(ruc ? { doc_type: 'ruc', doc_number: ruc, ruc_dv: dvRuc(ruc) ?? undefined } : {}),
+          ...(ruc && nuevo.legal_name.trim() ? { legal_name: nuevo.legal_name.trim() } : {}),
         },
       });
       onChange(created);
       setCreating(false);
       setOpen(false);
-      setNuevo({ first_name: '', last_name: '', phone_e164: '' });
+      setNuevo({ first_name: '', last_name: '', phone_e164: '', doc_number: '', legal_name: '' });
     } catch (err) {
       const status = (err as { status?: number }).status;
       const dupId = (err as { problem?: { detail?: string } }).problem?.detail;
@@ -181,6 +186,8 @@ export function CustomerPicker({
                   first_name: partes[0] ?? '',
                   last_name: partes.slice(1).join(' '),
                   phone_e164: /^\+?\d{6,}$/.test(q.trim()) ? q.trim() : '',
+                  doc_number: '',
+                  legal_name: '',
                 });
               }}
             >
@@ -212,6 +219,24 @@ export function CustomerPicker({
                 value={nuevo.phone_e164}
                 onChange={(e) => setNuevo({ ...nuevo, phone_e164: e.target.value })}
               />
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  className={inputClass}
+                  inputMode="numeric"
+                  placeholder="RUC (opcional)"
+                  title="Para facturar; el dígito verificador se completa solo"
+                  value={nuevo.doc_number}
+                  onChange={(e) => setNuevo({ ...nuevo, doc_number: e.target.value })}
+                  onBlur={(e) => setNuevo({ ...nuevo, doc_number: formatRucConDv(e.target.value) })}
+                />
+                <input
+                  className={inputClass}
+                  placeholder="Razón social (opcional)"
+                  disabled={!nuevo.doc_number.trim()}
+                  value={nuevo.legal_name}
+                  onChange={(e) => setNuevo({ ...nuevo, legal_name: e.target.value })}
+                />
+              </div>
               {error && <p className="text-xs text-red-700">{error}</p>}
               <div className="flex justify-end gap-2">
                 <Button variant="ghost" onClick={() => setCreating(false)}>

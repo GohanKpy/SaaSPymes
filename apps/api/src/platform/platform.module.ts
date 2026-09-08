@@ -11,6 +11,7 @@ import { GoogleOauthService } from './google-oauth.service';
 import { MailSettingsService } from './mail-settings.service';
 import { MailerService } from '../common/mailer.service';
 import { PlatformUsersService } from './platform-users.service';
+import { RucPadronService } from './ruc-padron.service';
 import { SecuritySettingsService } from './security-settings.service';
 import { TenantsService } from './tenants.service';
 
@@ -26,9 +27,10 @@ import { TenantsService } from './tenants.service';
     SecuritySettingsService,
     MailSettingsService,
     MailerService,
+    RucPadronService,
     CryptoService,
     PlatformNetworkGuard,
   ],
-  exports: [BotEngineService, SecuritySettingsService, GoogleOauthService, MailSettingsService, MailerService],
+  exports: [BotEngineService, SecuritySettingsService, GoogleOauthService, MailSettingsService, MailerService, RucPadronService],
 })
 export class PlatformModule {}

@@ -8,6 +8,7 @@ import { ApiError, api } from '../../../lib/api';
 import { SOURCES, sourceLabel } from '../../../lib/crm';
 import { useConfirm, useToast } from '../../../lib/feedback';
 import { errorMessage } from '../../../lib/labels';
+import { dvRuc, formatRucConDv } from '../../../lib/ruc';
 import {
   Badge,
   Button,
@@ -39,7 +40,10 @@ interface Customer {
   rating: number | null;
 }
 
-const EMPTY = { first_name: '', last_name: '', phone_e164: '', email: '' };
+/** '80012345-7' → '80012345': el DV se recalcula en el alta. */
+const soloRuc = (v: string) => v.trim().split('-')[0] ?? '';
+
+const EMPTY = { first_name: '', last_name: '', phone_e164: '', email: '', doc_number: '', legal_name: '' };
 const PAGE = 50;
 
 export default function CustomersPage() {
@@ -122,6 +126,10 @@ export default function CustomersPage() {
           last_name: clean(form.last_name),
           phone_e164: clean(form.phone_e164),
           email: clean(form.email),
+          // Datos de facturacion desde el alta (2026-09-08), opcionales: RUC con
+          // su DV calculado y razon social como identidad fiscal predeterminada.
+          ...(clean(form.doc_number) ? { doc_type: 'ruc', doc_number: soloRuc(form.doc_number), ruc_dv: dvRuc(soloRuc(form.doc_number)) ?? undefined } : {}),
+          ...(clean(form.doc_number) && clean(form.legal_name) ? { legal_name: form.legal_name.trim() } : {}),
         },
       });
       toast.success('Cliente creado: completá su ficha cuando quieras');
@@ -296,7 +304,7 @@ export default function CustomersPage() {
       {nuevo && (
         <Modal
           title="Nuevo cliente"
-          description="Solo el nombre es obligatorio; al guardar se abre la ficha para completar el resto."
+          description="Solo el nombre es obligatorio. RUC y razón social sirven para facturar; al guardar se abre la ficha para completar el resto."
           onClose={() => setNuevo(false)}
         >
           <form className="space-y-3" onSubmit={(e) => void create(e)}>
@@ -312,6 +320,19 @@ export default function CustomersPage() {
               </Field>
               <Field label="Email">
                 <input className={inputClass} type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+              </Field>
+              <Field label="RUC (para facturar, opcional)">
+                <input
+                  className={inputClass}
+                  inputMode="numeric"
+                  placeholder="80012345 (el DV se completa solo)"
+                  value={form.doc_number}
+                  onChange={(e) => setForm({ ...form, doc_number: e.target.value })}
+                  onBlur={(e) => setForm({ ...form, doc_number: formatRucConDv(e.target.value) })}
+                />
+              </Field>
+              <Field label="Razón social (opcional)">
+                <input className={inputClass} placeholder="Como sale en la factura" value={form.legal_name} disabled={!form.doc_number.trim()} onChange={(e) => setForm({ ...form, legal_name: e.target.value })} />
               </Field>
             </div>
             {duplicateId && (

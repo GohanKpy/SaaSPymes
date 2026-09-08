@@ -71,7 +71,7 @@ const NAV: { title: string; items: NavItem[] }[] = [
 
 export default function TenantLayout({ children }: { children: ReactNode }) {
   const user = useSession('tenant');
-  const { devMode } = useTenantInfo();
+  const { devMode } = useTenantInfo(Boolean(user));
   const pathname = usePathname();
   // Menu movil (fase 4 auditoria de paneles 2026-09-05): panel deslizante con
   // los mismos grupos que el menu lateral; antes eran pastillas con scroll

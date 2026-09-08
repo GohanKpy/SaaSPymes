@@ -19,6 +19,7 @@ import { WebhooksController } from './conversations/webhooks.controller';
 import { CrmExtrasController } from './crm/crm-extras.controller';
 import { CustomersController } from './crm/customers.controller';
 import { CustomersService } from './crm/customers.service';
+import { RucController } from './crm/ruc.controller';
 import { ENV, EnvModule } from './env.module';
 import { HealthController } from './health.controller';
 import { GoogleCalendarService } from './integrations/google-calendar.service';
@@ -57,6 +58,7 @@ import { UsersController } from './tenant/users.controller';
     UsersController,
     CustomersController,
     CrmExtrasController,
+    RucController,
     CatalogController,
     AppointmentsController,
     BotController,

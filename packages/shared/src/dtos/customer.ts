@@ -52,8 +52,11 @@ export const customerCreate = z
     invoice_channel: z.enum(['whatsapp', 'email']).optional(),
     rating: z.number().int().min(1).max(5).optional(),
     custom_data: customData.optional(),
+    /** Razon social para facturar (2026-09-08): con doc_type/doc_number crea la identidad fiscal predeterminada de la ficha. */
+    legal_name: z.string().trim().min(1).max(200).optional(),
   })
   .strict()
+  .refine((c) => !c.legal_name || c.doc_number, { message: 'la razon social necesita un documento (RUC o cedula)', path: ['legal_name'] })
   .refine((c) => !c.doc_number || c.doc_type, {
     message: 'doc_type es obligatorio si hay doc_number',
     path: ['doc_type'],

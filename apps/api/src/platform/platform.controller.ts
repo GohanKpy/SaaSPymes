@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
   Param,
   Patch,
   Post,
@@ -42,6 +43,8 @@ import {
   type PlatformProfilePatch,
   type PlatformUserCreate,
   type PlatformUserUpdate,
+  rucPadronSettingsPut,
+  type RucPadronSettingsPut,
   type SecuritySettingsPut,
   type TenantCreate,
   type TenantPatch,
@@ -59,6 +62,7 @@ import { PlatformNetworkGuard } from './platform-network.guard';
 import { SecuritySettingsService } from './security-settings.service';
 import { PlansService } from './plans.service';
 import { PlatformUsersService } from './platform-users.service';
+import { RucPadronService } from './ruc-padron.service';
 import { TenantsService } from './tenants.service';
 
 function actor(req: FastifyRequest & AuthRequest): string {
@@ -81,6 +85,7 @@ export class PlatformController {
     private readonly assistant: AssistantService,
     private readonly mail: MailSettingsService,
     private readonly mailer: MailerService,
+    private readonly padron: RucPadronService,
   ) {}
 
   /**
@@ -136,6 +141,26 @@ export class PlatformController {
   }
 
   // --- Mi perfil (cualquier operador del portal) ---
+
+  /** Padron RUC de la DNIT (ADR 0012): estado de la descarga programada e historial. */
+  @Get('settings/ruc-padron')
+  rucPadron() {
+    return this.padron.view();
+  }
+
+  @Put('settings/ruc-padron')
+  @PlatformRoles('admin')
+  putRucPadron(@Body(new ZodPipe(rucPadronSettingsPut)) dto: RucPadronSettingsPut, @Req() req: FastifyRequest & AuthRequest) {
+    return this.padron.save(dto, actor(req), req.ip);
+  }
+
+  /** Descargar el padron ahora (corre en segundo plano; el estado se ve en el GET). */
+  @Post('settings/ruc-padron/sync')
+  @PlatformRoles('admin')
+  @HttpCode(202)
+  syncRucPadron(@Req() req: FastifyRequest & AuthRequest) {
+    return this.padron.syncNow(actor(req));
+  }
 
   @Get('me')
   me(@Req() req: FastifyRequest & AuthRequest) {

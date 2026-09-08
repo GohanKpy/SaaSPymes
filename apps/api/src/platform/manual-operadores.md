@@ -336,6 +336,13 @@ ejemplo "pasar presupuesto"). Cada tarea tiene vencimiento y responsable.
 
 ### 3.5 Clientes (el CRM)
 
+**Alta con datos de facturación (desde el 2026-09-08):** "Nuevo cliente" (y
+el alta rápida desde la Agenda o Facturación) pide nombre, apellido, celular,
+email y, opcionales, RUC (el dígito verificador se completa solo) y razón
+social. Si se cargan, el RUC queda como documento de la ficha y la razón
+social como identidad fiscal predeterminada: la próxima factura sale a ese
+nombre sin pedir nada. Solo el nombre es obligatorio.
+
 - **Alta rápida**: solo nombre y teléfono; el resto se completa después en la
   ficha. Si ya existe alguien con ese teléfono, email o documento, el sistema
   avisa "Ya existe un cliente con ese telefono, email o documento" y ofrece
