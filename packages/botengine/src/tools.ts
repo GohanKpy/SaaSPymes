@@ -162,7 +162,7 @@ export function buildBotTools(permissions: BotPermissions, handlers: BotToolHand
           date: { type: 'string', description: 'fecha YYYY-MM-DD en la zona del negocio' },
           empleado: {
             type: 'string',
-            description: 'opcional: nombre del equipo elegido por el cliente',
+            description: 'opcional: nombre del equipo si el cliente pidio a alguien; vacio = cualquiera del equipo',
           },
         },
         required: ['service_id', 'date'],
@@ -178,7 +178,7 @@ export function buildBotTools(permissions: BotPermissions, handlers: BotToolHand
     tools.push({
       name: 'book_appointment',
       description:
-        'Reserva para el cliente de esta conversacion el servicio service_id en date a hora_local (uno de los horarios devueltos por get_available_slots para esa fecha y ese empleado). Devuelve id, estado, tipo (servicio o reunion_inicial) y quien atiende. La nota queda visible para el equipo en la reserva.',
+        'Reserva para el cliente de esta conversacion el servicio service_id en date a hora_local (uno de los horarios devueltos por get_available_slots para esa fecha y ese empleado). Devuelve id, estado, tipo (servicio o reunion_inicial) y quien atiende (atendidoPor): decíselo al cliente. Si el empleado pedido no esta libre a esa hora, el error trae sus otros horarios y quien mas podria atender: ofrecele eso.',
       parameters: {
         type: 'object',
         properties: {
@@ -194,7 +194,7 @@ export function buildBotTools(permissions: BotPermissions, handlers: BotToolHand
           },
           empleado: {
             type: 'string',
-            description: 'opcional: nombre del equipo elegido por el cliente',
+            description: 'opcional: nombre del equipo si el cliente pidio a alguien; vacio = el sistema asigna al profesional libre con menos trabajo ese dia',
           },
         },
         required: ['service_id', 'date', 'hora_local'],

@@ -185,6 +185,7 @@ function SlotSelect({
   durationMin,
   date,
   employeeId,
+  employeeName,
   value,
   onChange,
 }: {
@@ -193,6 +194,7 @@ function SlotSelect({
   durationMin: number | null;
   date: string;
   employeeId: string;
+  employeeName?: string;
   value: string;
   onChange: (iso: string) => void;
 }) {
@@ -238,7 +240,9 @@ function SlotSelect({
             : cargando
               ? 'Buscando horarios…'
               : vacio
-                ? 'No hay horarios libres ese día'
+                ? employeeName
+                  ? `${employeeName} no tiene horarios libres ese día: probá otro día o "Cualquiera"`
+                  : 'No hay horarios libres ese día'
                 : 'Elegí un horario…'}
         </option>
         {(slots ?? []).map((s) => (
@@ -270,7 +274,11 @@ export default function SchedulePage() {
   const [rows, setRows] = useState<Appointment[] | null>(null);
   const [branches, setBranches] = useState<{ id: string }[]>([]);
   const [services, setServices] = useState<Service[]>([]);
-  const [employees, setEmployees] = useState<Employee[]>([]);
+  // null = todavia no cargo; [] = el negocio no tiene empleados que atiendan
+  // turnos (desde 2026-09-08 sin empleado no se agenda).
+  const [employeesLoaded, setEmployeesLoaded] = useState<Employee[] | null>(null);
+  const employees = useMemo(() => employeesLoaded ?? [], [employeesLoaded]);
+  const sinEquipo = employeesLoaded !== null && employeesLoaded.length === 0;
   const [error, setError] = useState<string | null>(null);
   const [vista, setVista] = useState<'lista' | 'profesional'>('lista');
   const [highlight, setHighlight] = useState<string | null>(null);
@@ -311,7 +319,7 @@ export default function SchedulePage() {
       .then((s) => setServices(s.filter((x) => x.isActive !== false && x.kind === 'servicio')))
       .catch(() => undefined);
     void api<Employee[]>('/employees')
-      .then((r) => setEmployees(r.filter((e) => e.bookable && e.isActive)))
+      .then((r) => setEmployeesLoaded(r.filter((e) => e.bookable && e.isActive)))
       .catch(() => undefined);
   }, []);
   useEffect(() => load(), [load]);
@@ -573,6 +581,7 @@ export default function SchedulePage() {
             </Link>
             <Button
               variant="primary"
+              disabled={sinEquipo}
               onClick={() => {
                 setNuevoForm((f) => ({ ...f, date }));
                 setNuevo(true);
@@ -584,6 +593,16 @@ export default function SchedulePage() {
         }
       />
       <ErrorNote error={error} />
+      {sinEquipo && (
+        <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          Todo turno se asigna a un empleado. Para agendar (desde acá o por WhatsApp) hace falta al menos un empleado con
+          &quot;Atiende clientes con turno&quot; tildado:{' '}
+          <Link className="font-medium underline" href="/app/employees">
+            cargalo en Personal
+          </Link>
+          .
+        </p>
+      )}
 
       {vista === 'lista' || employees.length === 0 ? (
         <div className={tableCard}>
@@ -742,7 +761,7 @@ export default function SchedulePage() {
                   value={nuevoForm.employee_id}
                   onChange={(e) => setNuevoForm({ ...nuevoForm, employee_id: e.target.value, slot: '' })}
                 >
-                  <option value="">Cualquiera (se asigna al menos cargado)</option>
+                  <option value="">Cualquiera (se asigna al que esté libre con menos trabajo ese día)</option>
                   {employees.map((e) => (
                     <option key={e.id} value={e.id}>
                       {e.firstName} {e.lastName}
@@ -758,6 +777,7 @@ export default function SchedulePage() {
                 durationMin={duracionNuevo}
                 date={nuevoForm.date}
                 employeeId={nuevoForm.employee_id}
+                employeeName={nombreEmpleado(employees.find((e) => e.id === nuevoForm.employee_id) ?? null) ?? undefined}
                 value={nuevoForm.slot}
                 onChange={(slot) => setNuevoForm({ ...nuevoForm, slot })}
               />
@@ -831,6 +851,7 @@ export default function SchedulePage() {
                 durationMin={minutosTurno(reprog)}
                 date={reprogForm.date}
                 employeeId={reprogForm.employee_id}
+                employeeName={nombreEmpleado(employees.find((e) => e.id === reprogForm.employee_id) ?? null) ?? undefined}
                 value={reprogForm.slot}
                 onChange={(slot) => setReprogForm({ ...reprogForm, slot })}
               />

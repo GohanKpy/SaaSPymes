@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { HttpException, Inject, Injectable, Logger } from '@nestjs/common';
 import { DEFAULT_BASE_PROMPT, runBotTurn, type BotToolHandlers } from '@pymes/botengine';
 import type { Env } from '@pymes/shared';
 
@@ -481,6 +481,54 @@ export class BotService {
     return null;
   }
 
+  /** Sin empleados que atiendan turnos no se reserva (2026-09-08): el bot deriva a una persona. */
+  private async exigirEquipo(tenantId: string): Promise<void> {
+    if ((await this.teamNames(tenantId)).length > 0) return;
+    throw new Error(
+      'este negocio todavia no tiene profesionales cargados para atender turnos, asi que no se puede reservar por chat: decile al cliente que un companero lo coordina y llama request_human en este mismo turno',
+    );
+  }
+
+  /**
+   * Motivo para el modelo cuando el profesional pedido no esta libre a la
+   * hora que quiere el cliente (2026-09-08): quien es, sus otros horarios del
+   * dia y quien mas podria atender a esa hora, para que el bot lo explique y
+   * ofrezca alternativas sin cambiar de profesional ni de horario por su cuenta.
+   */
+  private async motivoProfesionalNoDisponible(
+    ctx: { tenantId: string; actorType: 'bot' },
+    p: {
+      branch: string;
+      serviceId: string;
+      date: string;
+      hora: string;
+      employeeId: string;
+      horasDelEmpleado: string[];
+      horaLocal: (iso: string) => string;
+    },
+  ): Promise<string> {
+    const nombreDe = (e: { firstName: string; lastName: string }) => `${e.firstName} ${e.lastName}`;
+    const [empleado, detallados] = await Promise.all([
+      this.appDb.tx(ctx, (tx) =>
+        tx.employee.findFirst({ where: { id: p.employeeId, deletedAt: null }, select: { firstName: true, lastName: true } }),
+      ),
+      this.appointments.slotsDetallados(ctx, { branch_id: p.branch, service_id: p.serviceId, date: p.date }),
+    ]);
+    const nombre = empleado ? nombreDe(empleado) : 'ese profesional';
+    const otrosIds = (detallados.find((s) => p.horaLocal(s.startsAt) === p.hora)?.employeeIds ?? []).filter((id) => id !== p.employeeId);
+    const otros = otrosIds.length
+      ? await this.appDb.tx(ctx, (tx) =>
+          tx.employee.findMany({ where: { id: { in: otrosIds } }, select: { firstName: true, lastName: true }, orderBy: { firstName: 'asc' } }),
+        )
+      : [];
+    return (
+      `${nombre} no esta disponible el ${p.date} a las ${p.hora}: decile eso al cliente. ` +
+      `Alternativas para ofrecerle: con ${nombre} ese dia: ${p.horasDelEmpleado.join(', ') || 'ningun horario'}; ` +
+      `a las ${p.hora} podria atenderlo: ${otros.map(nombreDe).join(', ') || 'nadie mas del equipo'}. ` +
+      'No reserves con otro profesional ni en otro horario sin que el cliente lo acepte.'
+    );
+  }
+
   /**
    * Busca un empleado agendable por nombre ("Maria", "Maria Gonzalez"):
    * match UNICO normalizado por nombre completo o solo nombre de pila.
@@ -594,12 +642,20 @@ export class BotService {
           void persist(name, rendered, true, JSON.stringify(result), Date.now() - startedAt);
           return result;
         } catch (error) {
-          const detail = error instanceof Error ? error.message : String(error);
+          // Las excepciones HTTP de la API (409 "ya tiene un turno en ese
+          // horario") traen el motivo en response.title: sin esto el modelo
+          // veia "Conflict Exception" y no sabia que decirle al cliente.
+          const detail =
+            error instanceof HttpException
+              ? ((error.getResponse() as { title?: string }).title ?? error.message)
+              : error instanceof Error
+                ? error.message
+                : String(error);
           this.logger.warn(
             `tool=${name} conv=${conversationId} args=${rendered} error="${detail}"`,
           );
           void persist(name, rendered, false, detail, Date.now() - startedAt);
-          throw error;
+          throw error instanceof HttpException ? new Error(detail) : error;
         }
       };
     return {
@@ -726,6 +782,7 @@ export class BotService {
           }
           employeeId = match.id;
         }
+        await this.exigirEquipo(tenantId);
         const branch = await this.mainBranch(tenantId);
         const slots = await this.appointments.availability(ctx, {
           branch_id: branch,
@@ -801,6 +858,7 @@ export class BotService {
           employeeId = match.id;
         }
         const hora = `${horaMatch[1].padStart(2, '0')}:${horaMatch[2]}`;
+        await this.exigirEquipo(tenantId);
         const branch = await this.mainBranch(tenantId);
         const open = await this.appointments.availability(ctx, {
           branch_id: branch,
@@ -810,6 +868,11 @@ export class BotService {
         });
         const slot = open.find((iso) => horaLocal(iso) === hora);
         if (!slot) {
+          if (employeeId) {
+            throw new Error(
+              await this.motivoProfesionalNoDisponible(ctx, { branch, serviceId: service.id, date, hora, employeeId, horasDelEmpleado: open.map(horaLocal), horaLocal }),
+            );
+          }
           const vigentes = open.map(horaLocal).join(', ') || 'ninguno';
           throw new Error(
             `las ${hora} del ${date} no esta disponible; horarios vigentes: ${vigentes}. Ofrece al cliente estas opciones.`,
@@ -963,6 +1026,11 @@ export class BotService {
         });
         const slot = open.find((iso) => horaLocal(iso) === hora);
         if (!slot) {
+          if (employeeId) {
+            throw new Error(
+              await this.motivoProfesionalNoDisponible(ctx, { branch, serviceId: old.serviceId, date, hora, employeeId, horasDelEmpleado: open.map(horaLocal), horaLocal }),
+            );
+          }
           const vigentes = open.map(horaLocal).join(', ') || 'ninguno';
           throw new Error(
             `las ${hora} del ${date} no esta disponible; horarios vigentes: ${vigentes}. Ofrece al cliente estas opciones.`,

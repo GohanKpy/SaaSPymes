@@ -226,6 +226,24 @@ Todas las conversaciones de WhatsApp (o del chat de prueba) en un solo lugar.
 
 Turnos del negocio, por día y por empleado.
 
+**Quién atiende cada turno (regla desde el 2026-09-08):** todo turno queda
+asignado a un empleado con "Atiende clientes con turno" tildado en Personal.
+
+- Sin ningún empleado así, no se puede agendar ni desde la Agenda ni por
+  WhatsApp: la Agenda muestra un aviso con link a Personal y el bot deriva a
+  una persona. Mensaje: "Para agendar hace falta al menos un empleado que
+  atienda clientes con turno: cargalo en Personal."
+- "Cualquiera" en el panel (o el cliente no pidió a nadie por chat): el
+  sistema elige, entre los que están libres y dentro de su horario a esa
+  hora, al que tiene MENOS carga ese día (minutos ya agendados; en empate,
+  menos turnos). La respuesta del bot le dice al cliente quién lo atiende.
+- Profesional elegido (en el panel o por el cliente en el chat): se verifica
+  que esté libre. Si no lo está, el panel directamente no ofrece ese horario
+  ("X no tiene horarios libres ese día") y el bot le dice al cliente que esa
+  persona no está disponible a esa hora y le ofrece sus otros horarios del
+  día u otro profesional. Nunca cambia de profesional ni de horario sin que
+  el cliente acepte.
+
 - Estados de un turno: `pending` (pendiente de confirmar), `confirmed`
   (confirmado), `completed` (completado), `cancelled` (cancelado), `no_show`
   (el cliente no vino).
@@ -239,9 +257,14 @@ Turnos del negocio, por día y por empleado.
   horario, el sistema avisa el conflicto y ofrece: abortar el cambio,
   mantener esos turnos igual, o cancelarlos avisando a los clientes con un
   mensaje (obligatorio escribirlo).
-- "Sin disponibilidad en ese horario": otro turno ocupa ese lugar, el
-  empleado no trabaja a esa hora, o un evento del Google Calendar del negocio
-  bloquea el horario.
+- "Sin empleados libres en ese horario" / "El empleado elegido ya tiene un
+  turno en ese horario": otro turno o un evento de Google Calendar ocupa a
+  esa(s) persona(s) a esa hora.
+- "Ningun empleado agendable trabaja en ese horario" / "El empleado elegido
+  no trabaja en ese horario": fuera del horario de atención o del horario
+  propio del empleado.
+- "Para agendar hace falta al menos un empleado que atienda clientes con
+  turno": el negocio no tiene ningún empleado agendable; cargarlo en Personal.
 - "El empleado elegido no existe o no es agendable": el empleado está
   dado de baja o no tiene tildado "Atiende clientes con turno" en Personal.
 
@@ -413,6 +436,8 @@ pantallas separadas, "Empleados" y "Equipo"):
 - Solo nombres y apellidos son obligatorios; el email es opcional.
 - **"Atiende clientes con turno"** (agendable): tildar solo para quienes
   reciben turnos en la agenda; el bot ofrece únicamente empleados agendables.
+  Hace falta al menos uno: desde el 2026-09-08 todo turno se asigna a un
+  empleado y sin agendables no se agenda (ni en el panel ni por WhatsApp).
 - **"Trabaja actualmente"**: destildar para dar de baja a alguien que ya no
   está (no se borra el historial). El botón "Dar de baja" hace lo mismo.
 - Cada empleado puede tener su **horario propio** (si no, rige el del
@@ -606,8 +631,12 @@ En orden de frecuencia:
   tiene filas de datos.
 
 **Agenda**
-- "Sin disponibilidad en ese horario": horario ocupado o fuera del horario de
-  atención/empleado.
+- "Sin empleados libres en ese horario" / "El empleado elegido ya tiene un
+  turno en ese horario": ocupado a esa hora.
+- "Ningun empleado agendable trabaja en ese horario" / "El empleado elegido
+  no trabaja en ese horario": fuera del horario de atención o del empleado.
+- "Para agendar hace falta al menos un empleado que atienda clientes con
+  turno": cargar un empleado agendable en Personal.
 - "El empleado elegido no existe o no es agendable": revisar en Personal que
   esté activo y con "Atiende clientes con turno" tildado.
 - "Solo se confirman turnos pendientes" / "El turno no se puede cancelar" /

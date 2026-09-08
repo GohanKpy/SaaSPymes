@@ -13,8 +13,16 @@ import { crearConsumosDeTurno } from '../invoicing/charges';
 import { AppPrisma } from '../prisma/app-prisma.service';
 
 export const DEFAULT_DURATION_MIN = 30;
-// Capacidad por franja v1 = 1 (doc 03: la capacidad se valida en la app).
-const SLOT_CAPACITY = 1;
+// Toda reserva queda asignada a un empleado agendable (ADR 0009, regla
+// obligatoria desde 2026-09-08): sin empleados cargados no se agenda.
+export const SIN_EMPLEADOS_TITULO =
+  'Para agendar hace falta al menos un empleado que atienda clientes con turno: cargalo en Personal.';
+
+/** Un horario libre y quienes del equipo podrian tomarlo. */
+export interface SlotLibre {
+  startsAt: string;
+  employeeIds: string[];
+}
 // Grilla de inicio de los turnos (2026-09-03): antes el paso era la duracion
 // del servicio, asi que una keratina de 180 min solo podia empezar a las
 // 08:00, 11:00 o 14:00 aunque la agenda estuviera vacia ("se cierra en
@@ -163,6 +171,16 @@ export class AppointmentsService {
 
   /** Slots libres segun duracion del servicio y horario (doc 04 §3.6). */
   async availability(ctx: TenantContext, query: AvailabilityQuery): Promise<string[]> {
+    return (await this.slotsDetallados(ctx, query)).map((s) => s.startsAt);
+  }
+
+  /**
+   * Slots libres con los empleados que podrian atender cada uno (2026-09-08):
+   * el bot lo usa para explicar alternativas cuando el profesional pedido no
+   * esta libre ("a esa hora podria atenderte Ana"). Con employee_id, solo
+   * los horarios de esa persona.
+   */
+  async slotsDetallados(ctx: TenantContext, query: AvailabilityQuery): Promise<SlotLibre[]> {
     return this.appDb.tx(ctx, async (tx) => {
       const ids = [...new Set(query.service_ids ?? (query.service_id ? [query.service_id] : []))];
       const [encontrados, branch, tenant] = await Promise.all([
@@ -193,14 +211,15 @@ export class AppointmentsService {
         },
         select: { startsAt: true, endsAt: true, employeeId: true },
       });
-      // Capacidad por franja (ADR 0009): con empleados agendables cargados,
-      // la capacidad es la cantidad de empleados LIBRES Y EN SU HORARIO
-      // (fase 3: cada uno puede tener horario propio; null = el del negocio).
-      // Sin empleados rige el SLOT_CAPACITY fijo (negocio unipersonal).
+      // Capacidad por franja (ADR 0009): la cantidad de empleados agendables
+      // LIBRES Y EN SU HORARIO (cada uno puede tener horario propio; null =
+      // el del negocio). Sin empleados cargados no hay horarios: toda
+      // reserva necesita un empleado (2026-09-08).
       const agendables = await tx.employee.findMany({
         where: { deletedAt: null, isActive: true, bookable: true },
         select: { id: true, schedule: true },
       });
+      if (agendables.length === 0) return [];
       // Bloqueos del Google Calendar (ADR 0007 fase C): employee_id NULL tapa
       // el hueco para todo el negocio; con valor solo saca a ese empleado.
       const blocks = await tx.calendarBlock.findMany({
@@ -224,7 +243,7 @@ export class AppointmentsService {
       const overlap = (s: { startsAt: Date; endsAt: Date }, start: number, end: number) =>
         s.startsAt.getTime() < end && s.endsAt.getTime() > start;
 
-      const slots: string[] = [];
+      const slots: SlotLibre[] = [];
       const durationMs = duration * 60_000;
       const stepMs = Math.min(duration, DEFAULT_SLOT_STEP_MIN) * 60_000;
       const now = Date.now();
@@ -237,11 +256,6 @@ export class AppointmentsService {
           const end = start + durationMs;
           if (start < now) continue;
           if (tenantBlocks.some((b) => overlap(b, start, end))) continue;
-          if (agendables.length === 0) {
-            const overlapping = busy.filter((b) => overlap(b, start, end)).length;
-            if (overlapping < SLOT_CAPACITY) slots.push(new Date(start).toISOString());
-            continue;
-          }
           const libres = equipo.filter(
             (e) =>
               dentroDe(e.ranges, start, end) &&
@@ -255,7 +269,10 @@ export class AppointmentsService {
             ? libres.some((e) => e.id === query.employee_id)
             : true;
           if (elegidoLibre && libres.length - sinAsignar > 0) {
-            slots.push(new Date(start).toISOString());
+            slots.push({
+              startsAt: new Date(start).toISOString(),
+              employeeIds: query.employee_id ? [query.employee_id] : libres.map((e) => e.id),
+            });
           }
         }
       }
@@ -292,108 +309,112 @@ export class AppointmentsService {
     const startsAt = new Date(dto.starts_at);
     const endsAt = dto.ends_at ? new Date(dto.ends_at) : new Date(startsAt.getTime() + duracion * 60_000);
 
-    // Asignacion de empleado (ADR 0009): con empleados agendables, cada
-    // reserva queda asignada a uno libre. El advisory lock por tenant
-    // serializa las reservas concurrentes: dos clientes pidiendo el mismo
-    // horario jamas terminan con el mismo empleado en dos turnos solapados.
+    // Asignacion de empleado (ADR 0009; obligatoria desde 2026-09-08): toda
+    // reserva queda a nombre de un empleado agendable libre; sin empleados
+    // cargados no se agenda. El advisory lock por tenant serializa las
+    // reservas concurrentes: dos clientes pidiendo el mismo horario jamas
+    // terminan con el mismo empleado en dos turnos solapados.
     const agendables = await tx.employee.findMany({
       where: { deletedAt: null, isActive: true, bookable: true },
       select: { id: true, firstName: true, lastName: true, schedule: true },
     });
-    let employeeId: string | null = null;
-    if (agendables.length > 0) {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`${ctx.tenantId}:employee-scheduling`}, 0))`;
-      const candidatos = dto.employee_id
-        ? agendables.filter((e) => e.id === dto.employee_id)
-        : agendables;
-      if (dto.employee_id && candidatos.length === 0) {
-        throw new ConflictException({ title: 'El empleado elegido no existe o no es agendable' });
-      }
-      // Horario individual (fase 3): solo cuentan los que trabajan en esa
-      // franja segun SU horario (o el de la sucursal si no tienen propio).
-      const [branch, tenant] = await Promise.all([
-        tx.branch.findFirst({ where: { id: dto.branch_id, deletedAt: null } }),
-        tx.tenant.findUnique({ where: { id: ctx.tenantId }, select: { timezone: true } }),
-      ]);
-      const timezone = tenant?.timezone ?? 'America/Asuncion';
-      const branchSchedule = (branch?.schedule ?? {}) as BranchSchedule;
-      const dateLocal = startsAt.toLocaleDateString('en-CA', { timeZone: timezone });
-      const trabajando = candidatos.filter((e) =>
-        dentroDe(
-          utcRanges(((e.schedule as BranchSchedule | null) ?? branchSchedule), dateLocal, timezone),
-          startsAt.getTime(),
-          endsAt.getTime(),
-        ),
-      );
-      if (trabajando.length === 0) {
-        throw new ConflictException({
-          title: dto.employee_id
-            ? 'El empleado elegido no trabaja en ese horario'
-            : 'Ningun empleado agendable trabaja en ese horario',
-        });
-      }
-      const solapados = await tx.appointment.findMany({
-        where: {
-          deletedAt: null,
-          status: { in: ['pending', 'confirmed'] },
-          employeeId: { in: trabajando.map((e) => e.id) },
-          startsAt: { lt: endsAt },
-          endsAt: { gt: startsAt },
-        },
-        select: { employeeId: true },
+    if (agendables.length === 0) {
+      throw new ConflictException({ title: SIN_EMPLEADOS_TITULO });
+    }
+    let employeeId: string;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`${ctx.tenantId}:employee-scheduling`}, 0))`;
+    const candidatos = dto.employee_id
+      ? agendables.filter((e) => e.id === dto.employee_id)
+      : agendables;
+    if (dto.employee_id && candidatos.length === 0) {
+      throw new ConflictException({ title: 'El empleado elegido no existe o no es agendable' });
+    }
+    // Horario individual (fase 3): solo cuentan los que trabajan en esa
+    // franja segun SU horario (o el de la sucursal si no tienen propio).
+    const [branch, tenant] = await Promise.all([
+      tx.branch.findFirst({ where: { id: dto.branch_id, deletedAt: null } }),
+      tx.tenant.findUnique({ where: { id: ctx.tenantId }, select: { timezone: true } }),
+    ]);
+    const timezone = tenant?.timezone ?? 'America/Asuncion';
+    const branchSchedule = (branch?.schedule ?? {}) as BranchSchedule;
+    const dateLocal = startsAt.toLocaleDateString('en-CA', { timeZone: timezone });
+    const trabajando = candidatos.filter((e) =>
+      dentroDe(
+        utcRanges(((e.schedule as BranchSchedule | null) ?? branchSchedule), dateLocal, timezone),
+        startsAt.getTime(),
+        endsAt.getTime(),
+      ),
+    );
+    if (trabajando.length === 0) {
+      throw new ConflictException({
+        title: dto.employee_id
+          ? 'El empleado elegido no trabaja en ese horario'
+          : 'Ningun empleado agendable trabaja en ese horario',
       });
-      const ocupados = new Set(solapados.map((s) => s.employeeId));
-      // Bloqueo personal del Google del empleado (fase 3): tambien lo ocupa.
-      const bloqueosPersonales = await tx.calendarBlock.findMany({
-        where: {
-          employeeId: { in: trabajando.map((e) => e.id) },
-          startsAt: { lt: endsAt },
-          endsAt: { gt: startsAt },
-        },
-        select: { employeeId: true },
+    }
+    const solapados = await tx.appointment.findMany({
+      where: {
+        deletedAt: null,
+        status: { in: ['pending', 'confirmed'] },
+        employeeId: { in: trabajando.map((e) => e.id) },
+        startsAt: { lt: endsAt },
+        endsAt: { gt: startsAt },
+      },
+      select: { employeeId: true },
+    });
+    const ocupados = new Set(solapados.map((s) => s.employeeId));
+    // Bloqueo personal del Google del empleado (fase 3): tambien lo ocupa.
+    const bloqueosPersonales = await tx.calendarBlock.findMany({
+      where: {
+        employeeId: { in: trabajando.map((e) => e.id) },
+        startsAt: { lt: endsAt },
+        endsAt: { gt: startsAt },
+      },
+      select: { employeeId: true },
+    });
+    for (const b of bloqueosPersonales) if (b.employeeId) ocupados.add(b.employeeId);
+    const libres = trabajando.filter((e) => !ocupados.has(e.id));
+    if (libres.length === 0) {
+      throw new ConflictException({
+        title: dto.employee_id
+          ? 'El empleado elegido ya tiene un turno en ese horario'
+          : 'Sin empleados libres en ese horario',
       });
-      for (const b of bloqueosPersonales) if (b.employeeId) ocupados.add(b.employeeId);
-      const libres = trabajando.filter((e) => !ocupados.has(e.id));
-      if (libres.length === 0) {
-        throw new ConflictException({
-          title: dto.employee_id
-            ? 'El empleado elegido ya tiene un turno en ese horario'
-            : 'Sin empleados libres en ese horario',
-        });
-      }
-      if (dto.employee_id) {
-        employeeId = dto.employee_id;
-      } else {
-        // Auto-asignacion: el libre con menos turnos del dia (reparte carga).
-        const dia = 86_400_000;
-        const cargas = await tx.appointment.groupBy({
-          by: ['employeeId'],
-          where: {
-            deletedAt: null,
-            status: { in: ['pending', 'confirmed'] },
-            employeeId: { in: libres.map((e) => e.id) },
-            startsAt: { gt: new Date(startsAt.getTime() - dia), lt: new Date(startsAt.getTime() + dia) },
-          },
-          _count: { _all: true },
-        });
-        const carga = new Map(cargas.map((c) => [c.employeeId, c._count._all]));
-        libres.sort((a, b) => (carga.get(a.id) ?? 0) - (carga.get(b.id) ?? 0));
-        employeeId = libres[0]?.id ?? null;
-      }
+    }
+    if (dto.employee_id) {
+      employeeId = dto.employee_id;
     } else {
-      // Sin empleados cargados: capacidad fija historica (doc 04 §3.6).
-      const overlapping = await tx.appointment.count({
+      // Auto-asignacion (pedido de Johan 2026-09-08): entre los libres, el
+      // de MENOS carga ese dia = minutos ya agendados en el dia local del
+      // turno (antes se contaban turnos en una ventana de ±24 h). Empate:
+      // menos turnos, y despues por nombre para que sea predecible.
+      const dayStart = localToUtc(dateLocal, 0, 0, timezone);
+      const dayEnd = localToUtc(dateLocal, 23, 59, timezone);
+      const delDia = await tx.appointment.findMany({
         where: {
-          branchId: dto.branch_id,
           deletedAt: null,
           status: { in: ['pending', 'confirmed'] },
-          startsAt: { lt: endsAt },
-          endsAt: { gt: startsAt },
+          employeeId: { in: libres.map((e) => e.id) },
+          startsAt: { lt: dayEnd },
+          endsAt: { gt: dayStart },
         },
+        select: { employeeId: true, startsAt: true, endsAt: true },
       });
-      if (overlapping >= SLOT_CAPACITY) {
-        throw new ConflictException({ title: 'Sin disponibilidad en ese horario' });
+      const carga = new Map<string, { min: number; n: number }>();
+      for (const a of delDia) {
+        if (!a.employeeId) continue;
+        const c = carga.get(a.employeeId) ?? { min: 0, n: 0 };
+        c.min += (a.endsAt.getTime() - a.startsAt.getTime()) / 60_000;
+        c.n += 1;
+        carga.set(a.employeeId, c);
       }
+      const peso = (id: string) => carga.get(id) ?? { min: 0, n: 0 };
+      const nombre = (e: { firstName: string; lastName: string }) => `${e.firstName} ${e.lastName}`;
+      libres.sort(
+        (a, b) =>
+          peso(a.id).min - peso(b.id).min || peso(a.id).n - peso(b.id).n || nombre(a).localeCompare(nombre(b), 'es'),
+      );
+      employeeId = libres[0]!.id;
     }
 
     // Turnos por bot nacen pending o confirmed segun auto_confirm_bookings

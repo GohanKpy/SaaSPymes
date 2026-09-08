@@ -1,6 +1,6 @@
 # ADR 0009 — Empleados agendables (RRHH) y catálogo tipado
 
-- Estado: aceptado (fases 1, 2 y 3 implementadas)
+- Estado: aceptado (fases 1, 2 y 3 implementadas; actualización 2026-09-08)
 - Fecha: 2026-08-13 (fases 2 y 3: 2026-08-17)
 
 ## Contexto
@@ -93,6 +93,32 @@ Detalles de implementación:
   (únicos nombres válidos) y la regla de no inventar nombres ni elegir por
   su cuenta. Nombre no reconocido → error accionable con el equipo real.
 
+### 5. Asignación obligatoria y carga por minutos (2026-09-08)
+
+Pedido del dueño: toda reserva debe quedar asignada sí o sí a un empleado;
+sin preferencia, al que esté libre con menos carga del día; con preferencia,
+verificar que esté libre y, si no lo está, avisar al cliente.
+
+- Se elimina el `SLOT_CAPACITY` fijo para tenants sin empleados: sin
+  empleados agendables la disponibilidad es vacía y crear un turno da 409
+  "Para agendar hace falta al menos un empleado que atienda clientes con
+  turno" (`SIN_EMPLEADOS_TITULO`). La Agenda muestra el aviso con link a
+  Personal y deshabilita "Nuevo turno"; el bot deriva a una persona
+  (`exigirEquipo`). Los turnos recurrentes fallan con ese motivo y avisan al
+  dueño, como cualquier otro error de generación.
+- `appointments.employee_id` sigue nullable solo por el histórico; toda fila
+  nueva lleva empleado.
+- Carga del día = minutos agendados (pending/confirmed) en el día LOCAL del
+  turno; empate → menos turnos → nombre. Antes: cantidad de turnos en una
+  ventana de ±24 h.
+- `AppointmentsService.slotsDetallados()` devuelve por horario quiénes podrían
+  atender (`availability()` es su proyección). Con profesional pedido y no
+  libre, el error de `book_appointment` / `reschedule_appointment` trae "X no
+  está disponible el día a las HH:MM", sus otros horarios y quién más podría
+  atender a esa hora; la regla 3 del prompt prohíbe cambiar de profesional u
+  horario sin aceptación del cliente. Las HttpException de la API llegan al
+  modelo con su título (antes "Conflict Exception").
+
 ## Fases
 
 1. Empleados + asignación + anti-solape + disponibilidad por empleados
@@ -100,3 +126,5 @@ Detalles de implementación:
 2. Catálogo tipado + migración de `bookable_by_bot` + UI de categorías. ✔
 3. Horarios individuales por empleado, calendario Google propio por empleado,
    elección de profesional por chat. ✔
+4. Asignación obligatoria, carga del día en minutos y aviso al cliente cuando
+   el profesional pedido no está libre (2026-09-08). ✔
