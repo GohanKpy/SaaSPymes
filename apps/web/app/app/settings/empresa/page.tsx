@@ -6,6 +6,7 @@ import { api } from '../../../../lib/api';
 import { useToast } from '../../../../lib/feedback';
 import { errorMessage } from '../../../../lib/labels';
 import { formatRucConDv } from '../../../../lib/ruc';
+import { RucEstado, useRucAutofill } from '../../../../lib/ruc-lookup';
 import { Button, Card, ErrorNote, Field, inputClass } from '../../../../lib/ui';
 
 interface TenantMe {
@@ -34,6 +35,13 @@ export default function EmpresaPage() {
   const [features, setFeatures] = useState<EffectiveFeature[]>([]);
   const [branchId, setBranchId] = useState<string | null>(null);
   const [sucursal, setSucursal] = useState({ address: '', phone: '' });
+  // Padron RUC (ADR 0012): valida el RUC del negocio contra la DNIT y ofrece la razon social oficial.
+  const padron = useRucAutofill({
+    ruc: empresa.ruc,
+    enabled: true,
+    legalName: empresa.legal_name,
+    onFill: (p) => setEmpresa((e) => ({ ...e, legal_name: p.legal_name })),
+  });
 
   const load = useCallback(() => {
     api<TenantMe>('/tenant')
@@ -131,6 +139,11 @@ export default function EmpresaPage() {
               onChange={(e) => setEmpresa({ ...empresa, ruc: e.target.value })}
               onBlur={(e) => setEmpresa({ ...empresa, ruc: formatRucConDv(e.target.value) })}
             />
+            {(padron.loading || padron.lookup) && (
+              <div className="mt-1">
+                <RucEstado lookup={padron.lookup} loading={padron.loading} sugerencia={padron.sugerencia} onUsar={padron.usarSugerencia} />
+              </div>
+            )}
           </Field>
           <Field label="Actividad económica">
             <input className={inputClass} placeholder="Ej: Peluquería y estética" value={marca.actividad} onChange={(e) => setMarca({ ...marca, actividad: e.target.value })} />

@@ -489,8 +489,13 @@ export class GoogleCalendarService implements OnModuleInit, OnModuleDestroy {
     }
 
     if (event.status === 'cancelled') {
+      // Un evento borrado quita su bloqueo; si era una serie repetitiva
+      // borrada entera, Google manda el id "madre" y hay que quitar todas
+      // sus instancias (id_YYYYMMDD / id_YYYYMMDDTHHMMSSZ), 2026-09-08.
       await this.appDb.tx(ctx, (tx) =>
-        tx.calendarBlock.deleteMany({ where: { googleEventId: event.id, employeeId } }),
+        tx.calendarBlock.deleteMany({
+          where: { employeeId, OR: [{ googleEventId: event.id }, { googleEventId: { startsWith: `${event.id}_` } }] },
+        }),
       );
       return;
     }

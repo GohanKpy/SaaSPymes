@@ -147,6 +147,9 @@ apps/
                 bot (ajustes del bot del tenant), integrations (credenciales
                 cifradas + google-calendar.service recíproco), invoicing
                 (facturas, numeración con lock, KuDE PDF con pdfkit+qrcode),
+                padrón RUC de la DNIT (ADR 0012: cron mensual in-process en
+                platform/ruc-padron.service + GET /ruc/:ruc que autocompleta
+                razón social y DV en clientes y facturas),
                 common (crypto envelope, rate limit, problem+json RFC 7807,
                 zod pipe), prisma (AppPrisma.tx = contrato RLS; PlatformPrisma)
   worker/       NestJS standalone. VACÍO (heartbeat): los consumidores SQS
@@ -175,7 +178,8 @@ docs/
                 0004 portal admin separado · 0005 el tenant es la ficha CRM
                 de plataforma · 0006 ledger y corte de presupuesto IA ·
                 0007 Google Calendar recíproco · 0008 prompt en 3 capas ·
-                0009 empleados agendables + catálogo tipado.
+                0009 empleados agendables + catálogo tipado · 0012 padrón
+                RUC de la DNIT (copia local mensual en `control`).
   propuestas/   Replanteos de producto en evaluación (2026-08-26: módulos
                 estilo Bitrix24, P1/P2/P3).
   qa/           Reportes de las baterías de prueba del bot.

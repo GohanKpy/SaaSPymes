@@ -853,3 +853,24 @@ identificador que usa el chat es el de Ajustes → WhatsApp.
 7. Nunca prometer al cliente funciones que el sistema no tiene hoy (notas de
    crédito, pagos online, otros canales de chat): registrar el pedido y
    escalarlo como sugerencia.
+
+
+## Padrón RUC (DNIT)
+
+- **Qué es:** copia local del listado público de contribuyentes de la DNIT
+  (RUC, razón social, dígito verificador y estado). Con eso, cuando un negocio
+  tipea un RUC en un cliente o en una factura, el panel completa solo la razón
+  social y el DV y muestra si el RUC está activo, suspendido o cancelado.
+- **Dónde:** portal admin → Sistema → "Padrón RUC (DNIT)".
+- **Cómo se actualiza:** solo, una vez por mes (por defecto el día 5 a las
+  03:00, hora de Asunción; la DNIT publica los días 1-2). Si el sistema estaba
+  apagado a esa hora, lo hace apenas arranca. Se puede forzar con "Descargar
+  ahora" (tarda unos minutos; el estado se refresca solo).
+- **Si falla:** el padrón anterior queda intacto y los administradores reciben
+  un correo. El autocompletado sigue funcionando, solo sin las altas y cambios
+  más recientes. Reintentar con "Descargar ahora"; si vuelve a fallar, revisar
+  en el historial el detalle del error (la DNIT puede estar caída o haber
+  cambiado el formato de los archivos).
+- **"No figura en el padrón":** el RUC es nuevo (alta posterior a la última
+  descarga), está mal tipeado, o el padrón todavía no se descargó. El negocio
+  puede cargar la razón social a mano igual.

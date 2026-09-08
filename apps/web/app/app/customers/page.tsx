@@ -9,6 +9,7 @@ import { SOURCES, sourceLabel } from '../../../lib/crm';
 import { useConfirm, useToast } from '../../../lib/feedback';
 import { errorMessage } from '../../../lib/labels';
 import { dvRuc, formatRucConDv } from '../../../lib/ruc';
+import { RucEstado, useRucAutofill } from '../../../lib/ruc-lookup';
 import {
   Badge,
   Button,
@@ -60,6 +61,13 @@ export default function CustomersPage() {
 
   const [nuevo, setNuevo] = useState(false);
   const [form, setForm] = useState(EMPTY);
+  // Padron RUC (ADR 0012): al tipear el RUC se completa la razon social oficial de la DNIT.
+  const padron = useRucAutofill({
+    ruc: form.doc_number,
+    enabled: true,
+    legalName: form.legal_name,
+    onFill: (p) => setForm((f) => ({ ...f, legal_name: p.legal_name })),
+  });
   const [guardando, setGuardando] = useState(false);
   const [duplicateId, setDuplicateId] = useState<string | null>(null);
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -334,6 +342,11 @@ export default function CustomersPage() {
               <Field label="Razón social (opcional)">
                 <input className={inputClass} placeholder="Como sale en la factura" value={form.legal_name} disabled={!form.doc_number.trim()} onChange={(e) => setForm({ ...form, legal_name: e.target.value })} />
               </Field>
+              {(padron.loading || padron.lookup) && (
+                <div className="col-span-2">
+                  <RucEstado lookup={padron.lookup} loading={padron.loading} sugerencia={padron.sugerencia} onUsar={padron.usarSugerencia} />
+                </div>
+              )}
             </div>
             {duplicateId && (
               <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">

@@ -1,4 +1,11 @@
-import { ConflictException, Inject, Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import {
+  ConflictException,
+  Inject,
+  Injectable,
+  Logger,
+  type OnModuleDestroy,
+  type OnModuleInit,
+} from '@nestjs/common';
 import type { Prisma } from '@pymes/db';
 import {
   computeRucDv,
@@ -20,7 +27,8 @@ import { PADRON_TZ, debeCorrer, proximaCorrida, type PadronSchedule } from './ru
 
 const SETTING_KEY = 'ruc_padron';
 /** Pagina publica de la DNIT con los 10 zips (los ids de documento cambian; se leen del HTML). */
-const DEFAULT_PAGE_URL = 'https://www.dnit.gov.py/web/portal-institucional/listado-de-ruc-con-sus-equivalencias';
+const DEFAULT_PAGE_URL =
+  'https://www.dnit.gov.py/web/portal-institucional/listado-de-ruc-con-sus-equivalencias';
 /**
  * Carpeta documental "plana" de la DNIT (verificada 2026-09): respaldo si la
  * pagina no se puede leer o no trae los 10 enlaces.
@@ -108,7 +116,9 @@ export class RucPadronService implements OnModuleInit, OnModuleDestroy {
 
   async getConfig(): Promise<PadronConfig> {
     if (this.cache && Date.now() - this.cache.at < CACHE_TTL_MS) return this.cache.config;
-    const row = await this.platformDb.client.platformSetting.findUnique({ where: { key: SETTING_KEY } });
+    const row = await this.platformDb.client.platformSetting.findUnique({
+      where: { key: SETTING_KEY },
+    });
     const pub = (row?.publicConfig ?? {}) as PadronPublic;
     const config: PadronConfig = {
       enabled: pub.enabled ?? true,
@@ -124,11 +134,19 @@ export class RucPadronService implements OnModuleInit, OnModuleDestroy {
     const config = await this.getConfig();
     const [contribuyentes, runs, lastOk] = await Promise.all([
       this.platformDb.client.rucContribuyente.count(),
-      this.platformDb.client.rucPadronRun.findMany({ orderBy: { startedAt: 'desc' }, take: RUNS_SHOWN }),
-      this.platformDb.client.rucPadronRun.findFirst({ where: { status: 'ok' }, orderBy: { finishedAt: 'desc' } }),
+      this.platformDb.client.rucPadronRun.findMany({
+        orderBy: { startedAt: 'desc' },
+        take: RUNS_SHOWN,
+      }),
+      this.platformDb.client.rucPadronRun.findFirst({
+        where: { status: 'ok' },
+        orderBy: { finishedAt: 'desc' },
+      }),
     ]);
     const lastOkAt = lastOk?.finishedAt ?? null;
-    const nextRunAt = config.enabled ? proximaCorrida(new Date(), lastOkAt, config, contribuyentes) : null;
+    const nextRunAt = config.enabled
+      ? proximaCorrida(new Date(), lastOkAt, config, contribuyentes)
+      : null;
     return {
       enabled: config.enabled,
       page_url: config.pageUrl,
@@ -139,14 +157,27 @@ export class RucPadronService implements OnModuleInit, OnModuleDestroy {
       contribuyentes,
       last_ok_at: lastOkAt?.toISOString() ?? null,
       next_run_at: nextRunAt?.toISOString() ?? null,
-      running: this.running || runs.some((r) => r.status === 'running' && Date.now() - r.startedAt.getTime() < STALE_RUN_MS),
+      running:
+        this.running ||
+        runs.some(
+          (r) => r.status === 'running' && Date.now() - r.startedAt.getTime() < STALE_RUN_MS,
+        ),
       runs: runs.map(runView),
     };
   }
 
-  async save(dto: RucPadronSettingsPut, actorId: string, ip: string): Promise<RucPadronSettingsView> {
+  async save(
+    dto: RucPadronSettingsPut,
+    actorId: string,
+    ip: string,
+  ): Promise<RucPadronSettingsView> {
     const publicConfig = JSON.parse(
-      JSON.stringify({ enabled: dto.enabled, page_url: dto.page_url || undefined, day_of_month: dto.day_of_month, hour: dto.hour } satisfies PadronPublic),
+      JSON.stringify({
+        enabled: dto.enabled,
+        page_url: dto.page_url || undefined,
+        day_of_month: dto.day_of_month,
+        hour: dto.hour,
+      } satisfies PadronPublic),
     ) as Prisma.InputJsonValue;
     await this.platformDb.client.platformSetting.upsert({
       where: { key: SETTING_KEY },
@@ -154,7 +185,13 @@ export class RucPadronService implements OnModuleInit, OnModuleDestroy {
       create: { key: SETTING_KEY, publicConfig, updatedBy: actorId },
     });
     await this.platformDb.client.platformAuditLog.create({
-      data: { actorId, action: 'settings.ruc_padron.update', entity: 'platform_settings', ip, detail: publicConfig },
+      data: {
+        actorId,
+        action: 'settings.ruc_padron.update',
+        entity: 'platform_settings',
+        ip,
+        detail: publicConfig,
+      },
     });
     this.cache = null;
     return this.view();
@@ -165,10 +202,25 @@ export class RucPadronService implements OnModuleInit, OnModuleDestroy {
   /** Busca un RUC tipeado en el padron. Si no esta, igual devuelve el DV calculado (modulo 11). */
   async lookup(input: string): Promise<RucLookupView> {
     const ruc = normalizarRuc(input);
-    const vacio: RucLookupView = { found: false, ruc, dv: null, razon_social: null, estado: null, ruc_anterior: null, updated_at: null };
+    const vacio: RucLookupView = {
+      found: false,
+      ruc,
+      dv: null,
+      razon_social: null,
+      estado: null,
+      ruc_anterior: null,
+      updated_at: null,
+    };
     if (!ruc) return vacio;
     const dvCalculado = /^\d+$/.test(ruc) ? String(computeRucDv(ruc)) : null;
-    let row: { ruc: string; dv: string; razonSocial: string; estado: string; rucAnterior: string | null; updatedAt: Date } | null = null;
+    let row: {
+      ruc: string;
+      dv: string;
+      razonSocial: string;
+      estado: string;
+      rucAnterior: string | null;
+      updatedAt: Date;
+    } | null = null;
     try {
       row = await this.appDb.client.rucContribuyente.findUnique({ where: { ruc } });
     } catch (err) {
@@ -191,7 +243,8 @@ export class RucPadronService implements OnModuleInit, OnModuleDestroy {
 
   /** Disparo manual desde el panel. 409 si ya hay una corrida en curso. */
   async syncNow(actorId: string): Promise<{ started: boolean }> {
-    if (this.running) throw new ConflictException({ title: 'Ya hay una descarga del padron en curso' });
+    if (this.running)
+      throw new ConflictException({ title: 'Ya hay una descarga del padron en curso' });
     void this.runSync('manual', actorId);
     return { started: true };
   }
@@ -201,7 +254,10 @@ export class RucPadronService implements OnModuleInit, OnModuleDestroy {
       const config = await this.getConfig();
       if (!config.enabled || this.running) return;
       const [lastOk, contribuyentes] = await Promise.all([
-        this.platformDb.client.rucPadronRun.findFirst({ where: { status: 'ok' }, orderBy: { finishedAt: 'desc' } }),
+        this.platformDb.client.rucPadronRun.findFirst({
+          where: { status: 'ok' },
+          orderBy: { finishedAt: 'desc' },
+        }),
         this.platformDb.client.rucContribuyente.count(),
       ]);
       if (!debeCorrer(new Date(), lastOk?.finishedAt ?? null, config, contribuyentes)) return;
@@ -216,10 +272,15 @@ export class RucPadronService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async runSync(triggeredBy: 'cron' | 'manual' | 'startup', actorId: string | null): Promise<void> {
+  private async runSync(
+    triggeredBy: 'cron' | 'manual' | 'startup',
+    actorId: string | null,
+  ): Promise<void> {
     if (this.running) return;
     this.running = true;
-    const run = await this.platformDb.client.rucPadronRun.create({ data: { triggeredBy, actorId } });
+    const run = await this.platformDb.client.rucPadronRun.create({
+      data: { triggeredBy, actorId },
+    });
     const t0 = Date.now();
     let filesOk = 0;
     let rowsRead = 0;
@@ -232,33 +293,58 @@ export class RucPadronService implements OnModuleInit, OnModuleDestroy {
         if (!url) throw new Error(`la pagina de la DNIT no trae el enlace ruc${digit}.zip`);
         const { rows, skipped } = await this.descargarArchivo(url, digit);
         if (rows.length < MIN_ROWS_PER_FILE) {
-          throw new Error(`ruc${digit}.zip trae solo ${rows.length} contribuyentes (se esperan ~200.000): archivo truncado o formato cambiado, no se toca el padron`);
+          throw new Error(
+            `ruc${digit}.zip trae solo ${rows.length} contribuyentes (se esperan ~200.000): archivo truncado o formato cambiado, no se toca el padron`,
+          );
         }
         rowsRead += rows.length;
         rowsChanged += await this.volcar(rows);
         filesOk++;
-        await this.platformDb.client.rucPadronRun.update({ where: { id: run.id }, data: { filesOk, rowsRead, rowsChanged } });
-        this.logger.log(`ruc${digit}.zip: ${rows.length} contribuyentes (${skipped} lineas ignoradas), acumulado ${rowsChanged} cambios`);
+        await this.platformDb.client.rucPadronRun.update({
+          where: { id: run.id },
+          data: { filesOk, rowsRead, rowsChanged },
+        });
+        this.logger.log(
+          `ruc${digit}.zip: ${rows.length} contribuyentes (${skipped} lineas ignoradas), acumulado ${rowsChanged} cambios`,
+        );
       }
       await this.platformDb.client.rucPadronRun.update({
         where: { id: run.id },
         data: { status: 'ok', finishedAt: new Date(), filesOk, rowsRead, rowsChanged },
       });
-      this.logger.log(`padron actualizado: ${rowsRead} contribuyentes leidos, ${rowsChanged} filas cambiadas en ${Math.round((Date.now() - t0) / 1000)} s`);
+      this.logger.log(
+        `padron actualizado: ${rowsRead} contribuyentes leidos, ${rowsChanged} filas cambiadas en ${Math.round((Date.now() - t0) / 1000)} s`,
+      );
     } catch (err) {
       const message = (err as Error).message ?? String(err);
       this.logger.error(`descarga del padron fallo (${filesOk}/10 archivos): ${message}`);
       await this.platformDb.client.rucPadronRun
-        .update({ where: { id: run.id }, data: { status: 'error', finishedAt: new Date(), filesOk, rowsRead, rowsChanged, error: message.slice(0, 2000) } })
+        .update({
+          where: { id: run.id },
+          data: {
+            status: 'error',
+            finishedAt: new Date(),
+            filesOk,
+            rowsRead,
+            rowsChanged,
+            error: message.slice(0, 2000),
+          },
+        })
         .catch(() => undefined);
-      await this.avisarFallo(message, filesOk).catch((e: Error) => this.logger.warn(`tampoco se pudo avisar por correo: ${e.message}`));
+      await this.avisarFallo(message, filesOk).catch((e: Error) =>
+        this.logger.warn(`tampoco se pudo avisar por correo: ${e.message}`),
+      );
     } finally {
       this.running = false;
     }
   }
 
   private async fetchBuffer(url: string): Promise<Buffer> {
-    const res = await fetch(url, { headers: { 'user-agent': USER_AGENT }, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS), redirect: 'follow' });
+    const res = await fetch(url, {
+      headers: { 'user-agent': USER_AGENT },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      redirect: 'follow',
+    });
     if (!res.ok) throw new Error(`HTTP ${res.status} al descargar ${url}`);
     return Buffer.from(await res.arrayBuffer());
   }
@@ -266,7 +352,9 @@ export class RucPadronService implements OnModuleInit, OnModuleDestroy {
   private async descubrirEnlaces(pageUrl: string): Promise<Map<number, string>> {
     // Si la URL configurada ya apunta a un zip (espejo propio con ruc{N}.zip), se derivan los 10.
     if (/ruc\d\.zip/i.test(pageUrl)) {
-      return new Map(Array.from({ length: 10 }, (_, d) => [d, pageUrl.replace(/ruc\d\.zip/i, `ruc${d}.zip`)]));
+      return new Map(
+        Array.from({ length: 10 }, (_, d) => [d, pageUrl.replace(/ruc\d\.zip/i, `ruc${d}.zip`)]),
+      );
     }
     // Los enlaces del portal llevan un id que cambia con cada publicacion: se
     // leen de la pagina; si falta alguno se completa con la carpeta documental.
@@ -275,7 +363,9 @@ export class RucPadronService implements OnModuleInit, OnModuleDestroy {
       const html = (await this.fetchBuffer(pageUrl)).toString('utf8');
       enlaces = enlacesDelPadron(html, pageUrl);
     } catch (err) {
-      this.logger.warn(`no se pudo leer la pagina de la DNIT (${(err as Error).message}); se usa la carpeta documental de respaldo`);
+      this.logger.warn(
+        `no se pudo leer la pagina de la DNIT (${(err as Error).message}); se usa la carpeta documental de respaldo`,
+      );
     }
     for (let d = 0; d <= 9; d++) {
       if (!enlaces.has(d)) enlaces.set(d, `${DEFAULT_FALLBACK_BASE}/ruc${d}.zip`);
@@ -285,13 +375,20 @@ export class RucPadronService implements OnModuleInit, OnModuleDestroy {
 
   /** Aviso a los padmin activos: el padron vigente queda intacto, hay que reintentar desde el panel. */
   private async avisarFallo(error: string, filesOk: number): Promise<void> {
-    const admins = await this.platformDb.client.platformUser.findMany({ where: { role: 'admin', isActive: true }, select: { email: true } });
+    const admins = await this.platformDb.client.platformUser.findMany({
+      where: { role: 'admin', isActive: true },
+      select: { email: true },
+    });
     const to = admins.map((a) => a.email).filter(Boolean);
     if (to.length === 0) {
       this.logger.warn('fallo del padron sin destinatarios de alerta (no hay padmin activos)');
       return;
     }
-    const fecha = new Date().toLocaleString('es-PY', { timeZone: PADRON_TZ, dateStyle: 'full', timeStyle: 'short' });
+    const fecha = new Date().toLocaleString('es-PY', {
+      timeZone: PADRON_TZ,
+      dateStyle: 'full',
+      timeStyle: 'short',
+    });
     await this.mailer.send({
       to: to.join(', '),
       subject: 'Falló la actualización del padrón RUC de la DNIT',
@@ -307,13 +404,17 @@ export class RucPadronService implements OnModuleInit, OnModuleDestroy {
     this.logger.log(`aviso de fallo enviado a ${to.length} padmin`);
   }
 
-  private async descargarArchivo(url: string, digit: number): Promise<ReturnType<typeof parsearPadron>> {
+  private async descargarArchivo(
+    url: string,
+    digit: number,
+  ): Promise<ReturnType<typeof parsearPadron>> {
     const zip = await this.fetchBuffer(url);
     const entries = unzipEntries(zip);
     const txt = entries.find((e) => /\.txt$/i.test(e.name)) ?? entries[0];
     if (!txt) throw new Error(`ruc${digit}.zip vino vacio`);
     const parsed = parsearPadron(txt.data.toString('utf8'));
-    if (parsed.rows.length === 0) throw new Error(`ruc${digit}.zip no trae contribuyentes (formato cambiado?)`);
+    if (parsed.rows.length === 0)
+      throw new Error(`ruc${digit}.zip no trae contribuyentes (formato cambiado?)`);
     return parsed;
   }
 

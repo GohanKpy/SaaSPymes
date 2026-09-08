@@ -38,6 +38,7 @@ const NAV: { title: string; items: Item[] }[] = [
       { href: '/platform/settings/seguridad', label: 'Seguridad' },
       { href: '/platform/settings/google', label: 'Google Calendar' },
       { href: '/platform/settings/mail', label: 'Correo saliente' },
+      { href: '/platform/settings/ruc-padron', label: 'Padrón RUC (DNIT)' },
     ],
   },
   {

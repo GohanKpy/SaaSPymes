@@ -27,11 +27,13 @@ export function unzipEntries(buf: Buffer): ZipEntry[] {
   if (eocd < 0) throw new Error('zip_invalido: no se encontro el directorio central');
   const total = buf.readUInt16LE(eocd + 10);
   let p = buf.readUInt32LE(eocd + 16);
-  if (total === 0xffff || p === 0xffffffff) throw new Error('zip_invalido: formato zip64 no soportado');
+  if (total === 0xffff || p === 0xffffffff)
+    throw new Error('zip_invalido: formato zip64 no soportado');
 
   const out: ZipEntry[] = [];
   for (let n = 0; n < total; n++) {
-    if (buf.readUInt32LE(p) !== SIG_CENTRAL) throw new Error('zip_invalido: entrada del directorio central corrupta');
+    if (buf.readUInt32LE(p) !== SIG_CENTRAL)
+      throw new Error('zip_invalido: entrada del directorio central corrupta');
     const method = buf.readUInt16LE(p + 10);
     const csize = buf.readUInt32LE(p + 20);
     const usize = buf.readUInt32LE(p + 24);
@@ -42,7 +44,8 @@ export function unzipEntries(buf: Buffer): ZipEntry[] {
     const name = buf.subarray(p + 46, p + 46 + nameLen).toString('utf8');
     p += 46 + nameLen + extraLen + commentLen;
     if (name.endsWith('/')) continue; // directorio
-    if (buf.readUInt32LE(localOff) !== SIG_LOCAL) throw new Error(`zip_invalido: header local de ${name}`);
+    if (buf.readUInt32LE(localOff) !== SIG_LOCAL)
+      throw new Error(`zip_invalido: header local de ${name}`);
     const start = localOff + 30 + buf.readUInt16LE(localOff + 26) + buf.readUInt16LE(localOff + 28);
     const raw = buf.subarray(start, start + csize);
     let data: Buffer;

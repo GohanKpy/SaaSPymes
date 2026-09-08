@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../../../lib/api';
 import type { PickedCustomer } from '../../../lib/customer-picker';
 import { dvRuc } from '../../../lib/ruc';
+import { RucEstado, useRucAutofill } from '../../../lib/ruc-lookup';
 import { Field, inputClass } from '../../../lib/ui';
 
 // "Facturar a" (pedido de Johan 2026-09-07): un cliente puede pedir la factura
@@ -106,6 +107,15 @@ export function FacturarA({
 }) {
   const [datos, setDatos] = useState<CustomerFiscal | null>(null);
   const customerId = customer?.id ?? null;
+  // Padron RUC (ADR 0012): al tipear un RUC nuevo se completan razon social y DV oficiales.
+  const padron = useRucAutofill({
+    ruc: value.kind === 'new' ? value.billing.doc_number : '',
+    enabled: value.kind === 'new' && value.billing.doc_type === 'ruc',
+    legalName: value.kind === 'new' ? value.billing.legal_name : '',
+    onFill: (p) => {
+      if (value.kind === 'new') onChange({ kind: 'new', billing: { ...value.billing, legal_name: p.legal_name, ruc_dv: p.ruc_dv || value.billing.ruc_dv } });
+    },
+  });
 
   useEffect(() => {
     setDatos(null);
@@ -202,6 +212,11 @@ export function FacturarA({
             </Field>
           ) : (
             <span />
+          )}
+          {(nuevo?.doc_type ?? 'ruc') === 'ruc' && (padron.loading || padron.lookup) && (
+            <div className="sm:col-span-3">
+              <RucEstado lookup={padron.lookup} loading={padron.loading} sugerencia={padron.sugerencia} onUsar={padron.usarSugerencia} />
+            </div>
           )}
           <div className="sm:col-span-3">
             <Field label="Razón social o nombre completo *">

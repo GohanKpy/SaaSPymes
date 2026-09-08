@@ -11,6 +11,7 @@ import { APPOINTMENT_STATUS, INVOICE_STATUS, errorMessage, statusOf } from '../.
 import { ACTIVITY_TYPES, CONTACT_KINDS, SOURCES, type CustomFieldDef } from '../../../../lib/crm';
 import { MoneyInput } from '../../../../lib/money-input';
 import { dvRuc } from '../../../../lib/ruc';
+import { RucEstado, useRucAutofill } from '../../../../lib/ruc-lookup';
 import {
   Badge,
   Button,
@@ -217,6 +218,13 @@ export default function CustomerFichaPage() {
   const [fiscal, setFiscal] = useState<FiscalId | 'nueva' | null>(null);
   const [fiscalForm, setFiscalForm] = useState({ doc_type: 'ruc', doc_number: '', ruc_dv: '', legal_name: '', is_default: false });
   const [guardandoFiscal, setGuardandoFiscal] = useState(false);
+  // Padron RUC (ADR 0012): completa razon social y DV oficiales al tipear el RUC.
+  const padron = useRucAutofill({
+    ruc: fiscalForm.doc_number,
+    enabled: fiscal !== null && fiscalForm.doc_type === 'ruc',
+    legalName: fiscalForm.legal_name,
+    onFill: (p) => setFiscalForm((f) => ({ ...f, legal_name: p.legal_name, ruc_dv: p.ruc_dv || f.ruc_dv })),
+  });
   // Cuenta mensual y servicios recurrentes (2026-09-07).
   const [consumos, setConsumos] = useState<Consumo[]>([]);
   const [consumo, setConsumo] = useState<typeof CONSUMO_VACIO | null>(null);
@@ -769,6 +777,9 @@ export default function CustomerFichaPage() {
                 <span />
               )}
             </div>
+            {fiscalForm.doc_type === 'ruc' && (padron.loading || padron.lookup) && (
+              <RucEstado lookup={padron.lookup} loading={padron.loading} sugerencia={padron.sugerencia} onUsar={padron.usarSugerencia} />
+            )}
             <Field label="Razón social o nombre completo *">
               <input className={inputClass} required value={fiscalForm.legal_name} onChange={(e) => setFiscalForm({ ...fiscalForm, legal_name: e.target.value })} placeholder="Ej: Estudio Creativo S.A." />
             </Field>

@@ -36,7 +36,13 @@ export function parsearPadron(text: string): PadronParse {
       skipped++;
       continue;
     }
-    porRuc.set(ruc, { ruc, dv, razonSocial, rucAnterior: rucAnterior || null, estado: estado || 'DESCONOCIDO' });
+    porRuc.set(ruc, {
+      ruc,
+      dv,
+      razonSocial,
+      rucAnterior: rucAnterior || null,
+      estado: estado || 'DESCONOCIDO',
+    });
   }
   return { rows: [...porRuc.values()], skipped };
 }
