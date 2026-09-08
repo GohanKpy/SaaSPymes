@@ -6,6 +6,8 @@ import { api } from '../../../lib/api';
 import { useConfirm, useToast } from '../../../lib/feedback';
 import { errorMessage } from '../../../lib/labels';
 import { MoneyInput } from '../../../lib/money-input';
+
+import { AusenciaModal, ConflictosTurnos, ausenciaVigente, conflictosDe, textoAusencia, type Ausencia, type TurnoAfectado } from './ausencias';
 import {
   Badge,
   Button,
@@ -82,6 +84,7 @@ interface Employee {
   isActive: boolean;
   schedule: Schedule | null;
   googleCalendar: string | null;
+  absences?: Ausencia[];
 }
 
 const VACIO = {
@@ -154,6 +157,9 @@ export default function PersonalPage() {
   const [accounts, setAccounts] = useState<TeamUser[]>([]);
   const [prefill, setPrefill] = useState<Prefill | null>(null);
 
+  // Ausencias (2026-09-08) y el paso de conflictos al dar de baja.
+  const [ausenciaDe, setAusenciaDe] = useState<Employee | null>(null);
+  const [conflicto, setConflicto] = useState<{ nombre: string; conflicts: TurnoAfectado[]; reintentar: (d: 'notify' | 'keep') => Promise<void> } | null>(null);
   const [required, setRequired] = useState<string[]>([]);
   const [showCfg, setShowCfg] = useState(false);
   const [cfg, setCfg] = useState<string[]>([]);
@@ -238,14 +244,22 @@ export default function PersonalPage() {
       if (typeof v === 'string' && v.trim()) json[k] = v.trim();
     }
     setGuardando(true);
-    try {
+    const guardar = async (onConflict?: 'notify' | 'keep') => {
       if (editing === 'nuevo') await api('/employees', { method: 'POST', json });
-      else if (editing) await api(`/employees/${editing.id}`, { method: 'PATCH', json });
+      else if (editing) await api(`/employees/${editing.id}`, { method: 'PATCH', json: { ...json, ...(onConflict ? { on_conflict: onConflict } : {}) } });
       toast.success(editing === 'nuevo' ? `${form.first_name} agregado al personal` : 'Ficha guardada');
       setEditing(null);
+      setConflicto(null);
       load();
+    };
+    try {
+      await guardar();
     } catch (e) {
-      toast.error(errorMessage(e));
+      // Deja de trabajar con turnos futuros (2026-09-08): el sistema avisa y se decide.
+      const c = conflictosDe(e);
+      if (c && editing && editing !== 'nuevo') {
+        setConflicto({ nombre: `${editing.firstName} ${editing.lastName}`, conflicts: c, reintentar: guardar });
+      } else toast.error(errorMessage(e));
     } finally {
       setGuardando(false);
     }
@@ -258,12 +272,19 @@ export default function PersonalPage() {
       confirmLabel: 'Dar de baja',
     });
     if (!ok) return;
-    try {
-      await api(`/employees/${e.id}`, { method: 'DELETE' });
-      toast.success(`${e.firstName} dado de baja`);
+    const baja = async (onConflict?: 'notify' | 'keep') => {
+      await api(`/employees/${e.id}${onConflict ? `?on_conflict=${onConflict}` : ''}`, { method: 'DELETE' });
+      toast.success(onConflict === 'notify' ? `${e.firstName} dado de baja; sus clientes fueron avisados` : `${e.firstName} dado de baja`);
+      setConflicto(null);
       load();
+    };
+    try {
+      await baja();
     } catch (err) {
-      toast.error(errorMessage(err));
+      // Se retira con turnos futuros (2026-09-08): el sistema avisa y se decide.
+      const c = conflictosDe(err);
+      if (c) setConflicto({ nombre: `${e.firstName} ${e.lastName}`, conflicts: c, reintentar: baja });
+      else toast.error(errorMessage(err));
     }
   }
 
@@ -398,6 +419,10 @@ export default function PersonalPage() {
                     <span className="mt-0.5 flex flex-wrap gap-1">
                       {e.bookable ? <Badge tone="sky">atiende turnos</Badge> : <Badge tone="slate">no atiende turnos</Badge>}
                       {!e.isActive && <Badge tone="red">dado de baja</Badge>}
+                      {e.isActive && ausenciaVigente(e.absences) && <Badge tone="amber">{textoAusencia(ausenciaVigente(e.absences)!)}</Badge>}
+                      {e.isActive && !ausenciaVigente(e.absences) && (e.absences?.length ?? 0) > 0 && (
+                        <Badge tone="slate">ausencia programada</Badge>
+                      )}
                     </span>
                   </td>
                   <td>{e.position ?? '—'}</td>
@@ -449,6 +474,11 @@ export default function PersonalPage() {
                       <button className={buttonGhost} onClick={() => openEdit(e)}>
                         Editar
                       </button>
+                      {e.isActive && isAdmin && (
+                        <button className={buttonGhost} title="Registrar días en que no atiende (licencia, vacaciones, se ausenta)" onClick={() => setAusenciaDe(e)}>
+                          Ausencia
+                        </button>
+                      )}
                       {e.isActive && (
                         <button className={buttonDanger} onClick={() => void remove(e)}>
                           Dar de baja
@@ -477,6 +507,21 @@ export default function PersonalPage() {
       )}
 
       {vista === 'accesos' && <AccesosSection prefill={prefill} onPrefillUsed={() => setPrefill(null)} onUsers={setAccounts} />}
+
+      {ausenciaDe && <AusenciaModal employee={ausenciaDe} onClose={() => setAusenciaDe(null)} onSaved={load} />}
+      {conflicto && (
+        <ConflictosTurnos
+          titulo={`${conflicto.nombre} tiene ${conflicto.conflicts.length} turno${conflicto.conflicts.length === 1 ? '' : 's'} agendado${conflicto.conflicts.length === 1 ? '' : 's'}`}
+          nombre={conflicto.nombre}
+          conflicts={conflicto.conflicts}
+          guardando={guardando}
+          onElegir={(d) => {
+            setGuardando(true);
+            void conflicto.reintentar(d).catch((err) => toast.error(errorMessage(err))).finally(() => setGuardando(false));
+          }}
+          onClose={() => setConflicto(null)}
+        />
+      )}
 
       {schedEmployee && (
         <Modal title={`Horario de ${schedEmployee.firstName} ${schedEmployee.lastName}`} onClose={() => setSchedEmployee(null)} size="lg">

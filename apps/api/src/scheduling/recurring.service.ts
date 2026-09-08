@@ -15,7 +15,6 @@ import { AppPrisma } from '../prisma/app-prisma.service';
 import { AppointmentsService, duracionTurnoMin, localToUtc } from './appointments.service';
 
 const SWEEP_INTERVAL_MS = 60 * 60_000;
-const DIAS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
 const FRECUENCIA: Record<string, string> = { weekly: 'cada semana', biweekly: 'cada dos semanas', monthly: 'cada mes' };
 
 const RESPUESTA_SI = /^\s*(s[ií]|s[ií]\b.*|confirmo|confirmado|dale|ok|okey|okay|listo|perfecto|de acuerdo|claro)\b/i;

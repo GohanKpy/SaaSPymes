@@ -244,6 +244,37 @@ asignado a un empleado con "Atiende clientes con turno" tildado en Personal.
   día u otro profesional. Nunca cambia de profesional ni de horario sin que
   el cliente acepte.
 
+**Filtros de la Agenda (desde el 2026-09-08):** arriba de la lista hay
+"Profesional" y "Cliente" (nombre o celular) para encontrar un turno rápido en
+un día lleno; funcionan en la vista Lista y en Por profesional. Si no se sabe
+el día, "Buscar en los próximos 30 días" lista las coincidencias con un botón
+"Ir al día". Desde otras pantallas se puede abrir `/app/schedule?empleado=<id>`.
+
+**Ausencia de un empleado (desde el 2026-09-08):** en Personal → botón
+"Ausencia" (o en la Agenda, vista Por profesional → "Ausencia" al lado del
+nombre) se registra desde/hasta (o "hasta nuevo aviso") y un motivo. Mientras
+dura, esa persona no recibe turnos ni por el panel ni por el bot.
+
+- Si ya tenía clientes agendados en esas fechas, el sistema NO registra nada
+  todavía: muestra la lista de turnos afectados (esa es la notificación al
+  dueño) y ofrece "Registrar y avisar a los clientes" o "Registrar sin
+  avisar".
+- Al avisar, cada cliente recibe por WhatsApp (o por email si no tiene
+  celular ni avisos por WhatsApp) el mensaje: "<Empleado> no va a poder
+  atenderte el <día> a las <hora> (<servicio>). A esa misma hora podría
+  atenderte <otros> / no hay otra persona libre. ¿Preferís que te atienda
+  otra persona o pasar el turno a otro día? Respondé por acá". El bot resuelve
+  la respuesta: reprograma al mismo horario con la persona elegida o busca
+  otro día. Queda una tarea por turno en Tareas ("<Empleado> ausente: turno de
+  …") y un correo resumen a los emails de aviso del negocio.
+- En la Agenda esos turnos aparecen con la etiqueta roja "profesional
+  ausente" (y "cliente avisado" si ya se le mandó el mensaje) hasta que se
+  reprogramen; el turno sigue a nombre del ausente para que nadie lo pierda
+  de vista.
+- "Dar de baja" y destildar "Trabaja actualmente" pasan por el mismo flujo con
+  TODOS los turnos futuros de esa persona.
+- Las ausencias cargadas se ven y se quitan desde el mismo modal.
+
 - Estados de un turno: `pending` (pendiente de confirmar), `confirmed`
   (confirmado), `completed` (completado), `cancelled` (cancelado), `no_show`
   (el cliente no vino).
@@ -438,6 +469,10 @@ pantallas separadas, "Empleados" y "Equipo"):
   reciben turnos en la agenda; el bot ofrece únicamente empleados agendables.
   Hace falta al menos uno: desde el 2026-09-08 todo turno se asigna a un
   empleado y sin agendables no se agenda (ni en el panel ni por WhatsApp).
+- **"Ausencia"**: días en que no atiende (licencia, vacaciones, se ausenta).
+  Con turnos ya agendados en esas fechas el sistema los lista y ofrece avisar
+  a los clientes (ver 3.3, "Ausencia de un empleado"). "Dar de baja" hace lo
+  mismo con todos los turnos futuros.
 - **"Trabaja actualmente"**: destildar para dar de baja a alguien que ya no
   está (no se borra el historial). El botón "Dar de baja" hace lo mismo.
 - Cada empleado puede tener su **horario propio** (si no, rige el del
@@ -637,6 +672,11 @@ En orden de frecuencia:
   no trabaja en ese horario": fuera del horario de atención o del empleado.
 - "Para agendar hace falta al menos un empleado que atienda clientes con
   turno": cargar un empleado agendable en Personal.
+- "El empleado elegido esta ausente ese dia": tiene una ausencia cargada;
+  elegir otra persona o quitar la ausencia en Personal.
+- "<Empleado> tiene N turnos en ese período": no es un error; es el aviso al
+  registrar una ausencia o dar de baja: elegir avisar a los clientes o
+  registrar sin avisar.
 - "El empleado elegido no existe o no es agendable": revisar en Personal que
   esté activo y con "Atiende clientes con turno" tildado.
 - "Solo se confirman turnos pendientes" / "El turno no se puede cancelar" /

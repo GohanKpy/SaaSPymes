@@ -34,6 +34,7 @@ import { PublicKudeController } from './invoicing/public-kude.controller';
 import { NotifierService } from './notifications/notifier.service';
 import { RecurringController } from './scheduling/recurring.controller';
 import { RecurringService } from './scheduling/recurring.service';
+import { AbsencesService } from './tenant/absences.service';
 import { PlatformModule } from './platform/platform.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { AppointmentsController } from './scheduling/appointments.controller';
@@ -88,6 +89,7 @@ import { UsersController } from './tenant/users.controller';
     NotifierService,
     BillingService,
     RecurringService,
+    AbsencesService,
     {
       provide: INVOICING_PROVIDER,
       useFactory: (env: Env) => createInvoicingProvider(env.INVOICING_PROVIDER),

@@ -5,6 +5,7 @@ import Link from 'next/link';
 
 import { ApiError, api, sseUrl } from '../../../lib/api';
 import { CustomerPicker, customerName, type PickedCustomer } from '../../../lib/customer-picker';
+import { AusenciaModal } from '../employees/ausencias';
 import { useAskText, useConfirm, useToast } from '../../../lib/feedback';
 import { APPOINTMENT_STATUS, SOURCE_LABEL, errorMessage, statusOf } from '../../../lib/labels';
 import {
@@ -46,6 +47,10 @@ interface Appointment {
   employee: { id: string; firstName: string; lastName: string } | null;
   recurringBookingId?: string | null;
   confirmationRequestedAt?: string | null;
+  /** El profesional asignado esta ausente ese dia (2026-09-08). */
+  employeeAbsent?: boolean;
+  /** Se le aviso al cliente que su profesional no podra atenderlo. */
+  absenceNotifiedAt?: string | null;
 }
 interface Service {
   id: string;
@@ -75,6 +80,7 @@ function shiftDate(d: string, days: number): string {
   x.setUTCDate(x.getUTCDate() + days);
   return x.toISOString().slice(0, 10);
 }
+const fechaLocal = (iso: string) => new Date(iso).toLocaleDateString('en-CA', { timeZone: TZ });
 function hora(iso: string): string {
   return new Date(iso).toLocaleTimeString(undefined, { timeZone: TZ, hour: '2-digit', minute: '2-digit' });
 }
@@ -282,6 +288,13 @@ export default function SchedulePage() {
   const [error, setError] = useState<string | null>(null);
   const [vista, setVista] = useState<'lista' | 'profesional'>('lista');
   const [highlight, setHighlight] = useState<string | null>(null);
+  // Filtros (pedido de Johan 2026-09-08): profesional y cliente, para
+  // encontrar un turno rapido en un dia lleno; ?empleado= desde otras pantallas.
+  const [filtroEmpleado, setFiltroEmpleado] = useState('');
+  const [filtroCliente, setFiltroCliente] = useState('');
+  const [busqueda, setBusqueda] = useState<Appointment[] | null>(null);
+  const [buscando, setBuscando] = useState(false);
+  const [ausenciaDe, setAusenciaDe] = useState<Employee | null>(null);
 
   const branch = branches[0]?.id;
 
@@ -329,6 +342,8 @@ export default function SchedulePage() {
     const q = new URLSearchParams(window.location.search);
     const fecha = q.get('fecha');
     if (fecha && /^\d{4}-\d{2}-\d{2}$/.test(fecha)) setDate(fecha);
+    const empleado = q.get('empleado');
+    if (empleado) setFiltroEmpleado(empleado);
     if (q.get('nuevo') === '1') {
       const customerId = q.get('customer');
       setNuevoForm((f) => ({ ...f, date: fecha ?? today() }));
@@ -363,6 +378,38 @@ export default function SchedulePage() {
       cancelados: cuenta('cancelled') + cuenta('no_show'),
     };
   }, [rows]);
+
+  const coincideCliente = useCallback(
+    (a: Appointment) => {
+      const q = filtroCliente.trim().toLowerCase();
+      if (!q) return true;
+      const nombre = customerName(a.customer).toLowerCase();
+      const tel = (a.customer.phoneE164 ?? '').replace(/\D/g, '');
+      return nombre.includes(q) || (/^\+?[\d\s-]+$/.test(q) && tel.includes(q.replace(/\D/g, '')));
+    },
+    [filtroCliente],
+  );
+  const rowsFiltrados = useMemo(
+    () => (rows ?? []).filter((a) => (!filtroEmpleado || a.employee?.id === filtroEmpleado) && coincideCliente(a)),
+    [rows, filtroEmpleado, coincideCliente],
+  );
+  const hayFiltro = Boolean(filtroEmpleado || filtroCliente.trim());
+  useEffect(() => setBusqueda(null), [filtroCliente, filtroEmpleado, date]);
+
+  // Buscar un turno cuando no se sabe el dia: los proximos 30 dias con los mismos filtros.
+  async function buscarProximos() {
+    setBuscando(true);
+    try {
+      const params = new URLSearchParams({ from: `${today()}T00:00:00-03:00`, to: `${shiftDate(today(), 30)}T23:59:59-03:00` });
+      if (filtroEmpleado) params.set('employee_id', filtroEmpleado);
+      const r = await api<Appointment[]>(`/appointments?${params.toString()}`);
+      setBusqueda(r.filter((a) => !['cancelled', 'no_show'].includes(a.status) && coincideCliente(a)));
+    } catch (e) {
+      toast.error(errorMessage(e));
+    } finally {
+      setBuscando(false);
+    }
+  }
 
   const duracionNuevo = useMemo(() => {
     if (nuevoForm.duracion !== '') return Number(nuevoForm.duracion) || null;
@@ -525,15 +572,18 @@ export default function SchedulePage() {
   );
 
   const porEmpleado = useMemo(() => {
-    const grupos = new Map<string, { nombre: string; turnos: Appointment[] }>();
-    for (const e of employees) grupos.set(e.id, { nombre: `${e.firstName} ${e.lastName}`, turnos: [] });
-    for (const a of rows ?? []) {
+    const grupos = new Map<string, { empleado: Employee | null; nombre: string; turnos: Appointment[] }>();
+    for (const e of employees) {
+      if (filtroEmpleado && e.id !== filtroEmpleado) continue;
+      grupos.set(e.id, { empleado: e, nombre: `${e.firstName} ${e.lastName}`, turnos: [] });
+    }
+    for (const a of rowsFiltrados) {
       const key = a.employee?.id ?? 'sin';
-      if (!grupos.has(key)) grupos.set(key, { nombre: nombreEmpleado(a.employee) ?? 'Sin profesional asignado', turnos: [] });
+      if (!grupos.has(key)) grupos.set(key, { empleado: null, nombre: nombreEmpleado(a.employee) ?? 'Sin profesional asignado', turnos: [] });
       grupos.get(key)!.turnos.push(a);
     }
     return [...grupos.values()];
-  }, [rows, employees]);
+  }, [rowsFiltrados, employees, filtroEmpleado]);
 
   return (
     <div className="space-y-5">
@@ -604,6 +654,96 @@ export default function SchedulePage() {
         </p>
       )}
 
+      <div className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+        {employees.length > 0 && (
+          <Field label="Profesional">
+            <select className={inputClass} value={filtroEmpleado} onChange={(e) => setFiltroEmpleado(e.target.value)}>
+              <option value="">Todos</option>
+              {employees.map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.firstName} {e.lastName}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
+        <Field label="Cliente">
+          <input className={inputClass} placeholder="Nombre o celular" value={filtroCliente} onChange={(e) => setFiltroCliente(e.target.value)} />
+        </Field>
+        {hayFiltro && (
+          <>
+            <Button variant="ghost" loading={buscando} onClick={() => void buscarProximos()}>
+              Buscar en los próximos 30 días
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setFiltroEmpleado('');
+                setFiltroCliente('');
+              }}
+            >
+              Limpiar
+            </Button>
+            <span className="pb-2 text-xs text-slate-500">
+              {rowsFiltrados.length} de {(rows ?? []).length} turno{(rows ?? []).length === 1 ? '' : 's'} del día
+            </span>
+          </>
+        )}
+      </div>
+
+      {busqueda && (
+        <div className={tableCard}>
+          <table className="tbl">
+            <thead>
+              <tr>
+                <th>Fecha</th>
+                <th>Hora</th>
+                <th>Cliente</th>
+                <th>Servicios</th>
+                <th>Atiende</th>
+                <th>Estado</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {busqueda.map((a) => {
+                const st = statusOf(APPOINTMENT_STATUS, a.status);
+                const fecha = fechaLocal(a.startsAt);
+                return (
+                  <tr key={a.id} className="hover:bg-slate-50">
+                    <td className="whitespace-nowrap">{fecha.split('-').reverse().join('/')}</td>
+                    <td className="whitespace-nowrap tabular-nums">{hora(a.startsAt)}</td>
+                    <td>
+                      <Link className="font-medium text-sky-700 hover:underline" href={`/app/customers/${a.customer.id}`}>
+                        {customerName(a.customer)}
+                      </Link>
+                    </td>
+                    <td>{nombreServicios(a) ?? '—'}</td>
+                    <td>{nombreEmpleado(a.employee) ?? '—'}</td>
+                    <td>
+                      <Badge tone={st.tone}>{st.label}</Badge>
+                    </td>
+                    <td className="text-right">
+                      <button
+                        className={buttonGhost}
+                        onClick={() => {
+                          setDate(fecha);
+                          setHighlight(a.id);
+                          setBusqueda(null);
+                        }}
+                      >
+                        Ir al día
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+              {busqueda.length === 0 && <EmptyRow colSpan={7}>Sin turnos que coincidan en los próximos 30 días.</EmptyRow>}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       {vista === 'lista' || employees.length === 0 ? (
         <div className={tableCard}>
           <table className="tbl">
@@ -619,7 +759,7 @@ export default function SchedulePage() {
               </tr>
             </thead>
             <tbody>
-              {(rows ?? []).map((a) => {
+              {rowsFiltrados.map((a) => {
                 const st = statusOf(APPOINTMENT_STATUS, a.status);
                 return (
                   <tr
@@ -648,6 +788,9 @@ export default function SchedulePage() {
                       <span className="inline-flex flex-wrap items-center gap-1">
                         <Badge tone={st.tone}>{st.label}</Badge>
                         {a.confirmationRequestedAt && a.status === 'pending' && <Badge tone="amber">esperando al cliente</Badge>}
+                        {a.employeeAbsent && ['pending', 'confirmed'].includes(a.status) && (
+                          <Badge tone="red">{a.absenceNotifiedAt ? 'profesional ausente · cliente avisado' : 'profesional ausente'}</Badge>
+                        )}
                       </span>
                     </td>
                     <td className="text-xs text-slate-500">
@@ -658,6 +801,9 @@ export default function SchedulePage() {
                   </tr>
                 );
               })}
+              {rows && rows.length > 0 && rowsFiltrados.length === 0 && (
+                <EmptyRow colSpan={7}>Ningún turno del {fechaLarga(date)} coincide con el filtro. Probá &quot;Buscar en los próximos 30 días&quot;.</EmptyRow>
+              )}
               {rows && rows.length === 0 && (
                 <EmptyRow
                   colSpan={7}
@@ -686,8 +832,18 @@ export default function SchedulePage() {
             <section key={g.nombre} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
               <h2 className="mb-2 flex items-center justify-between font-medium text-slate-900">
                 {g.nombre}
-                <span className="text-xs font-normal text-slate-400">
+                <span className="flex items-center gap-2 text-xs font-normal text-slate-400">
                   {g.turnos.length} turno{g.turnos.length === 1 ? '' : 's'}
+                  {g.empleado && (
+                    <button
+                      type="button"
+                      className="text-sky-700 hover:underline"
+                      title="Registrar que no atiende este día (u otros): el sistema avisa si tenía clientes"
+                      onClick={() => setAusenciaDe(g.empleado)}
+                    >
+                      Ausencia
+                    </button>
+                  )}
                 </span>
               </h2>
               <ul className="space-y-2">
@@ -702,7 +858,12 @@ export default function SchedulePage() {
                         <span className="font-medium tabular-nums">
                           {hora(a.startsAt)}–{hora(a.endsAt)}
                         </span>
-                        <Badge tone={st.tone}>{st.label}</Badge>
+                        <span className="inline-flex flex-wrap justify-end gap-1">
+                          <Badge tone={st.tone}>{st.label}</Badge>
+                          {a.employeeAbsent && ['pending', 'confirmed'].includes(a.status) && (
+                            <Badge tone="red">{a.absenceNotifiedAt ? 'ausente · avisado' : 'ausente'}</Badge>
+                          )}
+                        </span>
                       </div>
                       <Link className="text-sky-700 hover:underline" href={`/app/customers/${a.customer.id}`}>
                         {customerName(a.customer)}
@@ -810,6 +971,8 @@ export default function SchedulePage() {
       )}
 
       {/* ------------------------------ Reprogramar ------------------------------ */}
+      {ausenciaDe && <AusenciaModal employee={ausenciaDe} fechaInicial={date} onClose={() => setAusenciaDe(null)} onSaved={load} />}
+
       {reprog && (
         <Modal
           title={`Reprogramar a ${customerName(reprog.customer)}`}

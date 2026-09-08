@@ -52,6 +52,8 @@ const ACCIONES: [RegExp, string][] = [
   [/^POST \/billing\/close-month$/, 'Cierre de mes a pedido'],
   [/^DELETE \/billing\/charges\/:id$/, 'Consumo anulado'],
   [/^POST \/employees$/, 'Alta de empleado'],
+  [/^POST \/employees\/:id\/absences$/, 'Ausencia de empleado registrada'],
+  [/^DELETE \/employees\/:id\/absences\/:absenceId$/, 'Ausencia de empleado quitada'],
   [/^PATCH \/employees\/:id$/, 'Edición de empleado'],
   [/^DELETE \/employees\/:id$/, 'Baja de empleado'],
   [/^PUT \/employees\/form-settings$/, 'Campos obligatorios de la ficha'],
@@ -120,6 +122,7 @@ export const ENTIDAD: Record<string, string> = {
   custom_field_defs: 'Campo personalizado',
   service_photos: 'Foto de producto',
   employee_form_settings: 'Campos obligatorios de la ficha',
+  employee_absences: 'Ausencia de empleado',
 };
 
 /** Etiquetas de columnas frecuentes en los "antes / después". */

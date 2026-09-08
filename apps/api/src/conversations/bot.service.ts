@@ -214,6 +214,32 @@ export class BotService {
       }
 
       const timezone = tenant?.timezone ?? 'America/Asuncion';
+      // Turnos con profesional ausente ya avisados al cliente (2026-09-08):
+      // el cliente responde a ese aviso; el modelo tiene que resolverlo con
+      // reschedule_appointment (misma fecha y hora con otro empleado, o
+      // otro dia) sin volver a preguntar de que turno se trata.
+      if (customer) {
+        const avisados = await this.appDb.tx(ctx, (tx) =>
+          tx.appointment.findMany({
+            where: { customerId: customer.id, deletedAt: null, status: { in: ['pending', 'confirmed'] }, absenceNotifiedAt: { not: null }, startsAt: { gt: new Date() } },
+            include: { employee: { select: { firstName: true, lastName: true } }, service: { select: { name: true } } },
+            orderBy: { startsAt: 'asc' },
+            take: 3,
+          }),
+        );
+        if (avisados.length > 0) {
+          const lineas = avisados.map((a) => {
+            const fecha = a.startsAt.toLocaleDateString('en-CA', { timeZone: timezone });
+            const hora = a.startsAt.toLocaleTimeString('es-PY', { timeZone: timezone, hour: '2-digit', minute: '2-digit', hour12: false });
+            const quien = a.employee ? `${a.employee.firstName} ${a.employee.lastName}` : 'su profesional';
+            return `turno ${a.id} el ${fecha} a las ${hora} (${a.service?.name ?? 'servicio'}) con ${quien}, que NO podra atenderlo`;
+          });
+          customerContext =
+            `${customerContext ?? ''} Se le aviso que su profesional esta ausente: ${lineas.join('; ')}. ` +
+            'Si elige otra persona a la misma hora, llama reschedule_appointment con esa misma fecha y hora y el empleado elegido (o sin empleado para que el sistema asigne a quien este libre). ' +
+            'Si prefiere otro dia, ofrece horarios con get_available_slots y reprograma. No le vuelvas a preguntar de que turno se trata.';
+        }
+      }
 
       // Presupuesto mensual de tokens (doc 05 §6.4, ADR 0006): al agotarse,
       // el bot responde un aviso generico UNA vez y deja el resto al humano.
@@ -1007,8 +1033,17 @@ export class BotService {
             'ese turno no tiene un servicio del catalogo asociado: derivalo al equipo con request_human',
           );
         }
-        // El turno mantiene su profesional salvo pedido explicito de cambiarlo.
-        let employeeId = old.employeeId ?? undefined;
+        // El turno mantiene su profesional salvo pedido explicito de cambiarlo;
+        // si ese profesional esta ausente (o ya se le aviso al cliente por
+        // eso, 2026-09-08), se deja que el sistema asigne a otro libre.
+        let employeeId = old.absenceNotifiedAt ? undefined : (old.employeeId ?? undefined);
+        if (employeeId) {
+          const dia = new Date(`${date}T00:00:00Z`);
+          const ausente = await this.appDb.tx(ctx, (tx) =>
+            tx.employeeAbsence.findFirst({ where: { employeeId, startsOn: { lte: dia }, OR: [{ endsOn: null }, { endsOn: { gte: dia } }] }, select: { id: true } }),
+          );
+          if (ausente) employeeId = undefined;
+        }
         if (empleado?.trim()) {
           const match = await this.resolveEmployee(tenantId, empleado);
           if (!match) {

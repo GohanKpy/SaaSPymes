@@ -116,6 +116,16 @@ function utcRanges(
 const dentroDe = (ranges: { start: number; end: number }[], start: number, end: number) =>
   ranges.some((r) => r.start <= start && end <= r.end);
 
+/** Ids de empleados ausentes en una fecha local YYYY-MM-DD (2026-09-08). */
+async function ausentesEn(tx: TenantTx, dateLocal: string): Promise<Set<string>> {
+  const dia = new Date(`${dateLocal}T00:00:00Z`);
+  const rows = await tx.employeeAbsence.findMany({
+    where: { startsOn: { lte: dia }, OR: [{ endsOn: null }, { endsOn: { gte: dia } }] },
+    select: { employeeId: true },
+  });
+  return new Set(rows.map((r) => r.employeeId));
+}
+
 /** Instante UTC de una hora local del tenant (dos pasadas con Intl). */
 export function localToUtc(date: string, hour: number, minute: number, timeZone: string): Date {
   const guess = new Date(`${date}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00Z`);
@@ -144,13 +154,14 @@ export class AppointmentsService {
   constructor(private readonly appDb: AppPrisma) {}
 
   list(ctx: TenantContext, query: AppointmentListQuery) {
-    return this.appDb.tx(ctx, async (tx) =>
-      (
+    return this.appDb.tx(ctx, async (tx) => {
+      const rows = (
         await tx.appointment.findMany({
         where: {
           deletedAt: null,
           ...(query.branch_id ? { branchId: query.branch_id } : {}),
           ...(query.customer_id ? { customerId: query.customer_id } : {}),
+          ...(query.employee_id ? { employeeId: query.employee_id } : {}),
           ...(query.status ? { status: query.status } : {}),
           ...(query.from || query.to
             ? {
@@ -165,8 +176,24 @@ export class AppointmentsService {
         orderBy: { startsAt: 'asc' },
         take: 500,
         })
-      ).map(conServicios),
-    );
+      ).map(conServicios);
+      // Profesional ausente el dia del turno (2026-09-08): la Agenda lo marca
+      // para que el equipo reasigne; el cliente ya fue avisado si
+      // absenceNotifiedAt tiene valor.
+      const employeeIds = [...new Set(rows.map((a) => a.employeeId).filter((id): id is string => Boolean(id)))];
+      if (employeeIds.length === 0) return rows.map((a) => ({ ...a, employeeAbsent: false }));
+      const [absences, tenant] = await Promise.all([
+        tx.employeeAbsence.findMany({ where: { employeeId: { in: employeeIds } }, select: { employeeId: true, startsOn: true, endsOn: true } }),
+        tx.tenant.findUnique({ where: { id: ctx.tenantId }, select: { timezone: true } }),
+      ]);
+      const timezone = tenant?.timezone ?? 'America/Asuncion';
+      const ausente = (employeeId: string | null, startsAt: Date) => {
+        if (!employeeId) return false;
+        const dia = new Date(`${startsAt.toLocaleDateString('en-CA', { timeZone: timezone })}T00:00:00Z`).getTime();
+        return absences.some((ab) => ab.employeeId === employeeId && ab.startsOn.getTime() <= dia && (!ab.endsOn || ab.endsOn.getTime() >= dia));
+      };
+      return rows.map((a) => ({ ...a, employeeAbsent: ausente(a.employeeId, a.startsAt) }));
+    });
   }
 
   /** Slots libres segun duracion del servicio y horario (doc 04 §3.6). */
@@ -215,10 +242,13 @@ export class AppointmentsService {
       // LIBRES Y EN SU HORARIO (cada uno puede tener horario propio; null =
       // el del negocio). Sin empleados cargados no hay horarios: toda
       // reserva necesita un empleado (2026-09-08).
-      const agendables = await tx.employee.findMany({
-        where: { deletedAt: null, isActive: true, bookable: true },
-        select: { id: true, schedule: true },
-      });
+      const ausentes = await ausentesEn(tx, query.date);
+      const agendables = (
+        await tx.employee.findMany({
+          where: { deletedAt: null, isActive: true, bookable: true },
+          select: { id: true, schedule: true },
+        })
+      ).filter((e) => !ausentes.has(e.id));
       if (agendables.length === 0) return [];
       // Bloqueos del Google Calendar (ADR 0007 fase C): employee_id NULL tapa
       // el hueco para todo el negocio; con valor solo saca a ese empleado.
@@ -338,12 +368,18 @@ export class AppointmentsService {
     const timezone = tenant?.timezone ?? 'America/Asuncion';
     const branchSchedule = (branch?.schedule ?? {}) as BranchSchedule;
     const dateLocal = startsAt.toLocaleDateString('en-CA', { timeZone: timezone });
-    const trabajando = candidatos.filter((e) =>
-      dentroDe(
-        utcRanges(((e.schedule as BranchSchedule | null) ?? branchSchedule), dateLocal, timezone),
-        startsAt.getTime(),
-        endsAt.getTime(),
-      ),
+    const ausentes = await ausentesEn(tx, dateLocal);
+    if (dto.employee_id && ausentes.has(dto.employee_id)) {
+      throw new ConflictException({ title: 'El empleado elegido esta ausente ese dia' });
+    }
+    const trabajando = candidatos.filter(
+      (e) =>
+        !ausentes.has(e.id) &&
+        dentroDe(
+          utcRanges(((e.schedule as BranchSchedule | null) ?? branchSchedule), dateLocal, timezone),
+          startsAt.getTime(),
+          endsAt.getTime(),
+        ),
     );
     if (trabajando.length === 0) {
       throw new ConflictException({

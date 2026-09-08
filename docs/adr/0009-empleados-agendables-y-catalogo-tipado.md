@@ -119,6 +119,33 @@ verificar que esté libre y, si no lo está, avisar al cliente.
   horario sin aceptación del cliente. Las HttpException de la API llegan al
   modelo con su título (antes "Conflict Exception").
 
+### 6. Ausencias con aviso a los clientes (2026-09-08)
+
+Pedido del dueño: si un empleado con turnos se ausenta o se retira, avisar al
+dueño que tenía clientes en el período y a cada cliente que esa persona no
+podrá atenderlo, ofreciéndole otra persona u otro día.
+
+- `app.employee_absences` (tenant_id, employee_id, starts_on, ends_on NULL =
+  hasta nuevo aviso, reason; RLS, FK compuesta, trigger `row_audit`). La
+  disponibilidad y la asignación excluyen al ausente en la fecha local
+  (`ausentesEn()`); elegirlo da 409 "está ausente ese día".
+- `AbsencesService`: `POST /employees/:id/absences` con `on_conflict`
+  abort|notify|keep. Con turnos vigentes en el período y abort → 409 con
+  `conflicts` (la lista es el aviso al dueño en el panel). notify → registra,
+  manda a cada cliente WhatsApp (o email) con quién más podría atenderlo a esa
+  hora (`slotsDetallados`), marca `appointments.absence_notified_at`, crea una
+  tarea por turno y un correo resumen (`NotifierService.ownerEmail`). La baja
+  (`DELETE /employees/:id?on_conflict=`) y `PATCH is_active=false` (con
+  `on_conflict` en el body) usan el mismo flujo con todos los turnos futuros.
+- El turno sigue a nombre del ausente (marcado en la Agenda) hasta que el
+  cliente decida: el bot recibe en el contexto del cliente sus turnos avisados
+  y reprograma al mismo horario con la persona elegida o a otro día
+  (`reschedule_appointment` deja de conservar al profesional cuando está
+  ausente o ya se avisó).
+- Agenda: filtros por profesional y cliente (`GET /appointments?employee_id=`,
+  filtro de texto en el panel), búsqueda en los próximos 30 días,
+  `employeeAbsent` en la lista.
+
 ## Fases
 
 1. Empleados + asignación + anti-solape + disponibilidad por empleados
@@ -128,3 +155,5 @@ verificar que esté libre y, si no lo está, avisar al cliente.
    elección de profesional por chat. ✔
 4. Asignación obligatoria, carga del día en minutos y aviso al cliente cuando
    el profesional pedido no está libre (2026-09-08). ✔
+5. Ausencias con aviso al dueño y a los clientes; filtros de la Agenda
+   (2026-09-08). ✔

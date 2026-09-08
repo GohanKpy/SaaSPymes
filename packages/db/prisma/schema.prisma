@@ -134,6 +134,7 @@ model Tenant {
   charges             CustomerCharge[]
   statements          BillingStatement[]
   recurringBookings   RecurringBooking[]
+  employeeAbsences    EmployeeAbsence[]
   @@map("tenants")
   @@schema("control")
 }
@@ -705,6 +706,8 @@ model Appointment {
   // cliente que confirme (SI/NO por WhatsApp, resuelto sin el bot).
   recurringBookingId      String?   @map("recurring_booking_id") @db.Uuid
   confirmationRequestedAt DateTime? @map("confirmation_requested_at") @db.Timestamptz(6)
+  /// Se le aviso al cliente que su profesional no podra atenderlo (ausencia, 2026-09-08).
+  absenceNotifiedAt       DateTime? @map("absence_notified_at") @db.Timestamptz(6)
   notes         String?
   deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(6)
   createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -1007,9 +1010,32 @@ model Employee {
   credentials    IntegrationCredential[]
 
   recurringBookings RecurringBooking[]
+  absences          EmployeeAbsence[]
   @@unique([tenantId, id])
   @@index([tenantId, isActive, bookable], map: "employees_tenant_idx")
   @@map("employees")
+  @@schema("app")
+}
+
+/// Ausencia de un empleado (2026-09-08): del dia starts_on al ends_on
+/// (null = hasta nuevo aviso). Lo saca de la disponibilidad y dispara el
+/// aviso a los clientes con turno en el periodo.
+model EmployeeAbsence {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String    @map("tenant_id") @db.Uuid
+  employeeId String    @map("employee_id") @db.Uuid
+  startsOn   DateTime  @map("starts_on") @db.Date
+  endsOn     DateTime? @map("ends_on") @db.Date
+  reason     String?
+  createdBy  String?   @map("created_by") @db.Uuid
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id])
+  employee Employee @relation(fields: [tenantId, employeeId], references: [tenantId, id])
+
+  @@unique([tenantId, id])
+  @@index([tenantId, employeeId, startsOn], map: "employee_absences_employee_idx")
+  @@map("employee_absences")
   @@schema("app")
 }
 

@@ -41,6 +41,8 @@ export const appointmentListQuery = z.object({
   branch_id: uuid.optional(),
   /** Turnos de un cliente puntual (panel del chat y ficha, fase 1 auditoria 2026-09-05). */
   customer_id: uuid.optional(),
+  /** Filtro de la Agenda por profesional (2026-09-08). */
+  employee_id: uuid.optional(),
   from: z.iso.datetime({ offset: true }).optional(),
   to: z.iso.datetime({ offset: true }).optional(),
   status: z.enum(['pending', 'confirmed', 'completed', 'cancelled', 'no_show']).optional(),

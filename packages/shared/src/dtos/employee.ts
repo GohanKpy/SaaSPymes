@@ -58,7 +58,13 @@ export const employeeCreate = z
   .strict();
 export type EmployeeCreate = z.infer<typeof employeeCreate>;
 
-export const employeeUpdate = employeeCreate.partial().strict();
+export const employeeUpdate = employeeCreate
+  .partial()
+  .extend({
+    /** Al dar de baja (is_active=false) con turnos futuros (2026-09-08): abort (409 con la lista), notify (avisar a los clientes) o keep. */
+    on_conflict: z.enum(['abort', 'notify', 'keep']).optional(),
+  })
+  .strict();
 export type EmployeeUpdate = z.infer<typeof employeeUpdate>;
 
 /**
@@ -92,3 +98,25 @@ export const employeeFormSettingsPut = z
   })
   .strict();
 export type EmployeeFormSettingsPut = z.infer<typeof employeeFormSettingsPut>;
+
+/**
+ * Ausencia de un empleado (2026-09-08): del dia starts_on al ends_on (null =
+ * hasta nuevo aviso). Si tiene turnos en el periodo, on_conflict decide:
+ * abort → 409 con la lista; notify → se registra y se avisa a cada cliente
+ * por WhatsApp/email para que elija otra persona u otro dia; keep → se
+ * registra sin avisar.
+ */
+export const absenceCreate = z
+  .object({
+    starts_on: fecha,
+    ends_on: fecha.nullable().optional(),
+    reason: z.string().trim().max(300).optional(),
+    on_conflict: z.enum(['abort', 'notify', 'keep']).default('abort'),
+  })
+  .strict()
+  .refine((a) => !a.ends_on || a.ends_on >= a.starts_on, { message: 'la ausencia no puede terminar antes de empezar', path: ['ends_on'] });
+export type AbsenceCreate = z.infer<typeof absenceCreate>;
+
+/** Baja de un empleado (DELETE /employees/:id?on_conflict=). */
+export const employeeRemoveQuery = z.object({ on_conflict: z.enum(['abort', 'notify', 'keep']).default('abort') });
+export type EmployeeRemoveQuery = z.infer<typeof employeeRemoveQuery>;

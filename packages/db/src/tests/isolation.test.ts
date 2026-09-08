@@ -57,6 +57,7 @@ const APP_TABLES = [
   'recurring_bookings',
   'customer_charges',
   'billing_statements',
+  'employee_absences',
   'audit_log',
 ] as const;
 
@@ -115,8 +116,12 @@ async function seedTenant(name: string, phone: string): Promise<SeededTenant> {
     await tx.botUsageMonthly.create({
       data: { tenantId: tenant.id, period: '2026-08', inputTokens: 1n, outputTokens: 1n },
     });
-    await tx.employee.create({
+    const employee = await tx.employee.create({
       data: { tenantId: tenant.id, firstName: 'Empleado', lastName: name, bookable: true },
+    });
+    // Ausencias (2026-09-08).
+    await tx.employeeAbsence.create({
+      data: { tenantId: tenant.id, employeeId: employee.id, startsOn: new Date('2026-09-10'), endsOn: new Date('2026-09-11'), reason: `ausencia ${name}` },
     });
     // Planilla de empleados (2026-08-28): campos obligatorios por tenant.
     await tx.employeeFormSettings.create({
@@ -296,6 +301,7 @@ async function wipeTenant(tenantId: string): Promise<void> {
       'user_branch_access',
       'refresh_tokens',
       'notification_emails',
+      'employee_absences',
       'employees',
       'employee_form_settings',
       'bot_settings',

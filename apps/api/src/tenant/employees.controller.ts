@@ -9,17 +9,22 @@ import {
   Patch,
   Post,
   Put,
+  Query,
   Req,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import {
   EMPLOYEE_REQUIRABLE_FIELDS,
+  absenceCreate,
   employeeCreate,
   employeeFormSettingsPut,
+  employeeRemoveQuery,
   employeeUpdate,
   uuid,
+  type AbsenceCreate,
   type EmployeeCreate,
   type EmployeeFormSettingsPut,
+  type EmployeeRemoveQuery,
   type EmployeeRequirableField,
   type EmployeeUpdate,
 } from '@pymes/shared';
@@ -32,6 +37,8 @@ import { tenantCtx } from '../common/tenant-ctx';
 import { ZodPipe } from '../common/zod.pipe';
 import { AppPrisma } from '../prisma/app-prisma.service';
 
+import { AbsencesService } from './absences.service';
+
 const vacio = (v: unknown) => v === undefined || v === null || (typeof v === 'string' && v.trim() === '');
 
 /**
@@ -43,12 +50,16 @@ const vacio = (v: unknown) => v === undefined || v === null || (typeof v === 'st
  */
 @Controller('employees')
 export class EmployeesController {
-  constructor(private readonly appDb: AppPrisma) {}
+  constructor(
+    private readonly appDb: AppPrisma,
+    private readonly absences: AbsencesService,
+  ) {}
 
   @Get()
   async list(@Req() req: FastifyRequest & AuthRequest) {
     const ctx = tenantCtx(req);
-    const { rows, google } = await this.appDb.tx(ctx, async (tx) => ({
+    const hoy = new Date(new Date().toISOString().slice(0, 10));
+    const { rows, google, absences } = await this.appDb.tx(ctx, async (tx) => ({
       rows: await tx.employee.findMany({
         where: { deletedAt: null },
         orderBy: [{ isActive: 'desc' }, { firstName: 'asc' }],
@@ -57,6 +68,11 @@ export class EmployeesController {
       google: await tx.integrationCredential.findMany({
         where: { type: 'google_calendar', employeeId: { not: null } },
         select: { employeeId: true, publicConfig: true },
+      }),
+      // Ausencias vigentes o futuras (2026-09-08), para el badge y el modal.
+      absences: await tx.employeeAbsence.findMany({
+        where: { OR: [{ endsOn: null }, { endsOn: { gte: hoy } }] },
+        orderBy: { startsOn: 'asc' },
       }),
     }));
     const googleStatus = new Map(
@@ -70,7 +86,40 @@ export class EmployeesController {
       ...e,
       salary: verSalario ? e.salary : null,
       googleCalendar: googleStatus.get(e.id) ?? null,
+      absences: absences.filter((a) => a.employeeId === e.id),
     }));
+  }
+
+  /** Ausencias vigentes o futuras del empleado (2026-09-08). */
+  @Get(':id/absences')
+  listAbsences(@Param('id', new ZodPipe(uuid)) id: string, @Req() req: FastifyRequest & AuthRequest) {
+    return this.absences.list(tenantCtx(req), id);
+  }
+
+  /**
+   * Registra una ausencia. Con turnos en el periodo responde 409 con
+   * `conflicts` salvo que venga on_conflict=notify (avisar a los clientes)
+   * o keep (registrar sin avisar).
+   */
+  @Post(':id/absences')
+  @Roles('root', 'admin')
+  createAbsence(
+    @Param('id', new ZodPipe(uuid)) id: string,
+    @Body(new ZodPipe(absenceCreate)) dto: AbsenceCreate,
+    @Req() req: FastifyRequest & AuthRequest,
+  ) {
+    return this.absences.create(tenantCtx(req), id, dto);
+  }
+
+  @Delete(':id/absences/:absenceId')
+  @Roles('root', 'admin')
+  @HttpCode(204)
+  async removeAbsence(
+    @Param('id', new ZodPipe(uuid)) id: string,
+    @Param('absenceId', new ZodPipe(uuid)) absenceId: string,
+    @Req() req: FastifyRequest & AuthRequest,
+  ) {
+    await this.absences.remove(tenantCtx(req), id, absenceId);
   }
 
   /** Campos obligatorios de la planilla en ESTE tenant (para pintar los *). */
@@ -127,13 +176,21 @@ export class EmployeesController {
     @Req() req: FastifyRequest & AuthRequest,
   ) {
     const ctx = tenantCtx(req);
+    const { on_conflict, ...cambios } = dto;
+    // Deja de trabajar (2026-09-08): sus turnos futuros pasan por el mismo
+    // flujo que una ausencia (409 con la lista, avisar o mantener).
+    if (cambios.is_active === false) {
+      const actual = await this.appDb.tx(ctx, (tx) => tx.employee.findFirst({ where: { id, deletedAt: null }, select: { isActive: true } }));
+      if (!actual) throw new NotFoundException();
+      if (actual.isActive) await this.absences.alDarDeBaja(ctx, id, on_conflict ?? 'abort');
+    }
     return this.appDb.tx(ctx, async (tx) => {
       const existing = await tx.employee.findFirst({ where: { id, deletedAt: null } });
       if (!existing) throw new NotFoundException();
-      await this.checkRequired(tx, dto, existing);
+      await this.checkRequired(tx, cambios, existing);
       return tx.employee.update({
         where: { id },
-        data: { ...this.toData(dto), updatedAt: new Date() },
+        data: { ...this.toData(cambios), updatedAt: new Date() },
       });
     });
   }
@@ -141,8 +198,15 @@ export class EmployeesController {
   @Delete(':id')
   @Roles('root', 'admin')
   @HttpCode(204)
-  async remove(@Param('id', new ZodPipe(uuid)) id: string, @Req() req: FastifyRequest & AuthRequest) {
+  async remove(
+    @Param('id', new ZodPipe(uuid)) id: string,
+    @Query(new ZodPipe(employeeRemoveQuery)) query: EmployeeRemoveQuery,
+    @Req() req: FastifyRequest & AuthRequest,
+  ) {
     const ctx = tenantCtx(req);
+    // Se retira (2026-09-08): con turnos futuros, 409 con la lista salvo
+    // on_conflict=notify (avisar a los clientes) o keep.
+    await this.absences.alDarDeBaja(ctx, id, query.on_conflict);
     // Borrado logico: el historial de turnos asignados se conserva.
     await this.appDb.tx(ctx, (tx) =>
       tx.employee.updateMany({

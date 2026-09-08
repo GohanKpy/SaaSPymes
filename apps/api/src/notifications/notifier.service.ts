@@ -43,7 +43,15 @@ export class NotifierService {
     const ctx = { tenantId, actorType: 'system' as const };
     const message = await this.appDb.tx(ctx, async (tx) => {
       let conversation = await tx.conversation.findFirst({ where: { phoneE164: phone }, orderBy: { createdAt: 'desc' } });
-      conversation ??= await tx.conversation.create({ data: { tenantId, phoneE164: phone, status: 'inactive' } });
+      // La conversacion queda ligada a la ficha del cliente con ese celular
+      // (2026-09-08): cuando responda, el bot tiene que saber quien es para
+      // resolver el aviso (ausencia, cuenta del mes) sin volver a preguntar.
+      const customer = await tx.customer.findFirst({ where: { phoneE164: phone, deletedAt: null }, select: { id: true } });
+      if (!conversation) {
+        conversation = await tx.conversation.create({ data: { tenantId, phoneE164: phone, status: 'inactive', customerId: customer?.id } });
+      } else if (!conversation.customerId && customer) {
+        conversation = await tx.conversation.update({ where: { id: conversation.id }, data: { customerId: customer.id } });
+      }
       const created = await tx.message.create({
         data: { tenantId, conversationId: conversation.id, direction: 'out', senderType: 'system', body, status: 'queued' },
       });
@@ -80,6 +88,21 @@ export class NotifierService {
       }
     } catch (error) {
       this.logger.error(`aviso al dueño fallo tenant=${tenantId}`, error instanceof Error ? error.stack : String(error));
+    }
+  }
+
+  /** Solo el correo a los emails de aviso del negocio (sin tarea): resumenes con varios clientes (2026-09-08). */
+  async ownerEmail(tenantId: string, subject: string, text: string): Promise<void> {
+    const ctx = { tenantId, actorType: 'system' as const };
+    try {
+      const emails = await this.appDb.tx(ctx, (tx) => tx.notificationEmail.findMany({ select: { email: true } }));
+      for (const { email } of emails) {
+        await this.mailer.send({ to: email, subject, text }).catch((error) => {
+          this.logger.warn(`correo al dueño fallo tenant=${tenantId} to=${email}: ${error instanceof Error ? error.message : String(error)}`);
+        });
+      }
+    } catch (error) {
+      this.logger.error(`correo al dueño fallo tenant=${tenantId}`, error instanceof Error ? error.stack : String(error));
     }
   }
 
