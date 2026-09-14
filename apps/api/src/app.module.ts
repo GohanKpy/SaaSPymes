@@ -26,6 +26,10 @@ import { GoogleCalendarService } from './integrations/google-calendar.service';
 import { IntegrationsController } from './integrations/integrations.controller';
 import { InvoicesController } from './invoicing/invoices.controller';
 import { INVOICING_PROVIDER, InvoicesService } from './invoicing/invoices.service';
+import { ReturnsController } from './invoicing/returns.controller';
+import { ReturnsService } from './invoicing/returns.service';
+import { InventoryController } from './inventory/inventory.controller';
+import { InventoryService } from './inventory/inventory.service';
 import { KudeService } from './invoicing/kude.service';
 import { QuotesController } from './invoicing/quotes.controller';
 import { QuotesService } from './invoicing/quotes.service';
@@ -68,6 +72,8 @@ import { UsersController } from './tenant/users.controller';
     InvoicesController,
     QuotesController,
     BillingController,
+    ReturnsController,
+    InventoryController,
     PublicKudeController,
     RecurringController,
   ],
@@ -90,6 +96,8 @@ import { UsersController } from './tenant/users.controller';
     QuotesService,
     NotifierService,
     BillingService,
+    ReturnsService,
+    InventoryService,
     RecurringService,
     AbsencesService,
     {

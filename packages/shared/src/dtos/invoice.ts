@@ -60,12 +60,35 @@ export const invoiceListQuery = paginationQuery.extend({
 });
 export type InvoiceListQuery = z.infer<typeof invoiceListQuery>;
 
+/** Plazo de SIFEN para el evento de cancelacion (RG 23/2019 art. 22; Manual Tecnico v150). */
+export const SIFEN_CANCEL_HOURS_FACTURA = 48;
+export const SIFEN_CANCEL_HOURS_OTROS = 168;
+
 export const invoiceCancel = z
   .object({
-    reason: z.string().min(3).max(1000), // obligatorio (doc 04 §3.9)
+    /** Motivo del evento (mOtEve de SIFEN): obligatorio, 5 a 500 caracteres. */
+    reason: z.string().trim().min(5).max(500),
+    /** Avisar al cliente por su canal (WhatsApp o email) que el comprobante quedo sin efecto. */
+    notify_customer: z.boolean().default(true),
   })
   .strict();
 export type InvoiceCancel = z.infer<typeof invoiceCancel>;
+
+/**
+ * Nota de credito electronica (2026-09-14): pasado el plazo de cancelacion,
+ * o para devoluciones parciales. Sin items = total; con items = parcial
+ * (cantidad por item de la factura original).
+ */
+export const creditNoteCreate = z
+  .object({
+    reason: z.string().trim().min(5).max(500),
+    items: z.array(z.object({ item_id: uuid, quantity: z.coerce.number().positive() })).min(1).max(100).optional(),
+    /** Los items fisicos vuelven al stock (inventario) en la sucursal de la factura. */
+    restock: z.boolean().default(false),
+    notify_customer: z.boolean().default(true),
+  })
+  .strict();
+export type CreditNoteCreate = z.infer<typeof creditNoteCreate>;
 
 export const paymentCreate = z
   .object({

@@ -5,7 +5,7 @@ import type { Env } from '@pymes/shared';
 import { CryptoService } from '../common/crypto.service';
 import { ENV } from '../env.module';
 import { AppPrisma } from '../prisma/app-prisma.service';
-import { serializeMessage } from './conversations.service';
+import { serializeMessage } from './serialize';
 import { TenantEventsService } from './events.service';
 
 interface WaPublicConfig {

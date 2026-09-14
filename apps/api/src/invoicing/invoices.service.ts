@@ -5,6 +5,7 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { SIFEN_CANCEL_HOURS_FACTURA, SIFEN_CANCEL_HOURS_OTROS } from '@pymes/shared';
 import type { TenantContext, TenantTx } from '@pymes/db';
 import type { InvoicingProvider } from '@pymes/invoicing';
 import type {
@@ -15,14 +16,20 @@ import type {
   InvoiceItemInput,
   InvoiceListQuery,
   PaymentCreate,
+  CreditNoteCreate,
 } from '@pymes/shared';
 
 import { AppPrisma } from '../prisma/app-prisma.service';
 import { TenantEventsService } from '../conversations/events.service';
+import { InventoryService, type AlertaStock } from '../inventory/inventory.service';
+import { NotifierService } from '../notifications/notifier.service';
 
 export const INVOICING_PROVIDER = 'INVOICING_PROVIDER';
 
-const CANCEL_WINDOW_MS = 48 * 3600 * 1000; // 48 h (doc 04 §3.9)
+/** Numero legible del comprobante. */
+const numeroDe = (i: { establishment: string | null; expeditionPoint: string | null; docNumber: string | null }) =>
+  i.docNumber ? `${i.establishment}-${i.expeditionPoint}-${i.docNumber}` : 'sin número';
+const gs = (v: bigint | number) => `Gs ${new Intl.NumberFormat('es-PY').format(Number(v))}`;
 
 export interface ResolvedItem {
   serviceId?: string;
@@ -183,6 +190,8 @@ export class InvoicesService {
     private readonly appDb: AppPrisma,
     private readonly events: TenantEventsService,
     @Inject(INVOICING_PROVIDER) private readonly provider: InvoicingProvider,
+    private readonly inventory: InventoryService,
+    private readonly notifier: NotifierService,
   ) {}
 
   list(ctx: TenantContext, query: InvoiceListQuery) {
@@ -221,7 +230,15 @@ export class InvoicesService {
     const invoice = await this.appDb.tx(ctx, (tx) =>
       tx.invoice.findFirst({
         where: { id },
-        include: { items: true, payments: true, customer: true, branch: true },
+        include: {
+          items: true,
+          payments: true,
+          customer: true,
+          branch: true,
+          // Notas de credito emitidas sobre esta factura y, en una NC, la factura original (2026-09-14).
+          creditNotes: { select: { id: true, establishment: true, expeditionPoint: true, docNumber: true, total: true, status: true, approvedAt: true, creditReason: true, restockedAt: true } },
+          relatedInvoice: { select: { id: true, establishment: true, expeditionPoint: true, docNumber: true, total: true, status: true, cdc: true } },
+        },
       }),
     );
     if (!invoice) throw new NotFoundException();
@@ -287,7 +304,7 @@ export class InvoicesService {
    * aprobacion es inmediata; con el real este paso pasa a la cola.
    */
   async issue(ctx: TenantContext, id: string) {
-    const issued = await this.appDb.tx(ctx, async (tx) => {
+    const { updated: issued, alertas } = await this.appDb.tx(ctx, async (tx) => {
       const invoice = await tx.invoice.findFirst({
         where: { id },
         include: { items: true, customer: true },
@@ -326,6 +343,20 @@ export class InvoicesService {
         fiscal = { timbrado: DEV_TIMBRADO, establishment: fiscal?.establishment || '001', expedition_point: fiscal?.expedition_point || '001' };
       }
       const fiscalOk = fiscal as { timbrado: string; establishment: string; expedition_point: string };
+
+      // Inventario (2026-09-14): sin existencias no se emite (salvo que el
+      // negocio permita stock negativo). Se valida ANTES de pedirle nada a SIFEN.
+      const lineas = invoice.items.map((i) => ({ serviceId: i.serviceId, quantity: Number(i.quantity) }));
+      if (invoice.docType === 'factura') {
+        const faltantes = await this.inventory.faltantes(tx, invoice.branchId, lineas);
+        if (faltantes.length > 0) {
+          throw new ConflictException({
+            type: 'https://docs.pymes.local/errors/insufficient-stock',
+            title: `Sin stock suficiente: ${faltantes.map((f) => `${f.name} (hay ${f.available}, se necesitan ${f.requested})`).join('; ')}`,
+            faltantes,
+          });
+        }
+      }
 
       // Lock por punto de expedicion: sin huecos ni duplicados bajo
       // concurrencia (doc 08 §5). Se libera al cerrar la transaccion.
@@ -376,7 +407,7 @@ export class InvoicesService {
         },
       });
 
-      return tx.invoice.update({
+      const updated = await tx.invoice.update({
         where: { id },
         data:
           result.status === 'approved'
@@ -396,25 +427,50 @@ export class InvoicesService {
               },
         include: { items: true },
       });
+      // La venta aprobada descuenta stock en la sucursal de la factura (la NC no).
+      let alertas: AlertaStock[] = [];
+      if (result.status === 'approved' && invoice.docType === 'factura') {
+        alertas = await this.inventory.consumirVenta(tx, ctx.tenantId, { invoiceId: invoice.id, branchId: invoice.branchId, lineas, userId: ctx.userId ?? null });
+      }
+      return { updated, alertas };
     });
     this.events.emit(ctx.tenantId, 'invoice.status', { id: issued.id, status: issued.status });
+    void this.inventory.avisarBajoMinimo(ctx.tenantId, alertas);
     return issued;
   }
 
-  /** Anulacion: solo dentro de las 48 h de aprobada; despues, NC (doc 04 §3.9). */
+  /**
+   * Anulacion (RG 23/2019 art. 22; Manual Tecnico SIFEN v150, evento de
+   * cancelacion): dentro de las 48 h de la APROBACION del DTE para facturas
+   * (168 h para notas de credito), con motivo obligatorio de 5 a 500
+   * caracteres; despues, nota de credito. Si la factura tiene notas de
+   * credito aprobadas, primero se anulan esas. Efectos: el DTE queda sin
+   * validez y se conserva intacto (nunca se borra), el numero no se reutiliza,
+   * el stock descontado vuelve, se avisa al cliente y, si habia pagos, queda
+   * una tarea para devolverlos o aplicarlos.
+   */
   async cancel(ctx: TenantContext, id: string, dto: InvoiceCancel) {
     const cancelled = await this.appDb.tx(ctx, async (tx) => {
-      const invoice = await tx.invoice.findFirst({ where: { id } });
+      const invoice = await tx.invoice.findFirst({
+        where: { id },
+        include: { payments: true, creditNotes: { select: { id: true, status: true, establishment: true, expeditionPoint: true, docNumber: true } } },
+      });
       if (!invoice) throw new NotFoundException();
       if (invoice.status !== 'approved' || !invoice.approvedAt) {
-        throw new ConflictException({ title: 'Solo se anulan facturas aprobadas' });
+        throw new ConflictException({ title: 'Solo se anulan comprobantes aprobados' });
       }
-      if (Date.now() - invoice.approvedAt.getTime() > CANCEL_WINDOW_MS) {
+      const horas = invoice.docType === 'factura' ? SIFEN_CANCEL_HOURS_FACTURA : SIFEN_CANCEL_HOURS_OTROS;
+      if (Date.now() - invoice.approvedAt.getTime() > horas * 3600 * 1000) {
         throw new ConflictException({
           type: 'https://docs.pymes.local/errors/use-credit-note',
-          title: 'Fuera del plazo de 48 h: corresponde nota de credito',
+          title: `Fuera del plazo de ${horas} h de SIFEN: corresponde una nota de crédito`,
         });
       }
+      const ncVigente = invoice.creditNotes.find((n) => n.status === 'approved');
+      if (ncVigente) {
+        throw new ConflictException({ title: `Primero anulá la nota de crédito ${numeroDe(ncVigente)} asociada a esta factura (regla de SIFEN)` });
+      }
+      let cancelSifenCode: string | null = null;
       if (invoice.cdc) {
         const result = await this.provider.cancel({
           invoiceId: invoice.id,
@@ -424,6 +480,14 @@ export class InvoicesService {
         if (result.status !== 'cancelled') {
           throw new ConflictException({ title: `SIFEN rechazo la anulacion: ${result.responseCode}` });
         }
+        cancelSifenCode = result.responseCode;
+      }
+      // Nota de credito anulada: la factura original vuelve a estar vigente.
+      if (invoice.docType === 'nota_credito' && invoice.relatedInvoiceId) {
+        await tx.invoice.updateMany({ where: { id: invoice.relatedInvoiceId, status: 'credited' }, data: { status: 'approved' } });
+        await this.inventory.revertirNota(tx, ctx.tenantId, invoice.id, ctx.userId);
+      } else {
+        await this.inventory.revertirVenta(tx, ctx.tenantId, invoice.id, ctx.userId);
       }
       return tx.invoice.update({
         where: { id },
@@ -432,14 +496,159 @@ export class InvoicesService {
           cancelReason: dto.reason,
           cancelledBy: ctx.userId,
           cancelledAt: new Date(),
+          cancelSifenCode,
         },
+        include: { payments: true, customer: { select: { id: true, firstName: true, phoneE164: true, email: true, notifyWhatsapp: true, notifyEmail: true, invoiceChannel: true } } },
       });
     });
     this.events.emit(ctx.tenantId, 'invoice.status', { id: cancelled.id, status: cancelled.status });
+
+    // Avisos fuera de la transaccion: pagos a resolver y cliente.
+    const numero = numeroDe(cancelled);
+    const tipo = cancelled.docType === 'nota_credito' ? 'La nota de crédito' : 'La factura';
+    const pagado = cancelled.payments.reduce((sum, p) => sum + p.amount, 0n);
+    if (pagado > 0n) {
+      await this.notifier.owner(
+        ctx.tenantId,
+        cancelled.customerId,
+        `${tipo} ${numero} se anuló con pagos registrados por ${gs(pagado)}: devolver el dinero al cliente o aplicarlo a la factura nueva, y dejar constancia.`,
+        `Comprobante ${numero} anulado con pagos por ${gs(pagado)}`,
+      );
+    }
+    if (dto.notify_customer) {
+      const tenant = await this.appDb.client.tenant.findUnique({ where: { id: ctx.tenantId }, select: { tradeName: true, legalName: true } });
+      const negocio = tenant?.tradeName ?? tenant?.legalName ?? 'el negocio';
+      const c = cancelled.customer;
+      const body =
+        `Hola ${c.firstName}! Te escribimos de ${negocio}. ${tipo} N° ${numero} por ${gs(cancelled.total)} quedó ANULADA ante la DNIT y ya no tiene validez. Motivo: ${dto.reason}. ` +
+        (pagado > 0n ? 'Como ya la habías pagado, te contactamos para devolverte el dinero o aplicarlo al comprobante correcto. ' : '') +
+        'Si corresponde, te enviamos el comprobante correcto por este mismo medio.';
+      let avisado = false;
+      try {
+        if (c.email && (c.invoiceChannel === 'email' || !c.phoneE164) && c.notifyEmail) {
+          await this.notifier.email(c.email, `${negocio}: comprobante ${numero} anulado`, body);
+          avisado = true;
+        } else if (c.phoneE164 && c.notifyWhatsapp) {
+          await this.notifier.whatsapp(ctx.tenantId, c.phoneE164, body);
+          avisado = true;
+        } else if (c.email && c.notifyEmail) {
+          await this.notifier.email(c.email, `${negocio}: comprobante ${numero} anulado`, body);
+          avisado = true;
+        }
+      } catch {
+        avisado = false;
+      }
+      if (avisado) await this.appDb.tx(ctx, (tx) => tx.invoice.update({ where: { id }, data: { cancelNotifiedAt: new Date() } }));
+    }
     return cancelled;
   }
 
-  /** Registra pago; 409 si excede el saldo (doc 04 §3.9). */
+  /**
+   * Nota de credito electronica (2026-09-14): total o parcial sobre una
+   * factura aprobada, cuando ya paso el plazo de cancelacion o se devuelve
+   * parte de lo vendido. Es un DTE propio (numeracion propia, mismo
+   * timbrado) que referencia la factura original; la factura pasa a
+   * 'credited' cuando lo acreditado cubre su total. Con restock, los items
+   * fisicos vuelven al stock de la sucursal.
+   */
+  async createCreditNote(ctx: TenantContext, invoiceId: string, dto: CreditNoteCreate) {
+    const { nc, lineas } = await this.appDb.tx(ctx, async (tx) => {
+      const original = await tx.invoice.findFirst({
+        where: { id: invoiceId },
+        include: { items: true, creditNotes: { where: { status: { in: ['approved', 'issuing'] } }, include: { items: true } } },
+      });
+      if (!original) throw new NotFoundException();
+      if (original.docType !== 'factura') throw new ConflictException({ title: 'Solo se emite una nota de crédito sobre una factura' });
+      if (!['approved', 'credited'].includes(original.status)) {
+        throw new ConflictException({ title: 'Solo se acreditan facturas aprobadas' });
+      }
+      // Cantidades ya acreditadas por item (mismo servicio + descripcion).
+      const clave = (i: { serviceId: string | null; description: string }) => `${i.serviceId ?? ''}|${i.description}`;
+      const acreditado = new Map<string, number>();
+      for (const n of original.creditNotes) for (const it of n.items) acreditado.set(clave(it), (acreditado.get(clave(it)) ?? 0) + Number(it.quantity));
+      const seleccion = dto.items
+        ? dto.items.map((sel) => {
+            const it = original.items.find((i) => i.id === sel.item_id);
+            if (!it) throw new NotFoundException({ title: 'Ese ítem no es de la factura' });
+            const disponible = Number(it.quantity) - (acreditado.get(clave(it)) ?? 0);
+            if (sel.quantity > disponible + 1e-9) {
+              throw new ConflictException({ title: `De "${it.description}" quedan ${disponible} por acreditar` });
+            }
+            return { it, quantity: sel.quantity };
+          })
+        : original.items.map((it) => ({ it, quantity: Number(it.quantity) - (acreditado.get(clave(it)) ?? 0) })).filter((l) => l.quantity > 0);
+      if (seleccion.length === 0) throw new ConflictException({ title: 'La factura ya está acreditada por completo' });
+      const items = seleccion.map(({ it, quantity }) => {
+        const lineTotal = BigInt(Math.round(Number(it.unitPrice) * quantity));
+        return { serviceId: it.serviceId, description: it.description, quantity, unitPrice: it.unitPrice, taxRate: it.taxRate, lineTotal };
+      });
+      const total = items.reduce((acc, i) => acc + i.lineTotal, 0n);
+      const taxTotal = items.reduce((acc, i) => acc + taxPortion(i.lineTotal, i.taxRate), 0n);
+      const nc = await tx.invoice.create({
+        data: {
+          tenantId: ctx.tenantId,
+          branchId: original.branchId,
+          customerId: original.customerId,
+          docType: 'nota_credito',
+          relatedInvoiceId: original.id,
+          createdBy: ctx.userId,
+          subtotal: total - taxTotal,
+          taxTotal,
+          total,
+          creditReason: dto.reason,
+          fiscalIdId: original.fiscalIdId,
+          billingName: original.billingName,
+          billingDocType: original.billingDocType,
+          billingDocNumber: original.billingDocNumber,
+          billingRucDv: original.billingRucDv,
+        },
+      });
+      await tx.invoiceItem.createMany({ data: items.map((i) => ({ tenantId: ctx.tenantId, invoiceId: nc.id, ...i })) });
+      return { nc, lineas: items.map((i) => ({ serviceId: i.serviceId, quantity: i.quantity })) };
+    });
+
+    // Se emite por SIFEN con el mismo camino que una factura (numeracion propia por tipo).
+    const issued = await this.issue(ctx, nc.id);
+    if (issued.status === 'approved') {
+      await this.appDb.tx(ctx, async (tx) => {
+        const notas = await tx.invoice.findMany({ where: { relatedInvoiceId: invoiceId, status: 'approved' }, select: { total: true } });
+        const acreditado = notas.reduce((sum, n) => sum + n.total, 0n);
+        const original = await tx.invoice.findFirst({ where: { id: invoiceId }, select: { total: true, branchId: true } });
+        if (original && acreditado >= original.total) {
+          await tx.invoice.update({ where: { id: invoiceId }, data: { status: 'credited' } });
+        }
+        if (dto.restock && original) {
+          await this.inventory.reingresarPorNota(tx, ctx.tenantId, { creditNoteId: nc.id, branchId: original.branchId, lineas, userId: ctx.userId ?? null });
+          await tx.invoice.update({ where: { id: nc.id }, data: { restockedAt: new Date() } });
+        }
+      });
+      if (dto.notify_customer) await this.avisarNotaDeCredito(ctx, nc.id, invoiceId, dto.reason);
+    }
+    return this.get(ctx, nc.id);
+  }
+
+  private async avisarNotaDeCredito(ctx: TenantContext, creditNoteId: string, invoiceId: string, motivo: string): Promise<void> {
+    try {
+      const [nc, original, tenant] = await Promise.all([
+        this.appDb.tx(ctx, (tx) => tx.invoice.findFirst({ where: { id: creditNoteId }, include: { customer: true } })),
+        this.appDb.tx(ctx, (tx) => tx.invoice.findFirst({ where: { id: invoiceId } })),
+        this.appDb.client.tenant.findUnique({ where: { id: ctx.tenantId }, select: { tradeName: true, legalName: true } }),
+      ]);
+      if (!nc || !original) return;
+      const negocio = tenant?.tradeName ?? tenant?.legalName ?? 'el negocio';
+      const c = nc.customer;
+      const link = this.notifier.kudeLink(ctx.tenantId, nc.id);
+      const body =
+        `Hola ${c.firstName}! Te escribimos de ${negocio}. Emitimos la nota de crédito N° ${numeroDe(nc)} por ${gs(nc.total)} sobre tu factura N° ${numeroDe(original)}. Motivo: ${motivo}. ` +
+        `Podés ver el comprobante acá: ${link}`;
+      if (c.email && (c.invoiceChannel === 'email' || !c.phoneE164) && c.notifyEmail) await this.notifier.email(c.email, `${negocio}: nota de crédito ${numeroDe(nc)}`, body);
+      else if (c.phoneE164 && c.notifyWhatsapp) await this.notifier.whatsapp(ctx.tenantId, c.phoneE164, body);
+      else if (c.email && c.notifyEmail) await this.notifier.email(c.email, `${negocio}: nota de crédito ${numeroDe(nc)}`, body);
+    } catch {
+      /* el aviso nunca frena la emision */
+    }
+  }
+
   async addPayment(ctx: TenantContext, id: string, dto: PaymentCreate) {
     return this.appDb.tx(ctx, async (tx) => {
       const invoice = await tx.invoice.findFirst({ where: { id }, include: { payments: true } });

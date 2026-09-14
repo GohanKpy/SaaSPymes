@@ -6,6 +6,9 @@ import { decodeCursor, encodeCursor } from '../common/pagination';
 import { AppPrisma } from '../prisma/app-prisma.service';
 import { BotService } from './bot.service';
 import { TenantEventsService } from './events.service';
+import { serializeMessage } from './serialize';
+
+export { serializeMessage };
 import { WaSenderService } from './wa-sender.service';
 import { RecurringService } from '../scheduling/recurring.service';
 
@@ -205,22 +208,3 @@ export class ConversationsService {
   }
 }
 
-export function serializeMessage(m: {
-  id: bigint;
-  conversationId: string;
-  direction: string;
-  senderType: string;
-  body: string;
-  status: string;
-  createdAt: Date;
-}) {
-  return {
-    id: String(m.id),
-    conversation_id: m.conversationId,
-    direction: m.direction,
-    sender_type: m.senderType,
-    body: m.body,
-    status: m.status,
-    created_at: m.createdAt.toISOString(),
-  };
-}

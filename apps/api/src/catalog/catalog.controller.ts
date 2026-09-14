@@ -9,6 +9,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Req,
   Res,
   UnprocessableEntityException,
@@ -19,6 +20,7 @@ import {
   catalogImport,
   categoryCreate,
   categoryUpdate,
+  componentsPut,
   serviceCreate,
   servicePhotoCreate,
   serviceUpdate,
@@ -26,6 +28,7 @@ import {
   type CatalogImport,
   type CategoryCreate,
   type CategoryUpdate,
+  type ComponentsPut,
   type ServiceCreate,
   type ServicePhotoCreate,
   type ServiceUpdate,
@@ -170,6 +173,13 @@ export class CatalogController {
           comboDurationMin: kind === 'servicio' ? dto.combo_duration_min : null,
           requiresMeeting: kind === 'item' ? (dto.requires_meeting ?? true) : false,
           meetingMin: kind === 'item' ? dto.meeting_min : null,
+          // Inventario (2026-09-14): solo items.
+          sku: kind === 'item' ? dto.sku?.trim() || null : null,
+          barcode: kind === 'item' ? dto.barcode?.trim() || null : null,
+          unit: dto.unit ?? 'unidad',
+          trackStock: kind === 'item' ? (dto.track_stock ?? false) : false,
+          minStock: kind === 'item' ? (dto.min_stock ?? 0) : 0,
+          isCombo: kind === 'item' ? (dto.is_combo ?? false) : false,
         },
       });
     });
@@ -208,8 +218,64 @@ export class CatalogController {
           comboDurationMin: kind === 'servicio' ? comboDurationMin : null,
           requiresMeeting: kind === 'item' ? requiresMeeting : false,
           meetingMin: kind === 'item' ? meetingMin : null,
+          // Inventario (2026-09-14): un combo no controla stock propio.
+          ...(dto.sku !== undefined ? { sku: kind === 'item' ? dto.sku?.trim() || null : null } : {}),
+          ...(dto.barcode !== undefined ? { barcode: kind === 'item' ? dto.barcode?.trim() || null : null } : {}),
+          ...(dto.unit !== undefined ? { unit: dto.unit } : {}),
+          ...(dto.track_stock !== undefined ? { trackStock: kind === 'item' && !(dto.is_combo ?? existing.isCombo) ? dto.track_stock : false } : {}),
+          ...(dto.min_stock !== undefined ? { minStock: dto.min_stock } : {}),
+          ...(dto.is_combo !== undefined ? { isCombo: kind === 'item' ? dto.is_combo : false, ...(dto.is_combo ? { trackStock: false } : {}) } : {}),
         },
       });
+    });
+  }
+
+  /** Componentes de un combo (2026-09-14): items hijos con cantidad por unidad. */
+  @Get('services/:id/components')
+  components(@Param('id', new ZodPipe(uuid)) id: string, @Req() req: FastifyRequest & AuthRequest) {
+    return this.appDb.tx(tenantCtx(req), async (tx) => {
+      const rows = await tx.itemComponent.findMany({
+        where: { parentServiceId: id },
+        include: { component: { select: { id: true, name: true, sku: true, unit: true, trackStock: true, price: true } } },
+        orderBy: { createdAt: 'asc' },
+      });
+      return rows.map((r) => ({ service_id: r.componentServiceId, quantity: Number(r.quantity), name: r.component.name, sku: r.component.sku, unit: r.component.unit, track_stock: r.component.trackStock, price: r.component.price.toString() }));
+    });
+  }
+
+  /** Reemplaza los componentes del combo. Sin combos anidados; el combo deja de controlar stock propio. */
+  @Put('services/:id/components')
+  putComponents(
+    @Param('id', new ZodPipe(uuid)) id: string,
+    @Body(new ZodPipe(componentsPut)) dto: ComponentsPut,
+    @Req() req: FastifyRequest & AuthRequest,
+  ) {
+    const ctx = tenantCtx(req);
+    return this.appDb.tx(ctx, async (tx) => {
+      const parent = await tx.service.findFirst({ where: { id, deletedAt: null } });
+      if (!parent) throw new NotFoundException();
+      if (parent.kind !== 'item') throw new ConflictException({ title: 'Solo un ítem puede ser un combo' });
+      const ids = [...new Set(dto.components.map((c) => c.service_id))];
+      if (ids.includes(id)) throw new ConflictException({ title: 'Un combo no puede incluirse a sí mismo' });
+      if (ids.length !== dto.components.length) throw new ConflictException({ title: 'Hay un componente repetido' });
+      const hijos = ids.length ? await tx.service.findMany({ where: { id: { in: ids }, deletedAt: null } }) : [];
+      if (hijos.length !== ids.length) throw new NotFoundException({ title: 'Algún componente no existe' });
+      const malo = hijos.find((h) => h.kind !== 'item' || h.isCombo);
+      if (malo) throw new ConflictException({ title: `${malo.name} no puede ser componente: tiene que ser un ítem que no sea combo` });
+      await tx.itemComponent.deleteMany({ where: { parentServiceId: id } });
+      if (dto.components.length > 0) {
+        await tx.itemComponent.createMany({
+          data: dto.components.map((c) => ({ tenantId: ctx.tenantId, parentServiceId: id, componentServiceId: c.service_id, quantity: c.quantity })),
+        });
+      }
+      await tx.service.update({ where: { id }, data: { isCombo: dto.components.length > 0, ...(dto.components.length > 0 ? { trackStock: false } : {}) } });
+      // Se responde desde la MISMA transaccion (otra tx no ve lo no confirmado).
+      const rows = await tx.itemComponent.findMany({
+        where: { parentServiceId: id },
+        include: { component: { select: { id: true, name: true, sku: true, unit: true, trackStock: true, price: true } } },
+        orderBy: { createdAt: 'asc' },
+      });
+      return rows.map((r) => ({ service_id: r.componentServiceId, quantity: Number(r.quantity), name: r.component.name, sku: r.component.sku, unit: r.component.unit, track_stock: r.component.trackStock, price: r.component.price.toString() }));
     });
   }
 

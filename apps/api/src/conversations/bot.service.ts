@@ -7,13 +7,15 @@ import { dvRuc } from '../common/ruc';
 import { aTextoPlano } from '../common/texto-plano';
 import { ENV } from '../env.module';
 import { GoogleCalendarService } from '../integrations/google-calendar.service';
+import { InventoryService } from '../inventory/inventory.service';
+import { ReturnsService } from '../invoicing/returns.service';
 import { BotEngineService } from '../platform/bot-engine.service';
 import {
   AppointmentsService,
   DEFAULT_DURATION_MIN,
   type BranchSchedule,
 } from '../scheduling/appointments.service';
-import { serializeMessage } from './conversations.service';
+import { serializeMessage } from './serialize';
 import { TenantEventsService } from './events.service';
 import { WaSenderService } from './wa-sender.service';
 
@@ -136,6 +138,8 @@ export class BotService {
     private readonly engine: BotEngineService,
     private readonly waSender: WaSenderService,
     private readonly google: GoogleCalendarService,
+    private readonly returns: ReturnsService,
+    private readonly inventory: InventoryService,
   ) {}
 
   /** Config viva del motor (ADR 0003): panel manda, env es fallback. */
@@ -695,6 +699,7 @@ export class BotService {
       saveCustomerName: wrap('save_customer_name', handlers.saveCustomerName),
       saveCustomerData: wrap('save_customer_data', handlers.saveCustomerData),
       requestHuman: wrap('request_human', handlers.requestHuman),
+      requestReturn: wrap('request_return', handlers.requestReturn),
     };
   }
 
@@ -763,12 +768,20 @@ export class BotService {
               durationMin: true,
               requiresMeeting: true,
               meetingMin: true,
+              trackStock: true,
+              isCombo: true,
               category: { select: { name: true, sortOrder: true } },
             },
             orderBy: [{ category: { sortOrder: 'asc' } }, { name: 'asc' }],
           });
+          // Inventario (2026-09-14): items con stock controlado (o combos) dicen si hay.
+          const disponibilidad = new Map<string, boolean | null>();
+          for (const s of services) {
+            if (s.kind === 'item' && (s.trackStock || s.isCombo)) disponibilidad.set(s.id, await this.inventory.disponible(tx, s.id));
+          }
           return services.map((s) => ({
             service_id: s.id,
+            disponible: disponibilidad.get(s.id) ?? null,
             name: s.name,
             categoria: s.category?.name ?? null,
             descripcion: s.description,
@@ -1284,6 +1297,34 @@ export class BotService {
       // La derivacion prometida se vuelve accion real: badge en bandeja +
       // aviso SSE (bateria 2026-08-07, bug 1). El motivo queda auditado en
       // bot_tool_calls via withToolLogging.
+      // Devoluciones (2026-09-14): registra el pedido con el cliente de la
+      // conversacion (se crea si no existe, como al reservar) y deriva.
+      requestReturn: async ({ producto, motivo, fechaCompra, comprobante }) => {
+        const customerId = await this.appDb.tx(ctx, async (tx) => {
+          const conversation = await tx.conversation.findFirst({ where: { id: conversationId } });
+          if (!conversation) throw new Error('conversacion inexistente');
+          if (conversation.customerId) return conversation.customerId;
+          const customer = await tx.customer.create({
+            data: { tenantId, firstName: 'Cliente', lastName: conversation.phoneE164, phoneE164: conversation.phoneE164 },
+          });
+          await tx.conversation.update({ where: { id: conversationId }, data: { customerId: customer.id } });
+          return customer.id;
+        });
+        const descripcion = [producto.trim() || 'producto sin especificar', fechaCompra?.trim() ? `comprado ${fechaCompra.trim()}` : null, comprobante?.trim() ? `comprobante ${comprobante.trim()}` : null]
+          .filter(Boolean)
+          .join(' · ')
+          .padEnd(5, '.')
+          .slice(0, 1000);
+        const row = await this.returns.create(ctx, { customer_id: customerId, description: descripcion, ...(motivo?.trim() ? { reason: motivo.trim().slice(0, 300) } : {}) }, 'bot', { conversationId });
+        await this.setNeedsHuman(tenantId, conversationId, true);
+        return {
+          registrada: true,
+          referencia: row.id.slice(0, 8),
+          detalle:
+            'pedido registrado y conversacion derivada a una persona del equipo, que lo revisa y le responde por este mismo chat; decile eso al cliente sin prometer plazos, reembolsos ni aprobacion',
+        };
+      },
+
       requestHuman: async () => {
         await this.setNeedsHuman(tenantId, conversationId, true);
         return {

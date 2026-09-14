@@ -36,6 +36,7 @@ const handlers: BotToolHandlers = {
   saveCustomerName: () => Promise.resolve({ saved: true, detail: 'ok' }),
   saveCustomerData: () => Promise.resolve({ guardados: [], ignorados: [] }),
   requestHuman: () => Promise.resolve({ marcada: true, detalle: 'ok' }),
+  requestReturn: () => Promise.resolve({ registrada: true, referencia: 'abc12345', detalle: 'ok' }),
 };
 
 const ALL_ON: BotPermissions = {
@@ -73,6 +74,7 @@ describe('permisos = existencia de herramientas (doc 05 §6)', () => {
       'list_my_appointments',
       'list_services',
       'request_human',
+      'request_return',
       'reschedule_appointment',
       'save_customer_data',
       'save_customer_name',
@@ -93,7 +95,7 @@ describe('permisos = existencia de herramientas (doc 05 §6)', () => {
     expect(sinDatos).not.toContain('save_customer_data');
   });
 
-  it('todo apagado: solo queda request_human (valvula de escape, sin permiso que la apague)', () => {
+  it('todo apagado: solo quedan request_human y request_return (valvulas de escape, sin permiso que las apague)', () => {
     expect(
       names({
         accessCatalog: false,
@@ -102,7 +104,7 @@ describe('permisos = existencia de herramientas (doc 05 §6)', () => {
         accessCalendar: false,
         allowBooking: false,
       }),
-    ).toEqual(['request_human']);
+    ).toEqual(['request_human', 'request_return']);
   });
 
   it('las descripciones son contrato, no manual: cortas y sin reglas de conversacion (ADR 0011)', () => {

@@ -119,6 +119,9 @@ export const tenantSettingsPut = z
     monthly_close_day: z.number().int().min(1).max(28),
     monthly_auto_invoice: z.boolean(),
     recurring_lead_days: z.number().int().min(1).max(60),
+    /** Inventario (2026-09-14): vender sin existencias y avisos de stock bajo. */
+    allow_negative_stock: z.boolean(),
+    low_stock_alerts: z.boolean(),
   })
   .partial()
   .strict();

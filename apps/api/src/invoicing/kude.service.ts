@@ -44,7 +44,13 @@ export class KudeService {
     const data = await this.appDb.tx(ctx, async (tx) => {
       const invoice = await tx.invoice.findFirst({
         where: { id: invoiceId },
-        include: { items: true, payments: true, customer: true, branch: true },
+        include: {
+          items: true,
+          payments: true,
+          customer: true,
+          branch: true,
+          relatedInvoice: { select: { establishment: true, expeditionPoint: true, docNumber: true, cdc: true, approvedAt: true } },
+        },
       });
       if (!invoice) throw new NotFoundException();
       const tenant = await tx.tenant.findUnique({
@@ -63,7 +69,8 @@ export class KudeService {
     }
     // Regla del negocio (2026-08-07): el KuDE de una factura vigente se
     // entrega recien con el pago registrado (las anuladas quedan exentas).
-    if (invoice.status === 'approved' && opts.requirePayment !== false) {
+    // Una nota de credito no se cobra: su KuDE sale siempre (2026-09-14).
+    if (invoice.status === 'approved' && invoice.docType !== 'nota_credito' && opts.requirePayment !== false) {
       const pagado = invoice.payments.reduce((sum, p) => sum + p.amount, 0n);
       if (pagado < invoice.total) {
         throw new UnprocessableEntityException({
@@ -94,7 +101,7 @@ export class KudeService {
       .fillColor('#111111')
       .font('Helvetica-Bold')
       .fontSize(11)
-      .text('KuDE DE FACTURA ELECTRONICA', LEFT, 46, { width: WIDTH, align: 'center' });
+      .text(invoice.docType === 'nota_credito' ? 'KuDE DE NOTA DE CREDITO ELECTRONICA' : 'KuDE DE FACTURA ELECTRONICA', LEFT, 46, { width: WIDTH, align: 'center' });
     // Modo desarrollo (2026-09-08): la simulacion lo dice arriba de todo.
     if (tenant?.devMode) {
       doc
@@ -143,8 +150,18 @@ export class KudeService {
     );
     doc.moveDown(0.4);
     doc.font('Helvetica-Bold').fontSize(11);
-    doc.text('FACTURA ELECTRONICA', boxX + 10, doc.y, { width: boxW - 20, align: 'center' });
+    const esNota = invoice.docType === 'nota_credito';
+    doc.text(esNota ? 'NOTA DE CREDITO ELECTRONICA' : 'FACTURA ELECTRONICA', boxX + 10, doc.y, { width: boxW - 20, align: 'center' });
     doc.fontSize(12).text(numero, boxX + 10, doc.y + 2, { width: boxW - 20, align: 'center' });
+    if (esNota && invoice.relatedInvoice) {
+      // Documento asociado (obligatorio en una NC): la factura original y su CDC.
+      doc.font('Helvetica').fontSize(7).text(
+        `Asociada a Factura ${invoice.relatedInvoice.establishment}-${invoice.relatedInvoice.expeditionPoint}-${invoice.relatedInvoice.docNumber} · CDC ${invoice.relatedInvoice.cdc ?? '—'}${invoice.creditReason ? ` · Motivo: ${invoice.creditReason}` : ''}`,
+        boxX + 10,
+        doc.y + 2,
+        { width: boxW - 20, align: 'center' },
+      );
+    }
 
     // ---- Datos del receptor ----------------------------------------------
     const recTop = headTop + headH + 6;
@@ -285,7 +302,7 @@ export class KudeService {
     doc.image(qr, LEFT + 8, footTop + 8, { width: 80 });
     const fx = LEFT + 100;
     doc.font('Helvetica').fontSize(8).fillColor('#111111');
-    doc.text('Consulte la validez de esta FACTURA ELECTRONICA con el numero CDC impreso abajo en:', fx, footTop + 10, { width: RIGHT - fx - 10 });
+    doc.text(`Consulte la validez de esta ${invoice.docType === 'nota_credito' ? 'NOTA DE CREDITO' : 'FACTURA'} ELECTRONICA con el numero CDC impreso abajo en:`, fx, footTop + 10, { width: RIGHT - fx - 10 });
     doc.fillColor('#1155cc').text('https://ekuatia.set.gov.py/consultas/', { width: RIGHT - fx - 10 });
     doc.fillColor('#111111').font('Helvetica-Bold').fontSize(9);
     doc.text(`CDC: ${invoice.cdc}`, fx, doc.y + 6, { width: RIGHT - fx - 10 });

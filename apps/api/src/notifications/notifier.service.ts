@@ -3,7 +3,7 @@ import type { Env } from '@pymes/shared';
 
 import { CryptoService } from '../common/crypto.service';
 import { MailerService, type MailAttachment } from '../common/mailer.service';
-import { serializeMessage } from '../conversations/conversations.service';
+import { serializeMessage } from '../conversations/serialize';
 import { TenantEventsService } from '../conversations/events.service';
 import { WaSenderService, type WaTemplate } from '../conversations/wa-sender.service';
 import { ENV } from '../env.module';

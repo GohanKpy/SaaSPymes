@@ -121,6 +121,12 @@ export interface BotToolHandlers {
     docNumero?: string;
   }): Promise<{ guardados: string[]; ignorados: string[] }>;
   /** Marca la conversacion como "necesita humano" en la bandeja del negocio. */
+  /** Devolucion o reclamo por un producto (2026-09-14): registra el pedido y deriva a una persona. */
+  requestReturn(args: { producto: string; motivo?: string; fechaCompra?: string; comprobante?: string }): Promise<{
+    registrada: boolean;
+    referencia: string;
+    detalle: string;
+  }>;
   requestHuman(motivo: string): Promise<{ marcada: boolean; detalle: string }>;
 }
 
@@ -162,7 +168,7 @@ export function buildBotTools(permissions: BotPermissions, handlers: BotToolHand
           date: { type: 'string', description: 'fecha YYYY-MM-DD en la zona del negocio' },
           empleado: {
             type: 'string',
-            description: 'opcional: nombre del equipo si el cliente pidio a alguien; vacio = cualquiera del equipo',
+            description: 'opcional: nombre del equipo si el cliente pidio a alguien',
           },
         },
         required: ['service_id', 'date'],
@@ -178,7 +184,7 @@ export function buildBotTools(permissions: BotPermissions, handlers: BotToolHand
     tools.push({
       name: 'book_appointment',
       description:
-        'Reserva para el cliente de esta conversacion el servicio service_id en date a hora_local (uno de los horarios devueltos por get_available_slots para esa fecha y ese empleado). Devuelve id, estado, tipo (servicio o reunion_inicial) y quien atiende (atendidoPor): decíselo al cliente. Si el empleado pedido no esta libre a esa hora, el error trae sus otros horarios y quien mas podria atender: ofrecele eso.',
+        'Reserva para el cliente de esta conversacion el servicio service_id en date a hora_local (uno de los horarios devueltos por get_available_slots para esa fecha y ese empleado). Devuelve id, estado, tipo (servicio o reunion_inicial) y quien atiende. La nota queda visible para el equipo en la reserva.',
       parameters: {
         type: 'object',
         properties: {
@@ -194,7 +200,7 @@ export function buildBotTools(permissions: BotPermissions, handlers: BotToolHand
           },
           empleado: {
             type: 'string',
-            description: 'opcional: nombre del equipo si el cliente pidio a alguien; vacio = el sistema asigna al profesional libre con menos trabajo ese dia',
+            description: 'opcional: nombre del equipo si el cliente pidio a alguien',
           },
         },
         required: ['service_id', 'date', 'hora_local'],
@@ -347,6 +353,23 @@ export function buildBotTools(permissions: BotPermissions, handlers: BotToolHand
       additionalProperties: false,
     },
     run: async (args) => JSON.stringify(await handlers.requestHuman(args.motivo ?? '')),
+  });
+  // Devoluciones (2026-09-14): siempre disponible, como request_human. Solo
+  // registra el pedido y deriva; la decision es de una persona. Descripcion
+  // minima: el presupuesto de chars de las tools es contrato (ADR 0011).
+  tools.push({
+    name: 'request_return',
+    description: 'Registra una devolucion o reclamo y deriva al equipo.',
+    parameters: {
+      type: 'object',
+      properties: {
+        producto: { type: 'string', description: 'que devuelve y cuando' },
+        motivo: { type: 'string', description: 'que paso' },
+      },
+      required: ['producto'],
+      additionalProperties: false,
+    },
+    run: async (args) => JSON.stringify(await handlers.requestReturn({ producto: args.producto ?? '', motivo: args.motivo })),
   });
   return tools;
 }

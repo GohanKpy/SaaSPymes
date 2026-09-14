@@ -58,6 +58,10 @@ const APP_TABLES = [
   'customer_charges',
   'billing_statements',
   'employee_absences',
+  'return_requests',
+  'item_components',
+  'stock_levels',
+  'stock_movements',
   'audit_log',
 ] as const;
 
@@ -91,6 +95,10 @@ async function seedTenant(name: string, phone: string): Promise<SeededTenant> {
     const customer = await tx.customer.create({
       data: { tenantId: tenant.id, firstName: `Cliente ${name}`, phoneE164: phone },
     });
+    // Devoluciones (2026-09-14).
+    await tx.returnRequest.create({
+      data: { tenantId: tenant.id, customerId: customer.id, description: `devolucion ${name}`, status: 'requested', createdVia: 'panel' },
+    });
     const category = await tx.serviceCategory.create({
       data: { tenantId: tenant.id, name: 'General' },
     });
@@ -101,6 +109,18 @@ async function seedTenant(name: string, phone: string): Promise<SeededTenant> {
         name: `Servicio ${name}`,
         price: 100000n,
       },
+    });
+    // Inventario (2026-09-14): un item con stock, un combo que lo incluye y su kardex.
+    const item = await tx.service.create({
+      data: { tenantId: tenant.id, categoryId: category.id, name: `Item ${name}`, price: 50000n, kind: 'item', trackStock: true, sku: `SKU-${name}` },
+    });
+    const combo = await tx.service.create({
+      data: { tenantId: tenant.id, categoryId: category.id, name: `Combo ${name}`, price: 90000n, kind: 'item', isCombo: true },
+    });
+    await tx.itemComponent.create({ data: { tenantId: tenant.id, parentServiceId: combo.id, componentServiceId: item.id, quantity: 2 } });
+    await tx.stockLevel.create({ data: { tenantId: tenant.id, serviceId: item.id, branchId: branch.id, quantity: 10 } });
+    await tx.stockMovement.create({
+      data: { tenantId: tenant.id, serviceId: item.id, branchId: branch.id, kind: 'initial', quantity: 10, balanceAfter: 10, referenceType: 'manual', note: `carga ${name}` },
     });
     const conversation = await tx.conversation.create({
       data: { tenantId: tenant.id, phoneE164: phone },
@@ -278,6 +298,10 @@ async function wipeTenant(tenantId: string): Promise<void> {
   await tenantTx(migrator, { tenantId, actorType: 'system' }, async (tx) => {
     // Orden por dependencias FK; audit_log al final (los deletes lo alimentan).
     for (const table of [
+      'stock_movements',
+      'stock_levels',
+      'item_components',
+      'return_requests',
       'calendar_blocks',
       'bot_tool_calls',
       'bot_usage_monthly',

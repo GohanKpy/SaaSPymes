@@ -9,6 +9,8 @@ export * from './dtos/catalog';
 export * from './dtos/platform';
 export * from './dtos/conversation';
 export * from './dtos/invoice';
+export * from './dtos/returns';
+export * from './dtos/inventory';
 export * from './dtos/quote';
 export * from './dtos/integration';
 export * from './dtos/tenant';

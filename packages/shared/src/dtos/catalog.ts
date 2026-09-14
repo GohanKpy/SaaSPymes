@@ -40,9 +40,24 @@ export const serviceCreate = z
     requires_meeting: z.boolean().optional(),
     meeting_min: z.number().int().positive().nullable().optional(),
     is_active: z.boolean().default(true),
+    // Inventario (2026-09-14, ADR 0013): solo items.
+    sku: z.string().trim().max(60).nullable().optional(),
+    barcode: z.string().trim().max(60).nullable().optional(),
+    unit: z.string().trim().min(1).max(20).optional(),
+    track_stock: z.boolean().optional(),
+    min_stock: z.coerce.number().min(0).max(1_000_000).optional(),
+    is_combo: z.boolean().optional(),
   })
   .strict();
 export type ServiceCreate = z.infer<typeof serviceCreate>;
+
+/** Componentes de un combo: items hijos y cantidad por unidad del combo. */
+export const componentsPut = z
+  .object({
+    components: z.array(z.object({ service_id: z.uuid(), quantity: z.coerce.number().positive().max(10_000) })).max(50),
+  })
+  .strict();
+export type ComponentsPut = z.infer<typeof componentsPut>;
 
 export const serviceUpdate = serviceCreate.partial().strict();
 export type ServiceUpdate = z.infer<typeof serviceUpdate>;

@@ -25,6 +25,8 @@ import {
   useUrlParam,
 } from '../../../lib/ui';
 
+import { InventarioSection } from './inventario';
+
 // Catalogo en tres vistas (fase 2 auditoria de paneles 2026-09-05): antes
 // eran 14 tareas en una sola pantalla (73 botones con un catalogo mediano).
 // Productos con buscador, filtros y activar/desactivar en la fila; Categorias
@@ -53,6 +55,13 @@ interface Service {
   isActive: boolean;
   category: { name: string };
   photos: { id: string; sort: number }[];
+  // Inventario (2026-09-14): solo items.
+  sku?: string | null;
+  barcode?: string | null;
+  unit?: string;
+  trackStock?: boolean;
+  minStock?: string | number | null;
+  isCombo?: boolean;
 }
 
 const KIND_LABEL: Record<Kind, string> = { servicio: 'Servicio', item: 'Ítem' };
@@ -112,6 +121,18 @@ interface ProductoForm {
   requires_meeting: boolean;
   meeting_min: string;
   is_active: boolean;
+  sku: string;
+  barcode: string;
+  unit: string;
+  track_stock: boolean;
+  min_stock: string;
+  is_combo: boolean;
+}
+
+interface Componente {
+  service_id: string;
+  name: string;
+  quantity: number;
 }
 
 function ProductoModal({
@@ -142,6 +163,12 @@ function ProductoModal({
           requires_meeting: initial.requiresMeeting,
           meeting_min: initial.meetingMin ? String(initial.meetingMin) : '',
           is_active: initial.isActive,
+          sku: initial.sku ?? '',
+          barcode: initial.barcode ?? '',
+          unit: initial.unit ?? 'unidad',
+          track_stock: initial.trackStock ?? false,
+          min_stock: initial.minStock && Number(initial.minStock) > 0 ? String(Number(initial.minStock)) : '',
+          is_combo: initial.isCombo ?? false,
         }
       : {
           category_id: primera?.id ?? '',
@@ -155,8 +182,28 @@ function ProductoModal({
           requires_meeting: true,
           meeting_min: '',
           is_active: true,
+          sku: '',
+          barcode: '',
+          unit: 'unidad',
+          track_stock: false,
+          min_stock: '',
+          is_combo: false,
         },
   );
+  // Combo (2026-09-14): componentes y candidatos (items que no son combos).
+  const [componentes, setComponentes] = useState<Componente[]>([]);
+  const [candidatos, setCandidatos] = useState<{ id: string; name: string; sku: string | null }[]>([]);
+  const [candidato, setCandidato] = useState('');
+  const [cantidadComp, setCantidadComp] = useState('1');
+  useEffect(() => {
+    if (form.kind !== 'item') return;
+    void api<Service[]>('/catalog/services')
+      .then((r) => setCandidatos(r.filter((x) => x.kind === 'item' && !x.isCombo && x.id !== initial?.id && x.isActive).map((x) => ({ id: x.id, name: x.name, sku: x.sku ?? null }))))
+      .catch(() => undefined);
+    if (initial?.isCombo) {
+      void api<Componente[]>(`/catalog/services/${initial.id}/components`).then(setComponentes).catch(() => undefined);
+    }
+  }, [form.kind, initial?.id, initial?.isCombo]);
   const [nuevasFotos, setNuevasFotos] = useState<File[]>([]);
   const [fotos, setFotos] = useState<{ id: string; sort: number }[]>(initial?.photos ?? []);
   const [guardando, setGuardando] = useState(false);
@@ -221,7 +268,17 @@ function ProductoModal({
             duration_min: Number(form.duration_min) || (initial ? null : undefined),
             combo_duration_min: Number(form.combo_duration_min) || (initial ? null : undefined),
           }
-        : { requires_meeting: form.requires_meeting, meeting_min: Number(form.meeting_min) || (initial ? null : undefined) }),
+        : {
+            requires_meeting: form.requires_meeting,
+            meeting_min: Number(form.meeting_min) || (initial ? null : undefined),
+            // Inventario (2026-09-14).
+            sku: form.sku.trim() || null,
+            barcode: form.barcode.trim() || null,
+            unit: form.unit.trim() || 'unidad',
+            is_combo: form.is_combo,
+            track_stock: form.is_combo ? false : form.track_stock,
+            min_stock: form.is_combo ? 0 : Number(form.min_stock) || 0,
+          }),
       ...(initial ? { is_active: form.is_active } : {}),
     };
     try {
@@ -235,6 +292,13 @@ function ProductoModal({
           const data = await fileToDataUrl(file);
           await api(`/catalog/services/${created.id}/photos`, { method: 'POST', json: { data } });
         }
+      }
+      // Componentes del combo (o vaciarlos si dejo de serlo).
+      if (form.kind === 'item' && id && (form.is_combo || initial?.isCombo)) {
+        await api(`/catalog/services/${id}/components`, {
+          method: 'PUT',
+          json: { components: form.is_combo ? componentes.map((c) => ({ service_id: c.service_id, quantity: c.quantity })) : [] },
+        });
       }
       toast.success(initial ? 'Producto guardado' : `"${form.name.trim()}" agregado al catálogo`);
       onSaved(id!);
@@ -310,6 +374,90 @@ function ProductoModal({
               <Field label={`Duración de la reunión en minutos (vacío = ${DURACION_DEFAULT})`}>
                 <input className={inputClass} type="number" min="5" step="5" placeholder={String(DURACION_DEFAULT)} value={form.meeting_min} onChange={(e) => setForm({ ...form, meeting_min: e.target.value })} />
               </Field>
+            )}
+          </div>
+        )}
+        {form.kind === 'item' && (
+          <div className="space-y-3 rounded-md border border-slate-200 bg-slate-50/60 p-3">
+            <p className="text-sm font-medium text-slate-700">Inventario</p>
+            <div className="grid gap-3 md:grid-cols-3">
+              <Field label="SKU / código interno">
+                <input className={inputClass} value={form.sku} maxLength={60} placeholder="Ej: SH-500" onChange={(e) => setForm({ ...form, sku: e.target.value })} />
+              </Field>
+              <Field label="Código de barras">
+                <input className={inputClass} value={form.barcode} maxLength={60} inputMode="numeric" onChange={(e) => setForm({ ...form, barcode: e.target.value })} />
+              </Field>
+              <Field label="Unidad">
+                <input className={inputClass} value={form.unit} maxLength={20} placeholder="unidad, caja, kg, litro" onChange={(e) => setForm({ ...form, unit: e.target.value })} />
+              </Field>
+            </div>
+            <label className="flex items-start gap-2 text-sm">
+              <input type="checkbox" className="mt-0.5" checked={form.is_combo} onChange={(e) => setForm({ ...form, is_combo: e.target.checked, track_stock: e.target.checked ? false : form.track_stock })} />
+              <span>
+                <b>Es un combo</b>: incluye otros ítems (o varias unidades de uno)
+                <span className="block text-xs text-slate-600">Se vende como uno solo y al facturarlo descuenta el stock de cada componente.</span>
+              </span>
+            </label>
+            {form.is_combo ? (
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-end gap-2">
+                  <Field label="Ítem que incluye">
+                    <select className={inputClass} value={candidato} onChange={(e) => setCandidato(e.target.value)}>
+                      <option value="">Elegí un ítem…</option>
+                      {candidatos.filter((c) => !componentes.some((x) => x.service_id === c.id)).map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}{c.sku ? ` (${c.sku})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                  <Field label="Cantidad">
+                    <input className={`${inputClass} w-24`} inputMode="decimal" value={cantidadComp} onChange={(e) => setCantidadComp(e.target.value)} />
+                  </Field>
+                  <Button
+                    variant="soft"
+                    type="button"
+                    disabled={!candidato || !(Number(cantidadComp) > 0)}
+                    onClick={() => {
+                      const c = candidatos.find((x) => x.id === candidato);
+                      if (!c) return;
+                      setComponentes([...componentes, { service_id: c.id, name: c.name, quantity: Number(cantidadComp) }]);
+                      setCandidato('');
+                      setCantidadComp('1');
+                    }}
+                  >
+                    Agregar
+                  </Button>
+                </div>
+                <ul className="space-y-1 text-sm">
+                  {componentes.map((c) => (
+                    <li key={c.service_id} className="flex items-center justify-between rounded bg-white px-2 py-1">
+                      <span>
+                        <b>{c.quantity}</b> × {c.name}
+                      </span>
+                      <button type="button" className="text-xs text-red-600 hover:underline" onClick={() => setComponentes(componentes.filter((x) => x.service_id !== c.service_id))}>
+                        Quitar
+                      </button>
+                    </li>
+                  ))}
+                  {componentes.length === 0 && <li className="text-xs text-amber-700">Agregá al menos un ítem: un combo vacío no se puede vender con control de stock.</li>}
+                </ul>
+              </div>
+            ) : (
+              <div className="grid gap-3 md:grid-cols-2">
+                <label className="flex items-start gap-2 text-sm">
+                  <input type="checkbox" className="mt-0.5" checked={form.track_stock} onChange={(e) => setForm({ ...form, track_stock: e.target.checked })} />
+                  <span>
+                    <b>Controlar stock</b>
+                    <span className="block text-xs text-slate-600">Las ventas lo descuentan y sin existencias no se factura (salvo que lo permitas en Inventario).</span>
+                  </span>
+                </label>
+                {form.track_stock && (
+                  <Field label="Stock mínimo (avisa al bajar de acá)">
+                    <input className={inputClass} inputMode="decimal" value={form.min_stock} placeholder="0" onChange={(e) => setForm({ ...form, min_stock: e.target.value })} />
+                  </Field>
+                )}
+              </div>
             )}
           </div>
         )}
@@ -624,9 +772,12 @@ export default function CatalogPage() {
         items={[
           { key: 'productos', label: 'Productos', count: services.filter((s) => s.isActive).length },
           { key: 'categorias', label: 'Categorías', count: categories?.length },
+          { key: 'inventario', label: 'Inventario' },
           { key: 'importar', label: 'Carga masiva' },
         ]}
       />
+
+      {vista === 'inventario' && <InventarioSection />}
 
       {sinCategorias && vista !== 'categorias' && (
         <EmptyState

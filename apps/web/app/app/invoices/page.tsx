@@ -5,7 +5,7 @@ import Link from 'next/link';
 
 import { API_URL, api, getToken } from '../../../lib/api';
 import { CustomerPicker, customerName, type PickedCustomer } from '../../../lib/customer-picker';
-import { useAskText, useConfirm, useToast } from '../../../lib/feedback';
+import { useConfirm, useToast } from '../../../lib/feedback';
 import { INVOICE_STATUS, errorMessage, statusOf } from '../../../lib/labels';
 import { useTenantInfo } from '../../../lib/tenant';
 import { MoneyInput, soloDigitos } from '../../../lib/money-input';
@@ -30,7 +30,9 @@ import {
 
 import { FacturarA, billingCompleto, billingPayload, documentoTexto, type BillingChoice } from './facturar-a';
 import { LINEA_VACIA, LineasEditor, aItems, type Linea, type ServicioOption } from './lineas';
+import { AnularModal, NotaCreditoModal, anulable, limiteAnulacion, numeroDoc } from './anulacion';
 import { CuentasSection } from './cuentas';
+import { DevolucionesSection } from './devoluciones';
 import { QuotesSection } from './quotes';
 
 // Facturacion (fase 2 auditoria de paneles 2026-09-05): pestañas Facturas |
@@ -57,7 +59,17 @@ interface Invoice {
   billingDocNumber?: string | null;
   billingRucDv?: string | null;
   payments: { id?: string; amount: string; method?: string; createdAt?: string }[];
-  items?: { description: string; quantity: string; unitPrice: string; lineTotal?: string; taxRate: number }[];
+  items?: { id?: string; description: string; quantity: string; unitPrice: string; lineTotal?: string; taxRate: number }[];
+  // Anulacion y nota de credito segun SIFEN (2026-09-14).
+  docType?: string;
+  approvedAt?: string | null;
+  cancelledAt?: string | null;
+  cancelReason?: string | null;
+  cancelNotifiedAt?: string | null;
+  creditReason?: string | null;
+  restockedAt?: string | null;
+  creditNotes?: { id: string; establishment: string | null; expeditionPoint: string | null; docNumber: string | null; total: string; status: string; creditReason?: string | null }[];
+  relatedInvoice?: { id: string; establishment: string | null; expeditionPoint: string | null; docNumber: string | null; total: string; status: string } | null;
 }
 
 const pagado = (i: Invoice) => i.payments.reduce((s, p) => s + Number(p.amount), 0);
@@ -74,7 +86,6 @@ function receptor(i: Invoice): { nombre: string; documento: string } | null {
 }
 
 export default function InvoicesPage() {
-  const askText = useAskText();
   const confirmar = useConfirm();
   const toast = useToast();
   const { devMode } = useTenantInfo();
@@ -98,6 +109,8 @@ export default function InvoicesPage() {
   const [billing, setBilling] = useState<BillingChoice>({ kind: 'none' });
   const [guardando, setGuardando] = useState(false);
   const [detalle, setDetalle] = useState<Invoice | null>(null);
+  const [anulando, setAnulando] = useState<Invoice | null>(null);
+  const [notaDe, setNotaDe] = useState<Invoice | null>(null);
   // Cambiar a nombre de quien sale un borrador (desde el detalle o al intentar emitir sin datos).
   const [receptorDe, setReceptorDe] = useState<Invoice | null>(null);
   const [receptorNuevo, setReceptorNuevo] = useState<BillingChoice>({ kind: 'none' });
@@ -289,23 +302,9 @@ export default function InvoicesPage() {
     }
   }
 
-  async function anular(i: Invoice) {
-    const reason = await askText({
-      title: `Anular la factura ${numeroFactura(i) ?? ''}`,
-      message: 'La anulación queda registrada y no se puede deshacer. Solo se puede anular dentro de las 48 horas de emitida; después corresponde una nota de crédito.',
-      label: 'Motivo de la anulación',
-      placeholder: 'Ej: error en el cliente facturado',
-      confirmLabel: 'Anular factura',
-    });
-    if (!reason) return;
-    try {
-      await api(`/invoices/${i.id}/cancel`, { method: 'POST', json: { reason } });
-      toast.success('Factura anulada');
-      setDetalle(null);
-      load();
-    } catch (e) {
-      toast.error(errorMessage(e));
-    }
+  /** Anulacion segun SIFEN (2026-09-14): el modal explica el plazo y pide el motivo. */
+  function anular(i: Invoice) {
+    setAnulando(i);
   }
 
   /** Reenvia la factura por el canal del cliente (WhatsApp con link o email con PDF). */
@@ -393,8 +392,13 @@ export default function InvoicesPage() {
           Enviar al cliente
         </button>
       )}
-      {i.status === 'approved' && (
-        <button className={buttonDanger} onClick={() => void anular(i)}>
+      {(i.docType ?? 'factura') === 'factura' && i.status === 'approved' && (
+        <button className={buttonGhost} title="Total (deja la factura sin efecto) o parcial (devolución de parte de lo vendido)" onClick={() => setNotaDe(i)}>
+          Nota de crédito
+        </button>
+      )}
+      {anulable(i) && (
+        <button className={buttonDanger} title={`SIFEN acepta la anulación hasta el ${dt(limiteAnulacion(i)!.toISOString())}`} onClick={() => anular(i)}>
           Anular
         </button>
       )}
@@ -438,8 +442,11 @@ export default function InvoicesPage() {
           { key: 'facturas', label: 'Facturas' },
           { key: 'presupuestos', label: 'Presupuestos' },
           { key: 'cuentas', label: 'Cuentas del mes' },
+          { key: 'devoluciones', label: 'Devoluciones' },
         ]}
       />
+
+      {vista === 'devoluciones' && <DevolucionesSection onAbrirFactura={(id) => void abrirDetalle(id)} />}
 
       {vista === 'facturas' && (
         <div className={tableCard}>
@@ -504,8 +511,9 @@ export default function InvoicesPage() {
                     <td className="text-right tabular-nums">{money(i.total)}</td>
                     <td>
                       <span className="inline-flex items-center gap-1.5">
+                        {i.docType === 'nota_credito' && <Badge tone="violet">nota de crédito</Badge>}
                         <Badge tone={st.tone}>{st.label}</Badge>
-                        {i.status === 'approved' && saldo(i) > 0 && <Badge tone="amber">saldo {money(saldo(i))}</Badge>}
+                        {i.docType !== 'nota_credito' && i.status === 'approved' && saldo(i) > 0 && <Badge tone="amber">saldo {money(saldo(i))}</Badge>}
                         {i.status === 'approved' && saldo(i) <= 0 && <Badge tone="emerald">pagada</Badge>}
                       </span>
                     </td>
@@ -602,7 +610,47 @@ export default function InvoicesPage() {
             <Badge tone={statusOf(INVOICE_STATUS, detalle.status).tone}>{statusOf(INVOICE_STATUS, detalle.status).label}</Badge>
             {detalle.status === 'approved' && saldo(detalle) > 0 && <Badge tone="amber">saldo {money(saldo(detalle))}</Badge>}
             {detalle.status === 'approved' && saldo(detalle) <= 0 && <Badge tone="emerald">pagada</Badge>}
+            {detalle.docType === 'nota_credito' && <Badge tone="violet">nota de crédito</Badge>}
           </div>
+          {detalle.docType === 'nota_credito' && detalle.relatedInvoice && (
+            <p className="mb-3 text-sm text-slate-600">
+              Sobre la factura{' '}
+              <button type="button" className="text-sky-700 hover:underline" onClick={() => void abrirDetalle(detalle.relatedInvoice!.id)}>
+                {numeroDoc(detalle.relatedInvoice) ?? 'sin número'}
+              </button>
+              {detalle.creditReason && ` · Motivo: ${detalle.creditReason}`}
+              {detalle.restockedAt && ' · mercadería reingresada al stock'}
+            </p>
+          )}
+          {detalle.status === 'cancelled' && detalle.cancelReason && (
+            <p className="mb-3 rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700">
+              Anulada{detalle.cancelledAt ? ` el ${dt(detalle.cancelledAt)}` : ''}: {detalle.cancelReason}
+              {detalle.cancelNotifiedAt ? ' · cliente avisado' : ''}
+            </p>
+          )}
+          {detalle.status === 'approved' && detalle.approvedAt && (
+            <p className="mb-3 text-xs text-slate-500">
+              {anulable(detalle)
+                ? `Se puede anular hasta el ${dt(limiteAnulacion(detalle)!.toISOString())} (plazo de SIFEN desde la aprobación). Después, cualquier corrección va por nota de crédito.`
+                : 'Pasó el plazo de anulación de SIFEN: cualquier corrección va por nota de crédito.'}
+            </p>
+          )}
+          {(detalle.creditNotes?.length ?? 0) > 0 && (
+            <div className="mb-3 text-sm">
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Notas de crédito</p>
+              <ul className="mt-1 space-y-0.5">
+                {detalle.creditNotes!.map((n) => (
+                  <li key={n.id}>
+                    <button type="button" className="text-sky-700 hover:underline" onClick={() => void abrirDetalle(n.id)}>
+                      {numeroDoc(n) ?? 'sin número'}
+                    </button>{' '}
+                    · {money(n.total)} · {statusOf(INVOICE_STATUS, n.status).label}
+                    {n.creditReason && <span className="text-slate-500"> · {n.creditReason}</span>}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           {(() => {
             const r = receptor(detalle);
             return (
@@ -677,6 +725,29 @@ export default function InvoicesPage() {
             {acciones(detalle, true)}
           </div>
         </Modal>
+      )}
+
+      {anulando && (
+        <AnularModal
+          invoice={anulando}
+          onClose={() => setAnulando(null)}
+          onDone={() => {
+            setAnulando(null);
+            setDetalle(null);
+            load();
+          }}
+        />
+      )}
+      {notaDe && (
+        <NotaCreditoModal
+          invoice={notaDe}
+          onClose={() => setNotaDe(null)}
+          onDone={(id) => {
+            setNotaDe(null);
+            load();
+            void abrirDetalle(id);
+          }}
+        />
       )}
 
       {receptorDe && (

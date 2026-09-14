@@ -1,12 +1,14 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query, Req, Res } from '@nestjs/common';
 import {
   invoiceBillingUpdate,
+  creditNoteCreate,
   invoiceCancel,
   invoiceCreate,
   invoiceListQuery,
   paymentCreate,
   uuid,
   type InvoiceBillingUpdate,
+  type CreditNoteCreate,
   type InvoiceCancel,
   type InvoiceCreate,
   type InvoiceListQuery,
@@ -98,6 +100,17 @@ export class InvoicesController {
     @Req() req: FastifyRequest & AuthRequest,
   ) {
     return this.invoices.cancel(tenantCtx(req), id, dto);
+  }
+
+  /** Nota de credito (2026-09-14): total o parcial; root y admin. */
+  @Post(':id/credit-note')
+  @Roles('root', 'admin')
+  creditNote(
+    @Param('id', new ZodPipe(uuid)) id: string,
+    @Body(new ZodPipe(creditNoteCreate)) dto: CreditNoteCreate,
+    @Req() req: FastifyRequest & AuthRequest,
+  ) {
+    return this.invoices.createCreditNote(tenantCtx(req), id, dto);
   }
 
   @Post(':id/payments')

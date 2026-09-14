@@ -424,6 +424,27 @@ rigen los bloqueos: emitir exige receptor y timbrado. Se cambia desde el
 panel del negocio (Ajustes → Mi cuenta, solo el root) o desde el portal
 admin (ficha del cliente). Al 2026-09-08 todos los negocios están en DEV.
 
+**Anular un comprobante (regla de SIFEN, desde el 2026-09-14):** SIFEN
+acepta el "evento de cancelación" de una factura hasta **48 horas corridas
+desde su aprobación** (168 h para una nota de crédito). Resolución General
+23/2019 art. 22 y Manual Técnico v150. En el panel, el botón **Anular** solo
+aparece dentro de ese plazo y el detalle muestra "Se puede anular hasta el
+…". Al anular: motivo obligatorio (5 a 500 caracteres; va a SIFEN y al
+cliente), es definitivo, el comprobante se conserva marcado "ANULADA" con el
+motivo, el número no se reutiliza, el stock que descontó vuelve, se avisa al
+cliente por su canal (opcional) y, si tenía pagos, queda una tarea en Tareas
+para devolver el dinero o aplicarlo al comprobante correcto. Si la factura
+tiene una nota de crédito aprobada, hay que anular primero la nota. Pasado el
+plazo, el botón es **Nota de crédito**.
+
+**Nota de crédito electrónica:** desde una factura aprobada, botón "Nota de
+crédito": total (deja la factura sin efecto; pasa a "acreditada") o parcial
+(cantidad por ítem, sin superar lo facturado), con motivo obligatorio, opción
+"los ítems vuelven al stock" y envío al cliente con el link del comprobante.
+Es un comprobante propio (numeración propia, mismo timbrado) que referencia
+la factura y su CDC; también se emite ante SIFEN y también puede anularse
+(168 h). Anular una nota de crédito vuelve la factura original a "aprobada".
+
 **Facturar a (2026-09-07):** al crear la factura hay que elegir a nombre de
 quién sale: una identidad guardada en la ficha del cliente (RUC o cédula +
 razón social), su documento personal, u "Otra persona o empresa" cargando los
@@ -529,6 +550,52 @@ redirige acá): las cuentas con las que la gente entra al panel.
 **Campos de dinero (2026-09-07):** todos los campos de monto (precio del
 catálogo, líneas de factura y presupuesto, monto recibido, salario, consumo)
 muestran los puntos de miles mientras se escribe (150000 → 150.000).
+
+### 3.9b Devoluciones (Facturación → Devoluciones, desde el 2026-09-14)
+
+La gestión es interna: el cliente pide, una persona decide.
+
+- **Por WhatsApp**: si un cliente quiere devolver o reclamar un producto, el
+  bot no discute ni promete nada (ni reembolso, ni cambio, ni plazo, ni "está
+  aprobado"): pregunta qué producto, cuándo lo compró y qué pasó, registra el
+  pedido (herramienta `request_return`) y deriva: la conversación queda
+  "necesita humano" en la Bandeja, aparece una tarea en Tareas y llega un
+  correo a los emails de aviso del negocio. Es un caso delicado: responder
+  rápido y con cuidado.
+- **Desde el panel**: "Registrar devolución" para pedidos que llegan en
+  persona o por teléfono.
+- **Decidir**: "En revisión", "Aprobar" o "Rechazar", siempre con una nota
+  que (si se tilda) se manda al cliente por WhatsApp o email. Solo root y
+  admin deciden.
+- **Cerrar**: con la devolución aprobada, "Cerrar" deja constancia de cómo se
+  resolvió, puede reingresar la mercadería al stock (si el ítem controla
+  stock y volvió en condiciones) y vincula la nota de crédito si se emitió
+  (desde la factura, total o parcial).
+
+### 3.9c Inventario (Catálogo → Inventario, desde el 2026-09-14)
+
+- **En el producto** (solo ítems): SKU (único por negocio), código de
+  barras, unidad, "Controlar stock" con stock mínimo, o "Es un combo" con sus
+  componentes (ítems y cantidad por unidad; un combo no tiene stock propio:
+  se venden tantos como permita el componente más escaso y al facturarlo se
+  descuenta cada componente).
+- **Pestaña Inventario**: existencias por sucursal, mínimo, costo promedio,
+  valor a costo, estado (ok / bajo mínimo / sin stock), y por producto:
+  **Ingresar** (compra o carga inicial; con costo unitario actualiza el costo
+  promedio), **Ajustar** (conteo físico, rotura, pérdida; motivo
+  obligatorio), **Trasladar** entre sucursales y **Movimientos** (kardex:
+  cada entrada y salida con su saldo; nunca se editan, un error se corrige
+  con un ajuste).
+- **Ventas**: al emitir una factura se valida el stock; sin existencias no se
+  emite ("Sin stock suficiente: …") salvo que en Inventario se tilde
+  "Permitir vender sin stock". Al aprobarse descuenta en la sucursal de la
+  factura. Anular dentro del plazo devuelve el stock; la nota de crédito con
+  "vuelven al stock" lo reingresa.
+- **Avisos**: al bajar de su mínimo un producto, correo a los emails de aviso
+  (se apaga con "Avisar por correo…" en Inventario). El bot ve si un ítem con
+  stock controlado está disponible y lo dice.
+- Pendiente (fases 2 y 3): proveedores y órdenes de compra, lectura de código
+  de barras al facturar, exportar a CSV, lotes y vencimientos, series.
 
 ### 3.10 Ajustes (ruta /app/settings/…)
 
@@ -704,6 +771,17 @@ En orden de frecuencia:
   no trabaja en ese horario": fuera del horario de atención o del empleado.
 - "Para agendar hace falta al menos un empleado que atienda clientes con
   turno": cargar un empleado agendable en Personal.
+- "Sin stock suficiente: <producto> (hay X, se necesitan Y)": la factura tiene
+  ítems sin existencias en la sucursal; ingresar mercadería en Inventario o
+  permitir vender sin stock.
+- "Fuera del plazo de 48 h de SIFEN: corresponde una nota de crédito": pasó
+  el plazo de anulación; usar "Nota de crédito" en la factura.
+- "Primero anulá la nota de crédito … asociada": regla de SIFEN; anular la NC
+  y después la factura.
+- "<Producto> no controla stock: activá Controlar stock": se intentó
+  ingresar o ajustar un ítem sin control de stock.
+- "<Producto> es un combo: el stock se maneja en sus componentes": los
+  ingresos y ajustes se hacen sobre cada componente.
 - "El empleado elegido esta ausente ese dia": tiene una ausencia cargada;
   elegir otra persona o quitar la ausencia en Personal.
 - "<Empleado> tiene N turnos en ese período": no es un error; es el aviso al

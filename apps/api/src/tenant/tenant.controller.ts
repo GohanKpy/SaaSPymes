@@ -101,6 +101,8 @@ export class TenantController {
       monthly_close_day: row?.monthlyCloseDay ?? 1,
       monthly_auto_invoice: row?.monthlyAutoInvoice ?? false,
       recurring_lead_days: row?.recurringLeadDays ?? 7,
+      allow_negative_stock: row?.allowNegativeStock ?? false,
+      low_stock_alerts: row?.lowStockAlerts ?? true,
     };
   }
 
@@ -115,6 +117,8 @@ export class TenantController {
           monthlyCloseDay: dto.monthly_close_day,
           monthlyAutoInvoice: dto.monthly_auto_invoice,
           recurringLeadDays: dto.recurring_lead_days,
+          allowNegativeStock: dto.allow_negative_stock,
+          lowStockAlerts: dto.low_stock_alerts,
           updatedBy: ctx.userId,
         },
         create: {
@@ -122,11 +126,19 @@ export class TenantController {
           monthlyCloseDay: dto.monthly_close_day ?? 1,
           monthlyAutoInvoice: dto.monthly_auto_invoice ?? false,
           recurringLeadDays: dto.recurring_lead_days ?? 7,
+          allowNegativeStock: dto.allow_negative_stock ?? false,
+          lowStockAlerts: dto.low_stock_alerts ?? true,
           updatedBy: ctx.userId,
         },
       }),
     );
-    return { monthly_close_day: row.monthlyCloseDay, monthly_auto_invoice: row.monthlyAutoInvoice, recurring_lead_days: row.recurringLeadDays };
+    return {
+      monthly_close_day: row.monthlyCloseDay,
+      monthly_auto_invoice: row.monthlyAutoInvoice,
+      recurring_lead_days: row.recurringLeadDays,
+      allow_negative_stock: row.allowNegativeStock,
+      low_stock_alerts: row.lowStockAlerts,
+    };
   }
 
   @Get('features')
