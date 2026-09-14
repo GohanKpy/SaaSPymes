@@ -106,9 +106,19 @@ export const accountInvoice = z
     send: z.boolean().default(true),
     /** Solo consumos con fecha hasta esta inclusive; ausente = todos los pendientes. */
     until: z.iso.date().optional(),
+    /** Cobros (2026-09-08): facturar SOLO estos consumos pendientes (los demas siguen en cuenta). */
+    charge_ids: z.array(uuid).min(1).max(500).optional(),
   })
   .strict();
 export type AccountInvoice = z.infer<typeof accountInvoice>;
 
-export const accountNotify = z.object({ until: z.iso.date().optional() }).strict();
+export const accountNotify = z
+  .object({
+    until: z.iso.date().optional(),
+    /** Avisar solo por estos consumos. */
+    charge_ids: z.array(uuid).min(1).max(500).optional(),
+    /** Cobros (2026-09-08): true = recordatorio de cuenta pendiente de pago (monto y servicios); false = resumen de cuenta. */
+    reminder: z.boolean().default(false),
+  })
+  .strict();
 export type AccountNotify = z.infer<typeof accountNotify>;

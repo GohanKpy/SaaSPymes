@@ -20,6 +20,7 @@ const ICONS = {
     'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2 M23 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75 M13 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0z',
   catalog: 'M20.59 13.41 12 22l-9-9V3h10l8.59 8.59a2 2 0 0 1 0 2.82z M7 7h.01',
   invoices: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M16 13H8 M16 17H8',
+  cobros: 'M2 7h20v10H2z M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z M5 12h.01 M19 12h.01',
   employees:
     'M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2 M3 9a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z',
   team: 'M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2 M12.5 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0z M20 8v6 M23 11h-6',
@@ -58,6 +59,7 @@ const NAV: { title: string; items: NavItem[] }[] = [
       { href: '/app/customers', label: 'Clientes', icon: 'customers' },
       { href: '/app/catalog', label: 'Catálogo', icon: 'catalog' },
       { href: '/app/invoices', label: 'Facturación', icon: 'invoices' },
+      { href: '/app/cobros', label: 'Cobros', icon: 'cobros' },
     ],
   },
   {

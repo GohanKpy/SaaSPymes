@@ -51,7 +51,7 @@ export class BillingController {
     @Body(new ZodPipe(accountNotify)) dto: AccountNotify,
     @Req() req: FastifyRequest & AuthRequest,
   ) {
-    return this.billing.notifyAccount(tenantCtx(req), customerId, dto.until);
+    return this.billing.notifyAccount(tenantCtx(req), customerId, { until: dto.until, chargeIds: dto.charge_ids, reminder: dto.reminder });
   }
 
   /** Correr el cierre del mes ahora (lo mismo que hace el barrido en la fecha de cierre). */

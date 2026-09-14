@@ -24,6 +24,8 @@ export function customerName(c: { firstName: string; lastName: string | null }):
   return `${c.firstName} ${c.lastName ?? ''}`.trim();
 }
 
+const NUEVO_VACIO = { first_name: '', last_name: '', phone_e164: '', email: '', doc_number: '', legal_name: '' };
+
 export function CustomerPicker({
   value,
   onChange,
@@ -42,7 +44,7 @@ export function CustomerPicker({
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [nuevo, setNuevo] = useState({ first_name: '', last_name: '', phone_e164: '', doc_number: '', legal_name: '' });
+  const [nuevo, setNuevo] = useState(NUEVO_VACIO);
   const [error, setError] = useState<string | null>(null);
   const boxRef = useRef<HTMLDivElement>(null);
 
@@ -68,9 +70,17 @@ export function CustomerPicker({
     return () => document.removeEventListener('mousedown', onDown);
   }, []);
 
-  async function crear(e: React.FormEvent) {
-    e.preventDefault();
+  // Sin <form> propio: el selector vive ADENTRO del formulario de Nuevo turno
+  // o de la factura y un form anidado no es HTML valido — el navegador
+  // mandaba el formulario exterior por GET, la pagina se recargaba y el
+  // cliente nunca se guardaba (reporte de Johan 2026-09-08).
+  async function crear() {
+    if (busy) return;
     setError(null);
+    if (!nuevo.first_name.trim()) {
+      setError('El nombre es obligatorio.');
+      return;
+    }
     setBusy(true);
     const ruc = nuevo.doc_number.trim().split('-')[0] ?? '';
     try {
@@ -80,6 +90,7 @@ export function CustomerPicker({
           first_name: nuevo.first_name.trim(),
           ...(nuevo.last_name.trim() ? { last_name: nuevo.last_name.trim() } : {}),
           ...(nuevo.phone_e164.trim() ? { phone_e164: nuevo.phone_e164.trim() } : {}),
+          ...(nuevo.email.trim() ? { email: nuevo.email.trim() } : {}),
           // Datos de facturacion desde el alta (2026-09-08), opcionales.
           ...(ruc ? { doc_type: 'ruc', doc_number: ruc, ruc_dv: dvRuc(ruc) ?? undefined } : {}),
           ...(ruc && nuevo.legal_name.trim() ? { legal_name: nuevo.legal_name.trim() } : {}),
@@ -88,7 +99,7 @@ export function CustomerPicker({
       onChange(created);
       setCreating(false);
       setOpen(false);
-      setNuevo({ first_name: '', last_name: '', phone_e164: '', doc_number: '', legal_name: '' });
+      setNuevo(NUEVO_VACIO);
     } catch (err) {
       const status = (err as { status?: number }).status;
       const dupId = (err as { problem?: { detail?: string } }).problem?.detail;
@@ -109,6 +120,13 @@ export function CustomerPicker({
       setBusy(false);
     }
   }
+
+  const enterCrea = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      void crear();
+    }
+  };
 
   if (value) {
     return (
@@ -143,6 +161,16 @@ export function CustomerPicker({
           setQ(e.target.value);
           setOpen(true);
           setCreating(false);
+        }}
+        onKeyDown={(e) => {
+          if (e.key !== 'Enter') return;
+          e.preventDefault();
+          const first = results[0];
+          if (first) {
+            onChange(first);
+            setOpen(false);
+            setQ('');
+          }
         }}
         aria-autocomplete="list"
         aria-expanded={open}
@@ -186,6 +214,7 @@ export function CustomerPicker({
                   first_name: partes[0] ?? '',
                   last_name: partes.slice(1).join(' '),
                   phone_e164: /^\+?\d{6,}$/.test(q.trim()) ? q.trim() : '',
+                  email: /^\S+@\S+\.\S+$/.test(q.trim()) ? q.trim() : '',
                   doc_number: '',
                   legal_name: '',
                 });
@@ -195,7 +224,7 @@ export function CustomerPicker({
             </button>
           )}
           {creating && (
-            <form onSubmit={(e) => void crear(e)} className="space-y-2 border-t border-slate-100 p-3">
+            <div className="space-y-2 border-t border-slate-100 p-3" role="group" aria-label="Cliente nuevo">
               <p className="text-xs text-slate-500">Cliente nuevo: solo el nombre es obligatorio.</p>
               <div className="grid grid-cols-2 gap-2">
                 <input
@@ -205,20 +234,33 @@ export function CustomerPicker({
                   autoFocus
                   value={nuevo.first_name}
                   onChange={(e) => setNuevo({ ...nuevo, first_name: e.target.value })}
+                  onKeyDown={enterCrea}
                 />
                 <input
                   className={inputClass}
                   placeholder="Apellido"
                   value={nuevo.last_name}
                   onChange={(e) => setNuevo({ ...nuevo, last_name: e.target.value })}
+                  onKeyDown={enterCrea}
                 />
               </div>
-              <input
-                className={inputClass}
-                placeholder="Celular (+595…)"
-                value={nuevo.phone_e164}
-                onChange={(e) => setNuevo({ ...nuevo, phone_e164: e.target.value })}
-              />
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  className={inputClass}
+                  placeholder="Celular (+595…)"
+                  value={nuevo.phone_e164}
+                  onChange={(e) => setNuevo({ ...nuevo, phone_e164: e.target.value })}
+                  onKeyDown={enterCrea}
+                />
+                <input
+                  className={inputClass}
+                  type="email"
+                  placeholder="Email"
+                  value={nuevo.email}
+                  onChange={(e) => setNuevo({ ...nuevo, email: e.target.value })}
+                  onKeyDown={enterCrea}
+                />
+              </div>
               <div className="grid grid-cols-2 gap-2">
                 <input
                   className={inputClass}
@@ -228,6 +270,7 @@ export function CustomerPicker({
                   value={nuevo.doc_number}
                   onChange={(e) => setNuevo({ ...nuevo, doc_number: e.target.value })}
                   onBlur={(e) => setNuevo({ ...nuevo, doc_number: formatRucConDv(e.target.value) })}
+                  onKeyDown={enterCrea}
                 />
                 <input
                   className={inputClass}
@@ -235,6 +278,7 @@ export function CustomerPicker({
                   disabled={!nuevo.doc_number.trim()}
                   value={nuevo.legal_name}
                   onChange={(e) => setNuevo({ ...nuevo, legal_name: e.target.value })}
+                  onKeyDown={enterCrea}
                 />
               </div>
               {error && <p className="text-xs text-red-700">{error}</p>}
@@ -242,11 +286,11 @@ export function CustomerPicker({
                 <Button variant="ghost" onClick={() => setCreating(false)}>
                   Volver
                 </Button>
-                <Button variant="primary" type="submit" loading={busy}>
+                <Button variant="primary" type="button" loading={busy} onClick={() => void crear()}>
                   Crear y elegir
                 </Button>
               </div>
-            </form>
+            </div>
           )}
         </div>
       )}

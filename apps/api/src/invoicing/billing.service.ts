@@ -26,6 +26,24 @@ const nombrePeriodo = (period: string) => {
 
 type ChargeRow = { description: string; quantity: unknown; lineTotal: bigint; chargedOn: Date };
 
+/** Atraso (Cobros, 2026-09-08): un consumo sin cobrar hace mas de un mes se considera atrasado. */
+const ATRASO_MESES = 1;
+const TZ_NEGOCIO = 'America/Asuncion';
+/** Fecha limite: consumos con fecha ANTERIOR a esta estan atrasados (hoy en Asuncion menos un mes). */
+export function fechaLimiteAtraso(now = new Date()): Date {
+  const [y, m, d] = now.toLocaleDateString('en-CA', { timeZone: TZ_NEGOCIO }).split('-').map(Number);
+  return new Date(Date.UTC(y ?? 1970, (m ?? 1) - 1 - ATRASO_MESES, d ?? 1));
+}
+
+export interface NotifyAccountOptions {
+  until?: string;
+  chargeIds?: string[];
+  /** true = recordatorio de cuenta pendiente de pago; false = resumen de cuenta. */
+  reminder?: boolean;
+  /** Nombre del periodo para el resumen del cierre ('agosto de 2026'). */
+  periodo?: string;
+}
+
 /**
  * Cuenta mensual (2026-09-07): consumos pendientes por cliente, facturar todo
  * el mes de una vez, enviar resumen o factura por el canal elegido, y el
@@ -66,6 +84,15 @@ export class BillingService implements OnModuleInit, OnModuleDestroy {
         _min: { chargedOn: true },
       });
       if (grupos.length === 0) return [];
+      // Cobros (2026-09-08): lo atrasado (mas de un mes sin cobrar) se resalta en rojo.
+      const limite = fechaLimiteAtraso();
+      const atrasados = await tx.customerCharge.groupBy({
+        by: ['customerId'],
+        where: { status: 'pending', chargedOn: { lt: limite } },
+        _sum: { lineTotal: true },
+        _count: { _all: true },
+      });
+      const atrasoPorId = new Map(atrasados.map((a) => [a.customerId, a]));
       const customers = await tx.customer.findMany({
         where: { id: { in: grupos.map((g) => g.customerId) } },
         select: { id: true, firstName: true, lastName: true, phoneE164: true, email: true, billingMode: true, invoiceChannel: true },
@@ -77,9 +104,13 @@ export class BillingService implements OnModuleInit, OnModuleDestroy {
           total: String(g._sum.lineTotal ?? 0n),
           count: g._count._all,
           since: g._min.chargedOn,
+          overdue_total: String(atrasoPorId.get(g.customerId)?._sum.lineTotal ?? 0n),
+          overdue_count: atrasoPorId.get(g.customerId)?._count._all ?? 0,
+          overdue_cutoff: limite.toISOString().slice(0, 10),
         }))
         .filter((a) => a.customer)
-        .sort((a, b) => Number(b.total) - Number(a.total));
+        // Primero los que tienen atraso (y mas atraso), despues por total.
+        .sort((a, b) => Number(b.overdue_total) - Number(a.overdue_total) || Number(b.total) - Number(a.total));
     });
   }
 
@@ -99,7 +130,9 @@ export class BillingService implements OnModuleInit, OnModuleDestroy {
         include: { invoice: { select: { id: true, status: true, establishment: true, expeditionPoint: true, docNumber: true, total: true } } },
       });
       const total = charges.reduce((acc, c) => acc + c.lineTotal, 0n);
-      return { customer, charges, statements, total: String(total) };
+      const limite = fechaLimiteAtraso();
+      const overdueTotal = charges.filter((c) => c.chargedOn < limite).reduce((acc, c) => acc + c.lineTotal, 0n);
+      return { customer, charges, statements, total: String(total), overdue_total: String(overdueTotal), overdue_cutoff: limite.toISOString().slice(0, 10) };
     });
   }
 
@@ -169,10 +202,19 @@ export class BillingService implements OnModuleInit, OnModuleDestroy {
       const customer = await tx.customer.findFirst({ where: { id: customerId, deletedAt: null } });
       if (!customer) throw new NotFoundException();
       const charges = await tx.customerCharge.findMany({
-        where: { customerId, status: 'pending', ...(dto.until ? { chargedOn: { lte: new Date(dto.until) } } : {}) },
+        where: {
+          customerId,
+          status: 'pending',
+          ...(dto.until ? { chargedOn: { lte: new Date(dto.until) } } : {}),
+          ...(dto.charge_ids ? { id: { in: dto.charge_ids } } : {}),
+        },
         orderBy: { chargedOn: 'asc' },
       });
       if (charges.length === 0) throw new ConflictException({ title: 'Este cliente no tiene consumos pendientes de facturar' });
+      // Cobros (2026-09-08): si se eligieron consumos puntuales, todos tienen que seguir pendientes y ser de este cliente.
+      if (dto.charge_ids && charges.length !== new Set(dto.charge_ids).size) {
+        throw new ConflictException({ title: 'Alguno de los consumos elegidos ya fue facturado o anulado: actualizá la lista' });
+      }
       const branch = (await tx.branch.findFirst({ where: { deletedAt: null, isMain: true } })) ?? (await tx.branch.findFirst({ where: { deletedAt: null } }));
       if (!branch) throw new ConflictException({ title: 'El negocio no tiene sucursal cargada' });
       const total = charges.reduce((acc, c) => acc + c.lineTotal, 0n);
@@ -254,13 +296,23 @@ export class BillingService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /** Resumen de los consumos pendientes al cliente por su canal (sin facturar). */
-  async notifyAccount(ctx: TenantContext, customerId: string, until?: string, periodo?: string) {
+  /**
+   * Aviso al cliente por su canal, sin facturar: resumen de cuenta (cierre
+   * del mes) o recordatorio de cuenta pendiente de pago con monto y servicios
+   * (Cobros, 2026-09-08), de todos los consumos pendientes o solo de algunos.
+   */
+  async notifyAccount(ctx: TenantContext, customerId: string, opts: NotifyAccountOptions = {}) {
+    const { until, chargeIds, reminder, periodo } = opts;
     const { customer, charges, negocio } = await this.appDb.tx(ctx, async (tx) => {
       const c = await tx.customer.findFirst({ where: { id: customerId, deletedAt: null } });
       if (!c) throw new NotFoundException();
       const rows = await tx.customerCharge.findMany({
-        where: { customerId, status: 'pending', ...(until ? { chargedOn: { lte: new Date(until) } } : {}) },
+        where: {
+          customerId,
+          status: 'pending',
+          ...(until ? { chargedOn: { lte: new Date(until) } } : {}),
+          ...(chargeIds ? { id: { in: chargeIds } } : {}),
+        },
         orderBy: { chargedOn: 'asc' },
       });
       const t = await tx.tenant.findUnique({ where: { id: ctx.tenantId }, select: { tradeName: true, legalName: true } });
@@ -268,12 +320,12 @@ export class BillingService implements OnModuleInit, OnModuleDestroy {
     });
     if (charges.length === 0) throw new ConflictException({ title: 'Este cliente no tiene consumos pendientes' });
     const total = charges.reduce((acc, c) => acc + c.lineTotal, 0n);
-    const texto = this.resumenTexto(negocio, customer.firstName, charges, total, periodo);
+    const texto = reminder ? this.recordatorioTexto(negocio, customer.firstName, charges, total) : this.resumenTexto(negocio, customer.firstName, charges, total, periodo);
     const channel = customer.invoiceChannel;
     try {
       if (channel === 'email') {
         if (!customer.email) return { channel, ok: false, detail: 'El cliente no tiene email cargado', total: String(total), count: charges.length };
-        await this.notifier.email(customer.email, `Resumen de tu cuenta en ${negocio}`, texto);
+        await this.notifier.email(customer.email, reminder ? `Cuenta pendiente de pago en ${negocio}` : `Resumen de tu cuenta en ${negocio}`, texto);
       } else {
         if (!customer.phoneE164) return { channel, ok: false, detail: 'El cliente no tiene celular cargado', total: String(total), count: charges.length };
         await this.notifier.whatsapp(ctx.tenantId, customer.phoneE164, texto);
@@ -284,12 +336,28 @@ export class BillingService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private resumenTexto(negocio: string, nombre: string, charges: ChargeRow[], total: bigint, periodo?: string): string {
+  private lineasConsumos(charges: ChargeRow[]): string {
     const lineas = charges
       .slice(0, 30)
       .map((c) => `- ${fmtFecha(c.chargedOn)} ${c.description}${Number(c.quantity) !== 1 ? ` x${Number(c.quantity)}` : ''}: ${fmtGs(c.lineTotal)}`)
       .join('\n');
-    const extra = charges.length > 30 ? `\n… y ${charges.length - 30} mas` : '';
+    return charges.length > 30 ? `${lineas}\n… y ${charges.length - 30} mas` : lineas;
+  }
+
+  /** Recordatorio de cuenta pendiente de pago (Cobros): monto y servicios. */
+  private recordatorioTexto(negocio: string, nombre: string, charges: ChargeRow[], total: bigint): string {
+    const atrasados = charges.filter((c) => c.chargedOn < fechaLimiteAtraso()).length;
+    return (
+      `Hola ${nombre}! Te recordamos que tenés una cuenta pendiente de pago en ${negocio} por ${fmtGs(total)}, por estos servicios:\n` +
+      `${this.lineasConsumos(charges)}\n` +
+      (atrasados > 0 ? `${atrasados === charges.length ? 'Tienen' : `${atrasados} de ellos tienen`} más de un mes de atraso.\n` : '') +
+      'Podés pasar a abonarla o responder este mensaje para coordinar el pago. ¡Gracias!'
+    );
+  }
+
+  private resumenTexto(negocio: string, nombre: string, charges: ChargeRow[], total: bigint, periodo?: string): string {
+    const lineas = this.lineasConsumos(charges);
+    const extra = '';
     return (
       `Hola ${nombre}! Este es el resumen de tu cuenta en ${negocio}${periodo ? ` de ${periodo}` : ''}:\n` +
       `${lineas}${extra}\n` +
@@ -382,7 +450,7 @@ export class BillingService implements OnModuleInit, OnModuleDestroy {
           const numero = invoice.docNumber ? `${invoice.establishment}-${invoice.expeditionPoint}-${invoice.docNumber}` : 'borrador';
           detalleFactura = ` Factura ${numero} ${sent?.ok ? `enviada por ${sent.channel}` : `NO enviada${sent?.detail ? ` (${sent.detail})` : ''}`}.`;
         } else {
-          const r = await this.notifyAccount(ctx, g.customerId, until, nombrePeriodo(period));
+          const r = await this.notifyAccount(ctx, g.customerId, { until, periodo: nombrePeriodo(period) });
           notifiedCustomer = r.ok;
           detalleFactura = r.ok ? ` Resumen enviado al cliente por ${r.channel}.` : ` No se pudo enviar el resumen${r.detail ? ` (${r.detail})` : ''}.`;
         }

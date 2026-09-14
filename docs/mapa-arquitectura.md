@@ -147,6 +147,8 @@ apps/
                 bot (ajustes del bot del tenant), integrations (credenciales
                 cifradas + google-calendar.service recíproco), invoicing
                 (facturas, numeración con lock, KuDE PDF con pdfkit+qrcode),
+                cobros pendientes (2026-09-08: /app/cobros elige qué consumos
+                facturar, atraso > 1 mes en rojo, aviso de cuenta pendiente),
                 padrón RUC de la DNIT (ADR 0012: cron mensual in-process en
                 platform/ruc-padron.service + GET /ruc/:ruc que autocompleta
                 razón social y DV en clientes y facturas),

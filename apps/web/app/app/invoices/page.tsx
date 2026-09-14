@@ -79,6 +79,8 @@ export default function InvoicesPage() {
   const toast = useToast();
   const { devMode } = useTenantInfo();
   const [vista, setVista] = useUrlParam('vista', 'facturas');
+  // Cobros (2026-09-08): /app/invoices?factura=ID abre esa factura al entrar.
+  const [facturaUrl, setFacturaUrl] = useUrlParam('factura', '');
   const [rows, setRows] = useState<Invoice[] | null>(null);
   const [services, setServices] = useState<ServicioOption[]>([]);
   const [branchId, setBranchId] = useState<string | undefined>(undefined);
@@ -178,6 +180,13 @@ export default function InvoicesPage() {
       toast.error(errorMessage(e));
     }
   }
+
+  useEffect(() => {
+    if (!facturaUrl) return;
+    void abrirDetalle(facturaUrl);
+    setFacturaUrl('');
+    // Solo al entrar con ?factura=ID.
+  }, [facturaUrl]);
 
   async function crear(e: React.FormEvent) {
     e.preventDefault();

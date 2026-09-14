@@ -162,6 +162,10 @@ export function CuentasSection({ onVerFactura }: { onVerFactura: (invoiceId: str
             <Link className="underline" href="/app/settings/facturacion">
               Ajustes → Facturación
             </Link>
+            . Para cobrar solo algunos servicios o avisar de una cuenta pendiente, usá{' '}
+            <Link className="underline" href="/app/cobros">
+              Cobros
+            </Link>
             .
           </p>
           <Button variant="ghost" loading={busy} onClick={() => void cerrarMesAhora()}>
