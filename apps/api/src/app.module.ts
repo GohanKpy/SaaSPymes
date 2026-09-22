@@ -4,6 +4,8 @@ import type { Env } from '@pymes/shared';
 
 import { ActionLogService } from './audit/action-log.service';
 import { AuthModule } from './auth/auth.module';
+import { SsoController } from './auth/sso.controller';
+import { SupportAccessController } from './platform/support-access.controller';
 import { BotController } from './bot/bot.controller';
 import { CatalogImportService } from './catalog/catalog-import.service';
 import { CatalogController } from './catalog/catalog.controller';
@@ -72,6 +74,8 @@ import { UsersController } from './tenant/users.controller';
     InvoicesController,
     QuotesController,
     BillingController,
+    SsoController,
+    SupportAccessController,
     ReturnsController,
     InventoryController,
     PublicKudeController,

@@ -13,11 +13,14 @@ interface GoogleOauthSecret {
 }
 interface GoogleOauthPublic {
   client_id?: string;
+  sign_in_enabled?: boolean;
 }
 
 export interface GoogleOauthConfig {
   clientId: string | undefined;
   clientSecret: string | undefined;
+  /** Iniciar sesion con Google en los paneles (2026-09-22). */
+  signInEnabled: boolean;
 }
 
 /**
@@ -49,6 +52,7 @@ export class GoogleOauthService {
     const config: GoogleOauthConfig = {
       clientId: publicConfig.client_id,
       clientSecret: secret.client_secret,
+      signInEnabled: publicConfig.sign_in_enabled ?? false,
     };
     this.cache = { at: Date.now(), config };
     return config;
@@ -59,6 +63,7 @@ export class GoogleOauthService {
     return {
       client_id: config.clientId ?? null,
       has_secret: Boolean(config.clientSecret),
+      sign_in_enabled: config.signInEnabled,
     };
   }
 
@@ -77,7 +82,8 @@ export class GoogleOauthService {
     const secret: GoogleOauthSecret = {
       client_secret: dto.client_secret ?? existing.client_secret,
     };
-    const publicConfig = { client_id: dto.client_id };
+    const previo = (row?.publicConfig ?? {}) as GoogleOauthPublic;
+    const publicConfig = { client_id: dto.client_id, sign_in_enabled: dto.sign_in_enabled ?? previo.sign_in_enabled ?? false };
     await this.platformDb.client.platformSetting.upsert({
       where: { key: SETTING_KEY },
       update: { publicConfig, encryptedPayload: this.crypto.encryptJson(secret), updatedBy: actorId },
@@ -94,7 +100,7 @@ export class GoogleOauthService {
         action: 'settings.google_oauth.update',
         entity: 'platform_settings',
         ip,
-        detail: { client_id: dto.client_id, rotated_secret: Boolean(dto.client_secret) },
+        detail: { client_id: dto.client_id, rotated_secret: Boolean(dto.client_secret), sign_in_enabled: publicConfig.sign_in_enabled },
       },
     });
     this.cache = null;

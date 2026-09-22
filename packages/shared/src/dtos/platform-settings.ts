@@ -44,6 +44,8 @@ export const googleOauthSettingsPut = z
     client_id: z.string().min(10).max(200),
     /** Solo al cargar o rotar; ausente = mantener el guardado. */
     client_secret: z.string().min(10).max(200).optional(),
+    /** Iniciar sesion con Google en los paneles (2026-09-22): misma app OAuth. */
+    sign_in_enabled: z.boolean().optional(),
   })
   .strict();
 export type GoogleOauthSettingsPut = z.infer<typeof googleOauthSettingsPut>;
@@ -52,6 +54,7 @@ export interface GoogleOauthSettingsView {
   client_id: string | null;
   /** Solo presencia, jamas el valor. */
   has_secret: boolean;
+  sign_in_enabled: boolean;
 }
 
 /**

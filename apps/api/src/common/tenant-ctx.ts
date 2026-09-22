@@ -14,7 +14,9 @@ export function tenantCtx(req: FastifyRequest & AuthRequest): TenantContext {
   return {
     tenantId: user.tid,
     userId: user.sub,
-    actorType: 'user',
+    // Sesion de soporte (2026-09-22): el actor es un agente de la plataforma,
+    // y asi queda en la auditoria del negocio.
+    actorType: user.sup ? 'platform' : 'user',
     // Auditoria de seguridad (2026-09-07): la IP y el id del pedido viajan a los triggers.
     ip: req.ip,
     requestId: req.requestId,

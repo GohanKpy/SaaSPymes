@@ -1,8 +1,12 @@
-import { Body, Controller, Get, NotFoundException, Patch, Put, Req } from '@nestjs/common';
+import { randomInt } from 'node:crypto';
+
+import { Body, Controller, Delete, Get, HttpCode, NotFoundException, Patch, Post, Put, Req } from '@nestjs/common';
 import {
+  supportTokenCreate,
   tenantSelfPatch,
   tenantSettingsPut,
   type EffectiveFeature,
+  type SupportTokenCreate,
   type TenantSelfPatch,
   type TenantSettingsPut,
 } from '@pymes/shared';
@@ -11,6 +15,7 @@ import type { FastifyRequest } from 'fastify';
 import { Prisma } from '@pymes/db';
 
 import { Roles, type AuthRequest } from '../auth/decorators';
+import { hashSupportToken, vistaToken } from '../common/support-token';
 import { FeaturesService } from '../auth/features.service';
 import { tenantCtx } from '../common/tenant-ctx';
 import { ZodPipe } from '../common/zod.pipe';
@@ -139,6 +144,61 @@ export class TenantController {
       allow_negative_stock: row.allowNegativeStock,
       low_stock_alerts: row.lowStockAlerts,
     };
+  }
+
+  // ---------------- token de soporte (2026-09-22, ADR 0014) ----------------
+
+  /** Estado del token (nunca su valor): vigente, vencido, inicial 1111 o sin token. */
+  @Get('support-token')
+  @Roles('root', 'admin')
+  async supportToken(@Req() req: FastifyRequest & AuthRequest) {
+    const { tenantId } = tenantCtx(req);
+    const t = await this.appDb.client.tenant.findUnique({
+      where: { id: tenantId },
+      select: { supportTokenHash: true, supportTokenExpiresAt: true, supportTokenCreatedAt: true },
+    });
+    return vistaToken(tenantId, t);
+  }
+
+  /** Genera un token nuevo (6 digitos) con vencimiento; se muestra UNA vez. */
+  @Post('support-token')
+  @Roles('root', 'admin')
+  async createSupportToken(@Body(new ZodPipe(supportTokenCreate)) dto: SupportTokenCreate, @Req() req: FastifyRequest & AuthRequest) {
+    const ctx = tenantCtx(req);
+    const token = String(randomInt(0, 1_000_000)).padStart(6, '0');
+    const expiresAt = new Date(Date.now() + dto.hours * 3600 * 1000);
+    await this.appDb.client.tenant.update({
+      where: { id: ctx.tenantId },
+      data: {
+        supportTokenHash: hashSupportToken(ctx.tenantId, token),
+        supportTokenExpiresAt: expiresAt,
+        supportTokenCreatedAt: new Date(),
+        supportTokenCreatedBy: ctx.userId ?? null,
+      },
+    });
+    await this.appDb.tx(ctx, (tx) =>
+      tx.auditLog.create({
+        data: { tenantId: ctx.tenantId, actorUserId: ctx.userId, action: 'tenant.support_token_created', entity: 'tenants', entityId: ctx.tenantId, ip: req.ip },
+      }),
+    );
+    return { token, expires_at: expiresAt.toISOString() };
+  }
+
+  /** Revoca el token: nadie de la plataforma puede entrar hasta generar otro. */
+  @Delete('support-token')
+  @Roles('root', 'admin')
+  @HttpCode(204)
+  async revokeSupportToken(@Req() req: FastifyRequest & AuthRequest) {
+    const ctx = tenantCtx(req);
+    await this.appDb.client.tenant.update({
+      where: { id: ctx.tenantId },
+      data: { supportTokenHash: null, supportTokenExpiresAt: null, supportTokenCreatedAt: null, supportTokenCreatedBy: null },
+    });
+    await this.appDb.tx(ctx, (tx) =>
+      tx.auditLog.create({
+        data: { tenantId: ctx.tenantId, actorUserId: ctx.userId, action: 'tenant.support_token_revoked', entity: 'tenants', entityId: ctx.tenantId, ip: req.ip },
+      }),
+    );
   }
 
   @Get('features')

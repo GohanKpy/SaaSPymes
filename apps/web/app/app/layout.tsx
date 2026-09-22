@@ -7,6 +7,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { logout } from '../../lib/api';
 import { FeedbackProvider } from '../../lib/feedback';
 import { roleLabel } from '../../lib/labels';
+import { setSession } from '../../lib/api';
 import { useTenantInfo } from '../../lib/tenant';
 import { useSession } from '../../lib/ui';
 
@@ -180,6 +181,7 @@ export default function TenantLayout({ children }: { children: ReactNode }) {
         </div>
       )}
 
+      {user.support && <SoporteBanner support={user.support} />}
       {devMode && (
         <p className="bg-violet-100 px-3 py-1.5 text-center text-xs text-violet-900 lg:ml-56">
           Cuenta en <strong>modo desarrollo</strong>: los comprobantes son simulaciones sin validez fiscal y se pueden emitir sin datos del
@@ -192,5 +194,33 @@ export default function TenantLayout({ children }: { children: ReactNode }) {
         </div>
       </main>
     </div>
+  );
+}
+
+/**
+ * Sesion de soporte (2026-09-22, ADR 0014): un agente de la plataforma dentro
+ * del panel con el token del cliente. Franja permanente y cierre al vencer
+ * (la sesion no se renueva).
+ */
+function SoporteBanner({ support }: { support: { agent: string; until: string } }) {
+  const [restante, setRestante] = useState(() => Math.max(0, new Date(support.until).getTime() - Date.now()));
+  useEffect(() => {
+    const t = window.setInterval(() => {
+      const r = Math.max(0, new Date(support.until).getTime() - Date.now());
+      setRestante(r);
+      if (r === 0) {
+        window.clearInterval(t);
+        setSession(null, null);
+        window.location.replace('/login?google_error=soporte_vencido');
+      }
+    }, 15_000);
+    return () => window.clearInterval(t);
+  }, [support.until]);
+  const min = Math.ceil(restante / 60_000);
+  return (
+    <p className="bg-red-600 px-3 py-1.5 text-center text-xs font-medium text-white lg:ml-56">
+      Sesión de soporte de la plataforma ({support.agent}) autorizada por el cliente · vence en {min} min · todo lo que hagas queda registrado en la
+      auditoría del negocio.
+    </p>
   );
 }

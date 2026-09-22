@@ -24,6 +24,6 @@ import { JwtSigner } from './jwt.service';
     { provide: APP_GUARD, useClass: RolesGuard },
     { provide: APP_GUARD, useClass: FeatureGuard },
   ],
-  exports: [JwtSigner, FeaturesService],
+  exports: [JwtSigner, FeaturesService, AuthService],
 })
 export class AuthModule {}

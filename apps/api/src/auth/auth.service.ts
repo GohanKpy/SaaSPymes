@@ -18,6 +18,8 @@ import { AppPrisma } from '../prisma/app-prisma.service';
 import { PlatformPrisma } from '../prisma/platform-prisma.service';
 import { JwtSigner } from './jwt.service';
 
+/** Vida de una sesion de soporte (2026-09-22): corta y sin renovacion. */
+const SUPPORT_TTL_MIN = 60;
 const REFRESH_TTL_MS = 30 * 24 * 3600 * 1000; // 30 dias (doc 05 §3)
 
 export interface IssuedSession {
@@ -113,7 +115,40 @@ export class AuthService {
       await this.registerFail(lockKeys);
       throw new UnauthorizedException();
     }
+    return this.finishTenantLogin(matched, dto.tenant_id, lockKeys, ip, userAgent, 'auth.login');
+  }
 
+  /**
+   * Login por identidad verificada por Google (2026-09-22, ADR 0014): el
+   * email ya fue probado; solo cuentan los usuarios activos con ese email.
+   * Sin registro automatico: un email que no existe en ningun negocio no entra.
+   */
+  async loginTenantByEmail(
+    email: string,
+    tenantId: string | undefined,
+    ip: string,
+    userAgent: string | undefined,
+  ): Promise<{ session?: IssuedSession; response: LoginResponse }> {
+    const lockKeys = [`t:${email}`, `ip:${ip}`];
+    this.assertNotLocked(lockKeys);
+    const matched = await this.platformDb.client.user.findMany({
+      where: { email, deletedAt: null, isActive: true },
+    });
+    if (matched.length === 0) {
+      await this.registerFail(lockKeys);
+      throw new UnauthorizedException({ title: 'Esa cuenta de Google no tiene usuario en ningún negocio' });
+    }
+    return this.finishTenantLogin(matched, tenantId, lockKeys, ip, userAgent, 'auth.login_google');
+  }
+
+  private async finishTenantLogin(
+    matched: { id: string; tenantId: string; email: string; fullName: string; role: string }[],
+    tenantId: string | undefined,
+    lockKeys: string[],
+    ip: string,
+    userAgent: string | undefined,
+    action: 'auth.login' | 'auth.login_google',
+  ): Promise<{ session?: IssuedSession; response: LoginResponse }> {
     const tenants = await this.platformDb.client.tenant.findMany({
       where: { id: { in: matched.map((u) => u.tenantId) } },
     });
@@ -130,7 +165,7 @@ export class AuthService {
       });
     }
 
-    const chosen = dto.tenant_id ? usable.filter((u) => u.tenantId === dto.tenant_id) : usable;
+    const chosen = tenantId ? usable.filter((u) => u.tenantId === tenantId) : usable;
     if (chosen.length === 0) throw new UnauthorizedException();
     if (chosen.length > 1) {
       // Mismo email en varios tenants: segunda vuelta con eleccion explicita.
@@ -164,7 +199,7 @@ export class AuthService {
         data: {
           tenantId: user.tenantId,
           actorUserId: user.id,
-          action: 'auth.login',
+          action,
           entity: 'users',
           entityId: user.id,
           ip,
@@ -183,6 +218,66 @@ export class AuthService {
     };
     const session = await this.issueSession(authUser, ip, userAgent);
     return { session, response: { access_token: session.accessToken, user: authUser } };
+  }
+
+  /** Login de plataforma por identidad de Google (2026-09-22): mismas reglas de IP, TOTP y bloqueo. */
+  async loginPlatformByEmail(
+    email: string,
+    ip: string,
+    userAgent: string | undefined,
+  ): Promise<{ session?: IssuedSession; response: LoginResponse }> {
+    if (!ipAllowed(ip, this.env.PLATFORM_ALLOWED_IPS)) throw new NotFoundException();
+    const lockKeys = [`p:${email}`, `ip:${ip}`];
+    this.assertNotLocked(lockKeys);
+    const user = await this.platformDb.client.platformUser.findUnique({ where: { email } });
+    if (!user || !user.isActive) {
+      await this.registerFail(lockKeys);
+      throw new UnauthorizedException({ title: 'Esa cuenta de Google no es un usuario del portal' });
+    }
+    if (user.totpEnabled) throw new HttpException({ title: 'Se requiere codigo TOTP' }, 428);
+    this.clearFails(lockKeys);
+    await this.platformDb.client.platformUser.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
+    await this.platformDb.client.platformAuditLog.create({
+      data: { actorId: user.id, action: 'auth.login_google', entity: 'platform_users', entityId: user.id, ip },
+    });
+    const authUser: AuthUser = { id: user.id, email: user.email, full_name: user.fullName, role: user.role, scope: 'platform' };
+    const session = await this.issueSession(authUser, ip, userAgent);
+    return { session, response: { access_token: session.accessToken, user: authUser } };
+  }
+
+  /**
+   * Sesion de soporte (2026-09-22, ADR 0014): un agente de la plataforma
+   * entra al panel de un negocio con el token que el cliente le dio. Access
+   * token de 60 minutos, sin cookie de refresh, claims sup/spe: el panel lo
+   * muestra y la auditoria lo distingue del cliente.
+   */
+  async issueSupportSession(
+    tenantId: string,
+    agent: { id: string; email: string; fullName: string },
+    ip: string,
+  ): Promise<LoginResponse> {
+    const until = new Date(Date.now() + SUPPORT_TTL_MIN * 60_000);
+    await this.appDb.tx({ tenantId, userId: agent.id, actorType: 'platform', ip }, (tx) =>
+      tx.auditLog.create({
+        data: { tenantId, actorUserId: agent.id, actorType: 'platform', action: 'auth.support_login', entity: 'tenants', entityId: tenantId, ip },
+      }),
+    );
+    const accessToken = await this.jwt.signAccess(
+      { sub: agent.id, scope: 'tenant', tid: tenantId, role: 'root', sup: true, spe: agent.email },
+      `${SUPPORT_TTL_MIN}m`,
+    );
+    return {
+      access_token: accessToken,
+      user: {
+        id: agent.id,
+        email: agent.email,
+        full_name: `Soporte · ${agent.fullName}`,
+        role: 'root',
+        scope: 'tenant',
+        tenant_id: tenantId,
+        support: { agent: agent.email, until: until.toISOString() },
+      },
+    };
   }
 
   private async loginPlatform(

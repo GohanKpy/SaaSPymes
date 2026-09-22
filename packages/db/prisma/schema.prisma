@@ -100,6 +100,11 @@ model Tenant {
   notes         String?
   /// Cuenta en desarrollo (2026-09-08): comprobantes simulados, sin bloqueos de datos fiscales.
   devMode       Boolean  @default(false) @map("dev_mode")
+  /// Token de soporte (2026-09-22, ADR 0014): hash sha256(id:token); null = sin acceso de soporte.
+  supportTokenHash      String?   @map("support_token_hash")
+  supportTokenExpiresAt DateTime? @map("support_token_expires_at") @db.Timestamptz(6)
+  supportTokenCreatedAt DateTime? @map("support_token_created_at") @db.Timestamptz(6)
+  supportTokenCreatedBy String?   @map("support_token_created_by") @db.Uuid
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt     DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
 

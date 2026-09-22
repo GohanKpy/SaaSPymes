@@ -46,7 +46,8 @@ export class ActionLogService {
       requestId: req.requestId ?? null,
       tenantId: user?.scope === 'tenant' ? (user.tid ?? null) : null,
       actorUserId: user?.sub ?? null,
-      actorScope: user?.scope ?? 'anon',
+      // Sesion de soporte (2026-09-22): el actor es de plataforma aunque el token sea del tenant.
+      actorScope: user?.sup ? 'platform' : (user?.scope ?? 'anon'),
       actorRole: user?.role ?? null,
       ip: req.ip ?? null,
       userAgent: typeof req.headers['user-agent'] === 'string' ? req.headers['user-agent'].slice(0, 300) : null,

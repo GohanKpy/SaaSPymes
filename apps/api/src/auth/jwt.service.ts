@@ -28,12 +28,13 @@ export class JwtSigner {
     return { priv: this.privateKey, pub: this.publicKey };
   }
 
-  async signAccess(claims: Omit<AccessTokenClaims, 'jti'>): Promise<string> {
+  /** ttl: solo las sesiones de soporte (2026-09-22) usan una vida distinta (60 min, sin refresh). */
+  async signAccess(claims: Omit<AccessTokenClaims, 'jti'>, ttl: string = ACCESS_TTL): Promise<string> {
     const { priv } = await this.keys();
     return new SignJWT({ ...claims, jti: randomUUID() })
       .setProtectedHeader({ alg: ALG })
       .setIssuedAt()
-      .setExpirationTime(ACCESS_TTL)
+      .setExpirationTime(ttl)
       .sign(priv);
   }
 

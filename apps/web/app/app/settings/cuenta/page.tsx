@@ -8,6 +8,7 @@ import { useToast } from '../../../../lib/feedback';
 import { errorMessage, roleLabel } from '../../../../lib/labels';
 import { useTenantInfo } from '../../../../lib/tenant';
 import { Badge, Button, Card, Field, inputClass, useSession } from '../../../../lib/ui';
+import { TokenSoporteCard } from '../token-soporte';
 import { PasswordSection } from '../password';
 
 interface Me {
@@ -156,6 +157,8 @@ export default function CuentaPage() {
           </p>
         )}
       </Card>
+
+      {(esRoot || user.role === 'admin') && <TokenSoporteCard />}
 
       <PasswordSection email={me?.email ?? user.email} />
     </div>

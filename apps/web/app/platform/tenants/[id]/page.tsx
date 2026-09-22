@@ -9,7 +9,7 @@ import { OneTimeCredentials } from '../../../../lib/credentials';
 import { useAskText, useConfirm, useToast } from '../../../../lib/feedback';
 import { TENANT_STATUS, errorMessage, roleLabel, statusOf } from '../../../../lib/labels';
 import { formatRucConDv } from '../../../../lib/ruc';
-import { Badge, Button, Card, ErrorNote, Field, PageHeader, buttonGhost, dt, inputClass } from '../../../../lib/ui';
+import { Badge, Button, Card, ErrorNote, Field, Modal, PageHeader, buttonGhost, dt, inputClass } from '../../../../lib/ui';
 
 // Ficha del cliente (ADR 0005; fase 3 auditoria de paneles 2026-09-05):
 // datos CRM, plan y estado, acuerdos a medida con el nombre legible de la
@@ -84,6 +84,36 @@ export default function TenantDetailPage() {
   const [form, setForm] = useState(FORM_VACIO);
   const [guardando, setGuardando] = useState(false);
   const [guardandoBudget, setGuardandoBudget] = useState(false);
+  // Acceder como cliente (2026-09-22, ADR 0014): con el token que dio el cliente.
+  const [acceso, setAcceso] = useState(false);
+  const [tokenSoporte, setTokenSoporte] = useState('');
+  const [abriendo, setAbriendo] = useState(false);
+
+  /** Portal del cliente hermano de este portal admin: admin.<dominio> → client.<dominio>; :4308 → :4300. */
+  function origenCliente(): string {
+    const { protocol, hostname, port } = window.location;
+    if (hostname.startsWith('admin.')) return `${protocol}//client.${hostname.slice('admin.'.length)}`;
+    if (port === '4308') return `${protocol}//${hostname}:4300`;
+    return `${protocol}//${hostname}${port ? `:${port}` : ''}`;
+  }
+
+  async function accederComoCliente(e: React.FormEvent) {
+    e.preventDefault();
+    setAbriendo(true);
+    try {
+      const r = await api<{ code: string; tenant: string }>(`/platform/tenants/${tenantId}/support-access`, { method: 'POST', json: { token: tokenSoporte.trim() } });
+      const url = `${origenCliente()}/login?support=${encodeURIComponent(r.code)}`;
+      const win = window.open(url, '_blank', 'noopener');
+      if (!win) toast.error('El navegador bloqueó la ventana nueva: permití ventanas emergentes para este sitio.');
+      else toast.success(`Sesión de soporte abierta en ${r.tenant} (60 minutos)`);
+      setAcceso(false);
+      setTokenSoporte('');
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setAbriendo(false);
+    }
+  }
 
   const load = useCallback(() => {
     api<TenantDetail>(`/platform/tenants/${tenantId}`)
@@ -259,6 +289,9 @@ export default function TenantDetailPage() {
               <Link className={buttonGhost} href={`/platform/audit?tenant_id=${tenant.id}`}>
                 Ver auditoría
               </Link>
+              <Button variant="soft" onClick={() => setAcceso(true)}>
+                Acceder como cliente
+              </Button>
               {tenant.status === 'suspended' ? (
                 <Button variant="soft" onClick={() => void cambiarEstado('active')}>
                   Reactivar
@@ -274,6 +307,27 @@ export default function TenantDetailPage() {
       />
       <ErrorNote error={error} />
       {creds && <OneTimeCredentials title="Contraseña reiniciada:" email={creds.email} password={creds.pass} onHide={() => setCreds(null)} />}
+      {acceso && (
+        <Modal
+          title={`Acceder como ${nombre}`}
+          description="Los datos del cliente son privados: solo se entra con el token de soporte que el cliente genera desde Ajustes → Mi cuenta (o el inicial 1111). Se abre en una ventana nueva, dura 60 minutos y queda registrado; el cliente recibe un aviso."
+          onClose={() => setAcceso(false)}
+        >
+          <form className="space-y-3" onSubmit={(e) => void accederComoCliente(e)}>
+            <Field label="Token de soporte que te dio el cliente">
+              <input className={`${inputClass} font-mono tracking-widest`} value={tokenSoporte} autoFocus inputMode="numeric" maxLength={64} onChange={(e) => setTokenSoporte(e.target.value)} required />
+            </Field>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" type="button" onClick={() => setAcceso(false)}>
+                Cancelar
+              </Button>
+              <Button variant="primary" type="submit" loading={abriendo} disabled={tokenSoporte.trim().length < 4}>
+                Abrir el panel del cliente
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
 
       <Card title="Datos del cliente">
         <form className="space-y-3" onSubmit={(e) => void guardar(e)}>

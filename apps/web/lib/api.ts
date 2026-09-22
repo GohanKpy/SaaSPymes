@@ -56,6 +56,8 @@ export interface SessionUser {
   role: string;
   scope: 'tenant' | 'platform';
   tenant_id?: string;
+  /** Sesion de soporte (2026-09-22): agente de la plataforma dentro del panel de un cliente, hasta `until`. */
+  support?: { agent: string; until: string };
 }
 
 let accessToken: string | null = null;

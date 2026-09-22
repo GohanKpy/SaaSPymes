@@ -1,9 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 import { API_URL, setSession, type SessionUser } from '../../../lib/api';
+import { GOOGLE_ERRORES, GoogleButton, irAGoogle, useGoogleLoginEnabled } from '../../../lib/google-login';
 import { ErrorNote, Field, buttonClass, inputClass } from '../../../lib/ui';
 
 /** Login del portal de plataforma (ADR 0004): solo administradores del sistema. */
@@ -13,6 +14,35 @@ export default function PlatformLoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const googleEnabled = useGoogleLoginEnabled();
+
+  // Vuelta de Google (2026-09-22): ?google=<codigo> cierra la sesion; ?google_error= explica.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const code = q.get('google');
+    const googleError = q.get('google_error');
+    if (code || googleError) window.history.replaceState(null, '', window.location.pathname);
+    if (googleError) setError(GOOGLE_ERRORES[googleError] ?? `No se pudo entrar con Google (${googleError}).`);
+    if (!code) return;
+    setBusy(true);
+    fetch(`${API_URL}/api/v1/auth/google/complete`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'content-type': 'application/json', 'x-requested-with': 'panel' },
+      body: JSON.stringify({ code }),
+    })
+      .then(async (res) => {
+        const data = (await res.json()) as { access_token?: string; user?: SessionUser; title?: string };
+        if (!res.ok || !data.access_token || !data.user) {
+          setError(data.title ?? 'No se pudo entrar con Google.');
+          return;
+        }
+        setSession(data.access_token, data.user);
+        router.replace('/platform');
+      })
+      .catch(() => setError('No se pudo conectar con la API'))
+      .finally(() => setBusy(false));
+  }, [router]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -68,6 +98,12 @@ export default function PlatformLoginPage() {
           <button className={`${buttonClass} w-full`} disabled={busy}>
             {busy ? 'Entrando…' : 'Entrar'}
           </button>
+          {googleEnabled && (
+            <>
+              <p className="text-center text-xs text-slate-400">o</p>
+              <GoogleButton disabled={busy} onClick={() => irAGoogle('platform')} />
+            </>
+          )}
           <p className="text-xs text-slate-500">¿Olvidaste tu contraseña? Un administrador del portal te genera una nueva desde Usuarios del portal.</p>
         </form>
       </div>

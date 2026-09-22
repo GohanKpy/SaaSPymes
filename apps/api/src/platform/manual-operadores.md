@@ -85,6 +85,18 @@ emitir. En la cabecera de la ficha aparece la etiqueta "DEV" mientras esté
 tildada. El root del negocio también lo cambia desde su panel (Ajustes → Mi
 cuenta).
 
+**Acceder como cliente (desde el 2026-09-22):** en la ficha del cliente, el
+botón "Acceder como cliente" pide el **token de soporte** que el cliente
+generó desde su panel (Ajustes → Mi cuenta → Acceso para soporte; por ahora
+todos arrancan con el token provisorio **1111**). Con el token correcto se
+abre el panel del cliente en una ventana nueva, con una franja roja "Sesión
+de soporte de la plataforma (agente)", durante 60 minutos y sin renovación
+(al vencer, la ventana vuelve al login; hay que entrar de nuevo desde acá).
+Sin token vigente no se puede entrar: los datos del cliente son privados.
+Cada acceso queda en la auditoría de la plataforma y del negocio (acciones
+con origen "portal admin" dentro del negocio) y el negocio recibe un correo
+de aviso. Cinco tokens incorrectos seguidos bloquean el intento 15 minutos.
+
 Botón para **crear cliente**: se cargan razón social, nombre de fantasía,
 plan, y el email y nombre del dueño (usuario root del negocio).
 
@@ -625,6 +637,24 @@ interruptor "Cuenta en desarrollo (DEV)" que se aplica al instante (aviso
 "Cambio guardado" y la pantalla se refresca); y el cambio de contraseña. El
 mismo DEV se puede cambiar desde el portal admin (ficha del cliente).
 
+**Acceso para soporte (desde el 2026-09-22, root y admin):** bloque en Mi
+cuenta con el estado del token de soporte ("token inicial 1111", "vigente
+hasta…", "vencido" o "sin token"), el botón **Generar token de soporte**
+(6 dígitos, válido 1 hora, 24 horas o 7 días; se muestra una sola vez, con
+Copiar) y **Revocar**. Nadie de la plataforma entra al panel sin ese token;
+cada acceso queda en la auditoría del negocio y llega un correo a los emails
+de aviso.
+
+**Entrar con Google (desde el 2026-09-22):** si el dueño de la plataforma lo
+habilitó (portal admin → Sistema → Google → "Permitir iniciar sesión con
+Google"), en los dos logins aparece "Entrar con Google". Google solo prueba
+la identidad del email: entra quien ya es usuario activo de un negocio (o
+del portal); no crea cuentas. Si el email existe en varias empresas, se
+elige con cuál entrar. Errores típicos: "Esa cuenta de Google no tiene
+usuario en ningún negocio" (crear el acceso desde Personal → Accesos con ese
+mismo email) y "Google rechazó el intercambio" (falta registrar la URI
+`<API>/api/v1/auth/google/callback` en Google Cloud).
+
 **Cómo se guarda (regla única desde el 2026-09-07):** todo formulario con
 campos de texto tiene su botón **Guardar** y al guardar aparece un aviso
 flotante abajo a la derecha ("… guardados" en verde, o el error en rojo).
@@ -782,6 +812,11 @@ En orden de frecuencia:
   ingresar o ajustar un ítem sin control de stock.
 - "<Producto> es un combo: el stock se maneja en sus componentes": los
   ingresos y ajustes se hacen sobre cada componente.
+- "El token de soporte no coincide" / "El cliente no tiene un token de soporte
+  vigente": pedirle al cliente el token vigente (Ajustes → Mi cuenta → Acceso
+  para soporte) o que genere uno.
+- "El código venció: volvé a intentar" / "El código ya se usó": los códigos
+  de Google y de soporte valen 60 segundos y una sola vez; repetir el acceso.
 - "El empleado elegido esta ausente ese dia": tiene una ausencia cargada;
   elegir otra persona o quitar la ausencia en Personal.
 - "<Empleado> tiene N turnos en ese período": no es un error; es el aviso al

@@ -7,6 +7,7 @@ import type { TenantCreate, TenantPatch } from '@pymes/shared';
 import { Prisma } from '@pymes/db';
 
 import { FeaturesService } from '../auth/features.service';
+import { INITIAL_SUPPORT_TOKEN, hashSupportToken } from '../common/support-token';
 import { PlatformPrisma } from '../prisma/platform-prisma.service';
 
 // Parametros Argon2id del doc 05 §3.
@@ -111,6 +112,11 @@ export class TenantsService {
         contactPhone: dto.contact_phone,
         notes: dto.notes,
       },
+    });
+    // Token de soporte inicial provisorio (2026-09-22, ADR 0014): el cliente lo cambia desde Mi cuenta.
+    await this.platformDb.client.tenant.update({
+      where: { id: tenant.id },
+      data: { supportTokenHash: hashSupportToken(tenant.id, INITIAL_SUPPORT_TOKEN), supportTokenCreatedAt: new Date() },
     });
 
     const tempPassword = randomBytes(9).toString('base64url');
