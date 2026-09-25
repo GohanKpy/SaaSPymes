@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../../../../lib/api';
 import { useToast } from '../../../../lib/feedback';
 import { errorMessage } from '../../../../lib/labels';
-import { Badge, Button, Card, ErrorNote, Field, PageHeader, inputClass } from '../../../../lib/ui';
+import { Badge, Button, Card, ErrorNote, Field, PageHeader, SecretInput, inputClass } from '../../../../lib/ui';
 
 // Google Calendar, app OAuth del sistema (ADR 0007; fase 3 auditoria de
 // paneles 2026-09-05). Una sola credencial para toda la plataforma; cada
@@ -76,10 +76,10 @@ export default function GooglePage() {
         <form className="space-y-3" onSubmit={(e) => void guardar(e)}>
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Client ID (termina en .apps.googleusercontent.com)">
-              <input className={inputClass} value={form.client_id} onChange={(e) => setForm({ ...form, client_id: e.target.value })} required />
+              <input className={inputClass} autoComplete="off" value={form.client_id} onChange={(e) => setForm({ ...form, client_id: e.target.value })} required />
             </Field>
             <Field label={`Client Secret ${cfg?.has_secret ? '(cargado ✓)' : '(sin cargar)'}`}>
-              <input className={inputClass} type="password" autoComplete="off" placeholder={cfg?.has_secret ? 'vacío = mantener' : 'GOCSPX-…'} value={form.client_secret} onChange={(e) => setForm({ ...form, client_secret: e.target.value })} />
+              <SecretInput name="client_secret" placeholder={cfg?.has_secret ? 'vacío = mantener' : 'GOCSPX-…'} value={form.client_secret} onChange={(e) => setForm({ ...form, client_secret: e.target.value.trim() })} />
             </Field>
           </div>
           <p className="text-xs text-slate-500">

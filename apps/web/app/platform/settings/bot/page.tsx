@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../../../../lib/api';
 import { useToast } from '../../../../lib/feedback';
 import { errorMessage } from '../../../../lib/labels';
-import { Badge, Button, Card, ErrorNote, Field, PageHeader, inputClass } from '../../../../lib/ui';
+import { Badge, Button, Card, ErrorNote, Field, PageHeader, SecretInput, inputClass } from '../../../../lib/ui';
 
 // Motor del bot (fase 3 auditoria de paneles 2026-09-05). Proveedor, modelo y
 // llaves se gestionan aca (ADR 0003): rotar una llave o cambiar de proveedor
@@ -113,13 +113,13 @@ export default function MotorBotPage() {
               </select>
             </Field>
             <Field label="Modelo (vacío = el económico por defecto del proveedor)">
-              <input className={inputClass} placeholder={form.provider === 'openai' ? 'ej: gpt-4.1-mini' : 'ej: claude-haiku-4-5'} value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} />
+              <input className={inputClass} autoComplete="off" placeholder={form.provider === 'openai' ? 'ej: gpt-4.1-mini' : 'ej: claude-haiku-4-5'} value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} />
             </Field>
             <Field label={`Llave de OpenAI ${engine?.keys.openai ? '(cargada ✓)' : '(sin cargar)'}`}>
-              <input className={inputClass} type="password" autoComplete="off" placeholder={engine?.keys.openai ? 'vacío = mantener' : 'sk-…'} value={form.openai_api_key} onChange={(e) => setForm({ ...form, openai_api_key: e.target.value })} />
+              <SecretInput name="openai_api_key" placeholder={engine?.keys.openai ? 'vacío = mantener' : 'sk-…'} value={form.openai_api_key} onChange={(e) => setForm({ ...form, openai_api_key: e.target.value.trim() })} />
             </Field>
             <Field label={`Llave de Anthropic ${engine?.keys.anthropic ? '(cargada ✓)' : '(sin cargar)'}`}>
-              <input className={inputClass} type="password" autoComplete="off" placeholder={engine?.keys.anthropic ? 'vacío = mantener' : 'sk-ant-…'} value={form.anthropic_api_key} onChange={(e) => setForm({ ...form, anthropic_api_key: e.target.value })} />
+              <SecretInput name="anthropic_api_key" placeholder={engine?.keys.anthropic ? 'vacío = mantener' : 'sk-ant-…'} value={form.anthropic_api_key} onChange={(e) => setForm({ ...form, anthropic_api_key: e.target.value.trim() })} />
             </Field>
           </div>
         </Card>

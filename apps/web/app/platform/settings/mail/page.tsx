@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../../../../lib/api';
 import { useToast } from '../../../../lib/feedback';
 import { errorMessage } from '../../../../lib/labels';
-import { Badge, Button, Card, ErrorNote, Field, PageHeader, inputClass } from '../../../../lib/ui';
+import { Badge, Button, Card, ErrorNote, Field, PageHeader, SecretInput, inputClass } from '../../../../lib/ui';
 
 // Correo saliente del sistema (2026-09-07): por aca salen los resumenes de
 // cuenta y las facturas por email de todos los negocios. Sin configurar rige
@@ -112,7 +112,7 @@ export default function CorreoPage() {
               <input className={inputClass} autoComplete="off" value={form.user} onChange={(e) => setForm({ ...form, user: e.target.value })} />
             </Field>
             <Field label={`Contraseña ${view?.has_password ? '(cargada ✓)' : ''}`}>
-              <input className={inputClass} type="password" autoComplete="new-password" placeholder={view?.has_password ? 'vacío = mantener' : ''} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+              <SecretInput name="smtp_password" placeholder={view?.has_password ? 'vacío = mantener' : ''} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
             </Field>
             <Field label="Remitente (email) *">
               <input className={inputClass} type="email" placeholder="facturas@tudominio.com" value={form.from_email} onChange={(e) => setForm({ ...form, from_email: e.target.value })} required />

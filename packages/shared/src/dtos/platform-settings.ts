@@ -1,13 +1,25 @@
 import { z } from 'zod';
 
+// Formato de las llaves (2026-09-24): el navegador autocompletaba el campo con
+// la contrasena del panel y quedaba guardada como llave; ahora se rechaza.
+export const openaiApiKey = z
+  .string()
+  .trim()
+  .regex(/^sk-[A-Za-z0-9_-]{20,}$/, 'La llave de OpenAI empieza con "sk-"')
+  .refine((v) => !v.startsWith('sk-ant-'), 'Esa es una llave de Anthropic, no de OpenAI');
+export const anthropicApiKey = z
+  .string()
+  .trim()
+  .regex(/^sk-ant-[A-Za-z0-9_-]{20,}$/, 'La llave de Anthropic empieza con "sk-ant-"');
+
 // Motor del bot gestionado desde el panel de plataforma (ADR 0003).
 // Las llaves son write-only: se mandan solo al cargar o rotar.
 export const botEngineSettingsPut = z
   .object({
     provider: z.enum(['openai', 'anthropic']),
     model: z.string().max(100).nullable().optional(),
-    openai_api_key: z.string().min(10).optional(),
-    anthropic_api_key: z.string().min(10).optional(),
+    openai_api_key: openaiApiKey.optional(),
+    anthropic_api_key: anthropicApiKey.optional(),
     /** Guia de atencion estandar para todos los tenants (ADR 0008); null = default del sistema. */
     base_prompt: z.string().max(20000).nullable().optional(),
     /** Espera tras el ultimo mensaje del cliente antes de responder (0-120 s). */

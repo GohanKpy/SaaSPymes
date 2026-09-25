@@ -114,6 +114,8 @@ const FIELD_LABEL: Record<string, string> = {
   point: 'punto de expedición',
   phone_number_id: 'identificador del número de WhatsApp',
   access_token: 'token de acceso',
+  openai_api_key: 'llave de OpenAI (empieza con sk-)',
+  anthropic_api_key: 'llave de Anthropic (empieza con sk-ant-)',
   verify_token: 'token de verificación',
   new_password: 'contraseña nueva',
   current_password: 'contraseña actual',

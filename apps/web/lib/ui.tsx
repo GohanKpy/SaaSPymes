@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 
 import { getUser, tryRefresh, type SessionUser } from './api';
@@ -35,6 +35,31 @@ export function Field({ label, children }: { label: string; children: ReactNode 
 
 export const inputClass =
   'w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/15';
+
+/**
+ * Campo para secretos de integraciones (llaves de IA, tokens, client secret).
+ * Con type="password" el navegador lo tomaba por un login y lo autocompletaba
+ * con la contrasena del panel, que quedaba guardada como llave de OpenAI
+ * (2026-09-24). Es texto enmascarado por CSS: ni el navegador ni los gestores
+ * de contrasenas lo llenan ni ofrecen guardarlo.
+ */
+export function SecretInput(props: Omit<InputHTMLAttributes<HTMLInputElement>, 'type' | 'autoComplete' | 'className'>) {
+  return (
+    <input
+      {...props}
+      type="text"
+      autoComplete="off"
+      autoCapitalize="off"
+      autoCorrect="off"
+      spellCheck={false}
+      data-1p-ignore=""
+      data-lpignore="true"
+      data-bwignore=""
+      data-form-type="other"
+      className={`${inputClass} font-mono [-webkit-text-security:disc]`}
+    />
+  );
+}
 
 // Botonera estandar: primario (una sola vez por pantalla), suave (accion clave
 // dentro de tablas/filas), ghost (neutral) y peligro (destructivo, separado).

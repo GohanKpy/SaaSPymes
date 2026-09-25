@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { api } from '../../../../lib/api';
 import { useToast } from '../../../../lib/feedback';
 import { errorMessage } from '../../../../lib/labels';
-import { Badge, Button, Card, ErrorNote, Field, buttonGhost, inputClass } from '../../../../lib/ui';
+import { Badge, Button, Card, ErrorNote, Field, SecretInput, buttonGhost, inputClass } from '../../../../lib/ui';
 
 // Conexion de WhatsApp (fase 2 auditoria de paneles 2026-09-05): el
 // formulario muestra lo ya guardado (antes aparecia vacio y habia que
@@ -105,10 +105,8 @@ export default function WhatsappPage() {
           </Field>
           <div className="grid gap-3 md:grid-cols-2">
             <Field label={configurado ? 'Token de acceso (cargado ✓ — dejalo vacío para mantenerlo)' : 'Token de acceso *'}>
-              <input
-                className={inputClass}
-                type="password"
-                autoComplete="off"
+              <SecretInput
+                name="wa_access_token"
                 value={form.access_token}
                 onChange={(e) => setForm({ ...form, access_token: e.target.value })}
                 placeholder={configurado ? '••••••••' : 'En pruebas: cualquier texto'}
