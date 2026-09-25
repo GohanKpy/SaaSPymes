@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { montoGs, rucWithDv, uuid } from '../validators';
+import { montoGs, parcialSinDefaults, rucWithDv, uuid } from '../validators';
 
 export const tenantCreate = z
   .object({
@@ -60,7 +60,7 @@ export const planCreate = z
   .strict();
 export type PlanCreate = z.infer<typeof planCreate>;
 
-export const planUpdate = planCreate.partial().strict();
+export const planUpdate = parcialSinDefaults(planCreate).strict();
 export type PlanUpdate = z.infer<typeof planUpdate>;
 
 export const overridePut = z

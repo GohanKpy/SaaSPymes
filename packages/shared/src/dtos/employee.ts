@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { montoGs, uuid } from '../validators';
+import { montoGs, parcialSinDefaults, uuid } from '../validators';
 
 const fecha = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'fecha YYYY-MM-DD');
 
@@ -58,8 +58,7 @@ export const employeeCreate = z
   .strict();
 export type EmployeeCreate = z.infer<typeof employeeCreate>;
 
-export const employeeUpdate = employeeCreate
-  .partial()
+export const employeeUpdate = parcialSinDefaults(employeeCreate)
   .extend({
     /** Al dar de baja (is_active=false) con turnos futuros (2026-09-08): abort (409 con la lista), notify (avisar a los clientes) o keep. */
     on_conflict: z.enum(['abort', 'notify', 'keep']).optional(),

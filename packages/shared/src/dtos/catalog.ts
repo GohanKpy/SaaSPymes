@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { montoGs } from '../validators';
+import { montoGs, parcialSinDefaults } from '../validators';
 
 /** ADR 0009 fase 2: tipo del producto. 'servicio' se agenda como turno propio;
  *  'item' es venta (con reunion inicial opcional coordinada por el bot). */
@@ -17,7 +17,7 @@ export const categoryCreate = z
   .strict();
 export type CategoryCreate = z.infer<typeof categoryCreate>;
 
-export const categoryUpdate = categoryCreate.partial().strict();
+export const categoryUpdate = parcialSinDefaults(categoryCreate).strict();
 export type CategoryUpdate = z.infer<typeof categoryUpdate>;
 
 export const serviceCreate = z
@@ -59,7 +59,7 @@ export const componentsPut = z
   .strict();
 export type ComponentsPut = z.infer<typeof componentsPut>;
 
-export const serviceUpdate = serviceCreate.partial().strict();
+export const serviceUpdate = parcialSinDefaults(serviceCreate).strict();
 export type ServiceUpdate = z.infer<typeof serviceUpdate>;
 
 // ------------------- fotos de catalogo (P1 2026-08-28) -------------------

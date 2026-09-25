@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { paginationQuery, phoneE164, uuid } from '../validators';
+import { paginationQuery, parcialSinDefaults, phoneE164, uuid } from '../validators';
 
 // CRM extendido (2026-08-26, referencia Bitrix24): la ficha arranca con el
 // minimo (nombre, apellido, celular, email) y crece con campos estandar
@@ -115,7 +115,7 @@ export const contactPointCreate = z
   .strict();
 export type ContactPointCreate = z.infer<typeof contactPointCreate>;
 
-export const contactPointUpdate = contactPointCreate.partial().strict();
+export const contactPointUpdate = parcialSinDefaults(contactPointCreate).strict();
 export type ContactPointUpdate = z.infer<typeof contactPointUpdate>;
 
 // ------------------- identidades fiscales (2026-09-07) -------------------
@@ -132,7 +132,7 @@ export const fiscalIdCreate = z
   .strict();
 export type FiscalIdCreate = z.infer<typeof fiscalIdCreate>;
 
-export const fiscalIdUpdate = fiscalIdCreate.partial().strict();
+export const fiscalIdUpdate = parcialSinDefaults(fiscalIdCreate).strict();
 export type FiscalIdUpdate = z.infer<typeof fiscalIdUpdate>;
 
 // ------------------- campos personalizados del tenant -------------------

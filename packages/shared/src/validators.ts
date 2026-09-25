@@ -35,6 +35,21 @@ export const rucWithDv = z
 export const uuid = z.uuid();
 
 /**
+ * Esquema de edicion (PATCH) a partir del de alta: todo opcional y SIN los
+ * `.default()` del alta. En zod 4 `.partial()` conserva los defaults, asi que
+ * un campo ausente en el PATCH llegaba con su valor por defecto y pisaba el
+ * guardado (p. ej. reactivar un servicio pausado al cambiarle el precio).
+ */
+export function parcialSinDefaults<Shape extends z.core.$ZodShape, Config extends z.core.$ZodObjectConfig>(
+  schema: z.ZodObject<Shape, Config>,
+) {
+  const shape: Record<string, z.core.SomeType> = {};
+  for (const [campo, s] of Object.entries(schema.shape)) shape[campo] = s instanceof z.ZodDefault ? s.unwrap() : s;
+  // Mismo tipo que `.partial()`: opcional con o sin default da `T | undefined`.
+  return (schema.extend(shape) as unknown as z.ZodObject<Shape, Config>).partial();
+}
+
+/**
  * Monto en guaranies: entero, sin decimales. Un humano tipea "150.000" o
  * "150,000" (separador de miles); en Gs el punto jamas es decimal, asi que
  * solo se limpia el agrupado exacto de a 3 digitos — cualquier otro formato
