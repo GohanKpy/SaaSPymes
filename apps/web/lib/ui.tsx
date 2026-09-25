@@ -24,9 +24,9 @@ export function useSession(scope?: 'tenant' | 'platform'): SessionUser | null {
   return user;
 }
 
-export function Field({ label, children }: { label: string; children: ReactNode }) {
+export function Field({ label, children, className = '' }: { label: string; children: ReactNode; className?: string }) {
   return (
-    <label className="block text-sm">
+    <label className={`block text-sm ${className}`}>
       <span className="mb-1 block font-medium text-slate-700">{label}</span>
       {children}
     </label>
@@ -277,7 +277,7 @@ export function Modal({
   title: ReactNode;
   description?: ReactNode;
   onClose: () => void;
-  size?: 'sm' | 'md' | 'lg' | 'xl';
+  size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl';
   role?: 'dialog' | 'alertdialog';
   children: ReactNode;
 }) {
@@ -299,7 +299,7 @@ export function Modal({
       document.body.style.overflow = prev;
     };
   }, []);
-  const width = { sm: 'max-w-md', md: 'max-w-lg', lg: 'max-w-2xl', xl: 'max-w-4xl' }[size];
+  const width = { sm: 'max-w-md', md: 'max-w-lg', lg: 'max-w-2xl', xl: 'max-w-4xl', '2xl': 'max-w-6xl' }[size];
   return (
     <div
       className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:items-center"

@@ -65,6 +65,7 @@ interface Service {
 }
 
 const KIND_LABEL: Record<Kind, string> = { servicio: 'Servicio', item: 'Ítem' };
+const KIND_PLURAL: Record<Kind, string> = { servicio: 'servicios', item: 'ítems' };
 const DURACION_DEFAULT = 30;
 
 const photoCache = new Map<string, string>();
@@ -138,17 +139,20 @@ interface Componente {
 function ProductoModal({
   categories,
   initial,
+  soloItem = false,
   onClose,
   onSaved,
 }: {
   categories: Category[];
   initial: Service | null;
+  /** Alta desde Inventario (2026-09-25): solo ítems, que son los que manejan stock. */
+  soloItem?: boolean;
   onClose: () => void;
   onSaved: (id: string) => void;
 }) {
   const toast = useToast();
   const confirmar = useConfirm();
-  const primera = categories[0];
+  const kindInicial: Kind = soloItem ? 'item' : (categories[0]?.defaultKind ?? 'servicio');
   const [form, setForm] = useState<ProductoForm>(() =>
     initial
       ? {
@@ -171,10 +175,10 @@ function ProductoModal({
           is_combo: initial.isCombo ?? false,
         }
       : {
-          category_id: primera?.id ?? '',
+          category_id: categories.find((c) => c.defaultKind === kindInicial)?.id ?? '',
           name: '',
           description: '',
-          kind: primera?.defaultKind ?? 'servicio',
+          kind: kindInicial,
           price: '',
           tax_rate: '10',
           duration_min: '',
@@ -185,7 +189,7 @@ function ProductoModal({
           sku: '',
           barcode: '',
           unit: 'unidad',
-          track_stock: false,
+          track_stock: soloItem,
           min_stock: '',
           is_combo: false,
         },
@@ -210,9 +214,14 @@ function ProductoModal({
   const previews = useMemo(() => nuevasFotos.map((f) => URL.createObjectURL(f)), [nuevasFotos]);
   useEffect(() => () => previews.forEach((u) => URL.revokeObjectURL(u)), [previews]);
 
-  function pickCategory(categoryId: string) {
-    const cat = categories.find((c) => c.id === categoryId);
-    setForm({ ...form, category_id: categoryId, kind: cat?.defaultKind ?? form.kind });
+  // La categoria define el tipo (2026-09-25): al elegir el tipo solo se
+  // ofrecen sus categorias. La actual se mantiene visible aunque sea de otro
+  // tipo (productos anteriores a esta regla) para no cambiarla sin querer.
+  const opcionesCategoria = categories.filter((c) => c.defaultKind === form.kind || c.id === form.category_id);
+  function elegirTipo(kind: Kind) {
+    const actual = categories.find((c) => c.id === form.category_id);
+    const category_id = actual?.defaultKind === kind ? form.category_id : (categories.find((c) => c.defaultKind === kind)?.id ?? '');
+    setForm({ ...form, kind, category_id });
   }
 
   function agregarFoto(file: File | undefined) {
@@ -311,29 +320,28 @@ function ProductoModal({
 
   return (
     <Modal
-      title={initial ? `Editar "${initial.name}"` : 'Nuevo producto'}
-      description={initial ? undefined : 'Un servicio se agenda con turno; un ítem es un producto o venta que el bot puede coordinar con una reunión.'}
+      title={initial ? `Editar "${initial.name}"` : soloItem ? 'Nuevo ítem de inventario' : 'Nuevo producto'}
+      description={
+        initial
+          ? undefined
+          : soloItem
+            ? 'Desde Inventario solo se crean ítems (artículos): son los que manejan stock.'
+            : 'Un servicio se agenda con turno; un ítem es un producto o venta que el bot puede coordinar con una reunión.'
+      }
       onClose={onClose}
-      size="lg"
+      size="2xl"
     >
-      <form className="space-y-3" onSubmit={(e) => void save(e)}>
-        <div className="grid gap-3 md:grid-cols-2">
-          <Field label="Nombre *">
+      <form className="space-y-4" onSubmit={(e) => void save(e)}>
+        {/* 4 columnas en escritorio, 2 en tablet y 1 en celular (2026-09-25): Tipo junto al
+            nombre y Categoria debajo de Tipo, porque las categorias dependen del tipo. */}
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <Field label="Nombre *" className="sm:col-span-2">
             <input className={inputClass} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required autoFocus />
           </Field>
-          <Field label="Categoría *">
-            <select className={inputClass} value={form.category_id} onChange={(e) => pickCategory(e.target.value)} required>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Tipo">
-            <select className={inputClass} value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value as Kind })}>
-              <option value="servicio">Servicio (se agenda como turno)</option>
-              <option value="item">Ítem (producto o venta)</option>
+          <Field label="Tipo *">
+            <select className={inputClass} value={form.kind} onChange={(e) => elegirTipo(e.target.value as Kind)} disabled={soloItem}>
+              {!soloItem && <option value="servicio">Servicio (se agenda como turno)</option>}
+              <option value="item">Ítem / artículo (producto o venta)</option>
             </select>
           </Field>
           <div className="grid grid-cols-[1fr_auto] gap-2">
@@ -348,39 +356,37 @@ function ProductoModal({
               </select>
             </Field>
           </div>
-        </div>
-        {form.kind === 'servicio' ? (
-          <div className="grid gap-3 md:grid-cols-2">
-            <Field label={`Duración del turno en minutos (vacío = ${DURACION_DEFAULT})`}>
-              <input className={inputClass} type="number" min="5" step="5" placeholder={String(DURACION_DEFAULT)} value={form.duration_min} onChange={(e) => setForm({ ...form, duration_min: e.target.value })} />
-            </Field>
-            <Field label="Si se combina con otro servicio, suma solo (min; vacío = la completa)">
-              <input className={inputClass} type="number" min="5" step="5" placeholder="ej: 15" value={form.combo_duration_min} onChange={(e) => setForm({ ...form, combo_duration_min: e.target.value })} />
-              <span className="mt-0.5 block text-xs text-slate-400">
-                En un turno con varios servicios, el más largo cuenta entero y los demás suman este tiempo (se hacen en paralelo o se solapan).
-              </span>
-            </Field>
-          </div>
-        ) : (
-          <div className="space-y-2 rounded-md border border-amber-200 bg-amber-50 p-3">
-            <label className="flex items-start gap-2 text-sm">
-              <input type="checkbox" className="mt-0.5" checked={form.requires_meeting} onChange={(e) => setForm({ ...form, requires_meeting: e.target.checked })} />
-              <span>
-                <b>El bot ofrece una reunión inicial para tratarlo</b>
-                <span className="block text-xs text-slate-600">Apagado: es venta directa; el bot informa el precio y solo agenda una reunión si el cliente la pide.</span>
-              </span>
-            </label>
-            {form.requires_meeting && (
-              <Field label={`Duración de la reunión en minutos (vacío = ${DURACION_DEFAULT})`}>
-                <input className={inputClass} type="number" min="5" step="5" placeholder={String(DURACION_DEFAULT)} value={form.meeting_min} onChange={(e) => setForm({ ...form, meeting_min: e.target.value })} />
-              </Field>
+          <Field label="Descripción (el bot la usa para explicar el producto)" className="sm:col-span-2 lg:row-span-2">
+            <textarea className={`${inputClass} h-20 lg:h-28`} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+          </Field>
+          <Field label="Categoría *">
+            <select className={inputClass} value={form.category_id} onChange={(e) => setForm({ ...form, category_id: e.target.value })} required>
+              {opcionesCategoria.length === 0 && <option value="">No hay categorías de {KIND_PLURAL[form.kind]}</option>}
+              {opcionesCategoria.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                  {c.defaultKind !== form.kind ? ` (categoría de ${KIND_PLURAL[c.defaultKind]})` : ''}
+                </option>
+              ))}
+            </select>
+            {opcionesCategoria.length === 0 && (
+              <span className="mt-0.5 block text-xs text-amber-700">Creá una categoría de tipo {KIND_LABEL[form.kind]} en la pestaña Categorías.</span>
             )}
-          </div>
-        )}
-        {form.kind === 'item' && (
-          <div className="space-y-3 rounded-md border border-slate-200 bg-slate-50/60 p-3">
-            <p className="text-sm font-medium text-slate-700">Inventario</p>
-            <div className="grid gap-3 md:grid-cols-3">
+          </Field>
+          {form.kind === 'servicio' ? (
+            <>
+              <Field label={`Duración del turno en min (vacío = ${DURACION_DEFAULT})`}>
+                <input className={inputClass} type="number" min="5" step="5" placeholder={String(DURACION_DEFAULT)} value={form.duration_min} onChange={(e) => setForm({ ...form, duration_min: e.target.value })} />
+              </Field>
+              <Field label="Si se combina con otro servicio, suma solo (min; vacío = la completa)" className="sm:col-span-2">
+                <input className={inputClass} type="number" min="5" step="5" placeholder="ej: 15" value={form.combo_duration_min} onChange={(e) => setForm({ ...form, combo_duration_min: e.target.value })} />
+                <span className="mt-0.5 block text-xs text-slate-400">
+                  En un turno con varios servicios, el más largo cuenta entero y los demás suman este tiempo (se hacen en paralelo o se solapan).
+                </span>
+              </Field>
+            </>
+          ) : (
+            <>
               <Field label="SKU / código interno">
                 <input className={inputClass} value={form.sku} maxLength={60} placeholder="Ej: SH-500" onChange={(e) => setForm({ ...form, sku: e.target.value })} />
               </Field>
@@ -390,6 +396,24 @@ function ProductoModal({
               <Field label="Unidad">
                 <input className={inputClass} value={form.unit} maxLength={20} placeholder="unidad, caja, kg, litro" onChange={(e) => setForm({ ...form, unit: e.target.value })} />
               </Field>
+            </>
+          )}
+        </div>
+        {form.kind === 'item' && (
+          <div className="grid gap-3 rounded-md border border-slate-200 bg-slate-50/60 p-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="space-y-2">
+              <label className="flex items-start gap-2 text-sm">
+                <input type="checkbox" className="mt-0.5" checked={form.requires_meeting} onChange={(e) => setForm({ ...form, requires_meeting: e.target.checked })} />
+                <span>
+                  <b>El bot ofrece una reunión inicial para tratarlo</b>
+                  <span className="block text-xs text-slate-600">Apagado: es venta directa; el bot informa el precio y solo agenda una reunión si el cliente la pide.</span>
+                </span>
+              </label>
+              {form.requires_meeting && (
+                <Field label={`Duración de la reunión en min (vacío = ${DURACION_DEFAULT})`}>
+                  <input className={inputClass} type="number" min="5" step="5" placeholder={String(DURACION_DEFAULT)} value={form.meeting_min} onChange={(e) => setForm({ ...form, meeting_min: e.target.value })} />
+                </Field>
+              )}
             </div>
             <label className="flex items-start gap-2 text-sm">
               <input type="checkbox" className="mt-0.5" checked={form.is_combo} onChange={(e) => setForm({ ...form, is_combo: e.target.checked, track_stock: e.target.checked ? false : form.track_stock })} />
@@ -399,52 +423,54 @@ function ProductoModal({
               </span>
             </label>
             {form.is_combo ? (
-              <div className="space-y-2">
-                <div className="flex flex-wrap items-end gap-2">
-                  <Field label="Ítem que incluye">
-                    <select className={inputClass} value={candidato} onChange={(e) => setCandidato(e.target.value)}>
-                      <option value="">Elegí un ítem…</option>
-                      {candidatos.filter((c) => !componentes.some((x) => x.service_id === c.id)).map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}{c.sku ? ` (${c.sku})` : ''}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
-                  <Field label="Cantidad">
-                    <input className={`${inputClass} w-24`} inputMode="decimal" value={cantidadComp} onChange={(e) => setCantidadComp(e.target.value)} />
-                  </Field>
-                  <Button
-                    variant="soft"
-                    type="button"
-                    disabled={!candidato || !(Number(cantidadComp) > 0)}
-                    onClick={() => {
-                      const c = candidatos.find((x) => x.id === candidato);
-                      if (!c) return;
-                      setComponentes([...componentes, { service_id: c.id, name: c.name, quantity: Number(cantidadComp) }]);
-                      setCandidato('');
-                      setCantidadComp('1');
-                    }}
-                  >
-                    Agregar
-                  </Button>
+              <div className="sm:col-span-2 lg:col-span-3">
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-end gap-2">
+                    <Field label="Ítem que incluye">
+                      <select className={inputClass} value={candidato} onChange={(e) => setCandidato(e.target.value)}>
+                        <option value="">Elegí un ítem…</option>
+                        {candidatos.filter((c) => !componentes.some((x) => x.service_id === c.id)).map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}{c.sku ? ` (${c.sku})` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                    <Field label="Cantidad">
+                      <input className={`${inputClass} w-24`} inputMode="decimal" value={cantidadComp} onChange={(e) => setCantidadComp(e.target.value)} />
+                    </Field>
+                    <Button
+                      variant="soft"
+                      type="button"
+                      disabled={!candidato || !(Number(cantidadComp) > 0)}
+                      onClick={() => {
+                        const c = candidatos.find((x) => x.id === candidato);
+                        if (!c) return;
+                        setComponentes([...componentes, { service_id: c.id, name: c.name, quantity: Number(cantidadComp) }]);
+                        setCandidato('');
+                        setCantidadComp('1');
+                      }}
+                    >
+                      Agregar
+                    </Button>
+                  </div>
+                  <ul className="space-y-1 text-sm">
+                    {componentes.map((c) => (
+                      <li key={c.service_id} className="flex items-center justify-between rounded bg-white px-2 py-1">
+                        <span>
+                          <b>{c.quantity}</b> × {c.name}
+                        </span>
+                        <button type="button" className="text-xs text-red-600 hover:underline" onClick={() => setComponentes(componentes.filter((x) => x.service_id !== c.service_id))}>
+                          Quitar
+                        </button>
+                      </li>
+                    ))}
+                    {componentes.length === 0 && <li className="text-xs text-amber-700">Agregá al menos un ítem: un combo vacío no se puede vender con control de stock.</li>}
+                  </ul>
                 </div>
-                <ul className="space-y-1 text-sm">
-                  {componentes.map((c) => (
-                    <li key={c.service_id} className="flex items-center justify-between rounded bg-white px-2 py-1">
-                      <span>
-                        <b>{c.quantity}</b> × {c.name}
-                      </span>
-                      <button type="button" className="text-xs text-red-600 hover:underline" onClick={() => setComponentes(componentes.filter((x) => x.service_id !== c.service_id))}>
-                        Quitar
-                      </button>
-                    </li>
-                  ))}
-                  {componentes.length === 0 && <li className="text-xs text-amber-700">Agregá al menos un ítem: un combo vacío no se puede vender con control de stock.</li>}
-                </ul>
               </div>
             ) : (
-              <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-2">
                 <label className="flex items-start gap-2 text-sm">
                   <input type="checkbox" className="mt-0.5" checked={form.track_stock} onChange={(e) => setForm({ ...form, track_stock: e.target.checked })} />
                   <span>
@@ -461,55 +487,54 @@ function ProductoModal({
             )}
           </div>
         )}
-        <Field label="Descripción (el bot la usa para explicar el producto)">
-          <textarea className={`${inputClass} h-16`} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
-        </Field>
-        <div>
-          <p className="mb-1 text-sm font-medium text-slate-700">
-            Fotos <span className="font-normal text-slate-400">(hasta 5, PNG/JPEG/WEBP de hasta 1,5 MB{initial ? '; se guardan al instante' : '; se suben al crear'})</span>
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {fotos.map((p) => (
-              <div key={p.id} className="relative">
-                <PhotoThumb serviceId={initial!.id} photoId={p.id} className="h-16 w-16 rounded border border-slate-200" />
-                <button type="button" aria-label="Quitar foto" className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-red-600 text-xs text-white" onClick={() => void quitarFoto(p.id)}>
-                  ×
-                </button>
-              </div>
-            ))}
-            {previews.map((u, i) => (
-              <div key={u} className="relative">
-                <img src={u} alt="" className="h-16 w-16 rounded border border-slate-200 object-cover" />
-                <button type="button" aria-label="Quitar foto" className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-red-600 text-xs text-white" onClick={() => setNuevasFotos((prev) => prev.filter((_, idx) => idx !== i))}>
-                  ×
-                </button>
-              </div>
-            ))}
-            {fotos.length + nuevasFotos.length < 5 && (
-              <label className="flex h-16 w-16 cursor-pointer items-center justify-center rounded border border-dashed border-slate-300 text-2xl text-slate-400 hover:border-sky-400 hover:text-sky-500" title="Agregar foto">
-                +
-                <input
-                  type="file"
-                  className="hidden"
-                  accept="image/png,image/jpeg,image/webp"
-                  onChange={(e) => {
-                    agregarFoto(e.target.files?.[0]);
-                    e.target.value = '';
-                  }}
-                />
-              </label>
-            )}
+        <div className="grid gap-3 lg:grid-cols-4">
+          <div className={initial ? 'lg:col-span-3' : 'lg:col-span-4'}>
+            <p className="mb-1 text-sm font-medium text-slate-700">
+              Fotos <span className="font-normal text-slate-400">(hasta 5, PNG/JPEG/WEBP de hasta 1,5 MB{initial ? '; se guardan al instante' : '; se suben al crear'})</span>
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {fotos.map((p) => (
+                <div key={p.id} className="relative">
+                  <PhotoThumb serviceId={initial!.id} photoId={p.id} className="h-16 w-16 rounded border border-slate-200" />
+                  <button type="button" aria-label="Quitar foto" className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-red-600 text-xs text-white" onClick={() => void quitarFoto(p.id)}>
+                    ×
+                  </button>
+                </div>
+              ))}
+              {previews.map((u, i) => (
+                <div key={u} className="relative">
+                  <img src={u} alt="" className="h-16 w-16 rounded border border-slate-200 object-cover" />
+                  <button type="button" aria-label="Quitar foto" className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-red-600 text-xs text-white" onClick={() => setNuevasFotos((prev) => prev.filter((_, idx) => idx !== i))}>
+                    ×
+                  </button>
+                </div>
+              ))}
+              {fotos.length + nuevasFotos.length < 5 && (
+                <label className="flex h-16 w-16 cursor-pointer items-center justify-center rounded border border-dashed border-slate-300 text-2xl text-slate-400 hover:border-sky-400 hover:text-sky-500" title="Agregar foto">
+                  +
+                  <input
+                    type="file"
+                    className="hidden"
+                    accept="image/png,image/jpeg,image/webp"
+                    onChange={(e) => {
+                      agregarFoto(e.target.files?.[0]);
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+              )}
+            </div>
           </div>
+          {initial && (
+            <label className="flex items-start gap-2 text-sm">
+              <input type="checkbox" className="mt-0.5" checked={form.is_active} onChange={(e) => setForm({ ...form, is_active: e.target.checked })} />
+              <span>
+                <b>Activo</b>
+                <span className="block text-xs text-slate-500">Visible en el catálogo y para el bot. Desactivalo para dejar de ofrecerlo sin borrarlo.</span>
+              </span>
+            </label>
+          )}
         </div>
-        {initial && (
-          <label className="flex items-start gap-2 text-sm">
-            <input type="checkbox" className="mt-0.5" checked={form.is_active} onChange={(e) => setForm({ ...form, is_active: e.target.checked })} />
-            <span>
-              <b>Activo</b>
-              <span className="block text-xs text-slate-500">Visible en el catálogo y para el bot. Desactivalo para dejar de ofrecerlo sin borrarlo.</span>
-            </span>
-          </label>
-        )}
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={onClose}>
             Volver
@@ -525,10 +550,22 @@ function ProductoModal({
 
 // ------------------------------ Categoria (alta / edicion) ------------------------------
 
-function CategoriaModal({ initial, onClose, onSaved }: { initial: Category | null; onClose: () => void; onSaved: () => void }) {
+function CategoriaModal({
+  initial,
+  productos,
+  onClose,
+  onSaved,
+}: {
+  initial: Category | null;
+  /** Productos de esta categoria (activos e inactivos), para no dejarlos con otro tipo. */
+  productos: Service[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
   const toast = useToast();
   const [form, setForm] = useState({ name: initial?.name ?? '', default_kind: (initial?.defaultKind ?? 'servicio') as Kind });
   const [guardando, setGuardando] = useState(false);
+  const deOtroTipo = initial && form.default_kind !== initial.defaultKind ? productos.filter((p) => p.kind !== form.default_kind).length : 0;
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -551,18 +588,24 @@ function CategoriaModal({ initial, onClose, onSaved }: { initial: Category | nul
         <Field label="Nombre *">
           <input className={inputClass} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required autoFocus placeholder="Ej: Coloración" />
         </Field>
-        <Field label="Tipo por defecto de sus productos nuevos">
+        <Field label="Tipo *">
           <select className={inputClass} value={form.default_kind} onChange={(e) => setForm({ ...form, default_kind: e.target.value as Kind })}>
             <option value="servicio">Servicio (se agenda como turno)</option>
-            <option value="item">Ítem (producto o venta)</option>
+            <option value="item">Ítem / artículo (producto o venta)</option>
           </select>
         </Field>
-        <p className="text-xs text-slate-500">El tipo por defecto solo se aplica al crear un producto nuevo en esta categoría; los existentes no cambian.</p>
+        {deOtroTipo > 0 ? (
+          <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            Tiene {deOtroTipo} producto{deOtroTipo === 1 ? '' : 's'} de tipo {KIND_LABEL[form.default_kind === 'item' ? 'servicio' : 'item']}. Movelos a otra categoría antes de cambiarle el tipo.
+          </p>
+        ) : (
+          <p className="text-xs text-slate-500">Al crear un producto, solo se ofrecen las categorías de su tipo.</p>
+        )}
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={onClose}>
             Volver
           </Button>
-          <Button variant="primary" type="submit" loading={guardando}>
+          <Button variant="primary" type="submit" loading={guardando} disabled={deOtroTipo > 0}>
             {initial ? 'Guardar' : 'Crear categoría'}
           </Button>
         </div>
@@ -590,6 +633,7 @@ export default function CatalogPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [producto, setProducto] = useState<Service | null | 'nuevo'>(null);
+  const [inventarioVersion, setInventarioVersion] = useState(0);
   const [categoria, setCategoria] = useState<Category | null | 'nueva'>(null);
   const [highlight, setHighlight] = useState<string | null>(null);
 
@@ -759,7 +803,7 @@ export default function CatalogPage() {
             </Button>
           ) : (
             <Button variant="primary" onClick={() => setProducto('nuevo')} disabled={sinCategorias}>
-              Nuevo producto
+              {vista === 'inventario' ? 'Nuevo ítem' : 'Nuevo producto'}
             </Button>
           )
         }
@@ -777,7 +821,7 @@ export default function CatalogPage() {
         ]}
       />
 
-      {vista === 'inventario' && <InventarioSection />}
+      {vista === 'inventario' && <InventarioSection key={inventarioVersion} />}
 
       {sinCategorias && vista !== 'categorias' && (
         <EmptyState
@@ -920,7 +964,7 @@ export default function CatalogPage() {
               <tr>
                 <th className="w-20">Orden</th>
                 <th>Nombre</th>
-                <th>Tipo por defecto</th>
+                <th>Tipo</th>
                 <th>Productos activos</th>
                 <th>
                   <span className="sr-only">Acciones</span>
@@ -1018,19 +1062,26 @@ export default function CatalogPage() {
         <ProductoModal
           categories={categories ?? []}
           initial={producto === 'nuevo' ? null : producto}
+          soloItem={producto === 'nuevo' && vista === 'inventario'}
           onClose={() => setProducto(null)}
           onSaved={(id) => {
             setProducto(null);
+            load();
+            // Desde Inventario se queda ahi, con la lista de stock al dia.
+            if (vista === 'inventario') {
+              setInventarioVersion((v) => v + 1);
+              return;
+            }
             setHighlight(id);
             setTimeout(() => setHighlight(null), 5000);
             setVista('productos');
-            load();
           }}
         />
       )}
       {categoria && (
         <CategoriaModal
           initial={categoria === 'nueva' ? null : categoria}
+          productos={categoria === 'nueva' ? [] : services.filter((s) => s.categoryId === categoria.id)}
           onClose={() => setCategoria(null)}
           onSaved={() => {
             setCategoria(null);
