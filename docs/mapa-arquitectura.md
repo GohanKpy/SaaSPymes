@@ -301,9 +301,14 @@ Google "In production".
   con puertos host 4300–4308 (web 4300, api 4301, db 4302, MinIO 4303/4304,
   ElasticMQ 4305, Mailpit 4306/4307, webadmin 4308). Nunca 3000/3001/5432 en
   el host. Arranque y credenciales de seed: README.md.
-- **Exposición remota:** Cloudflare Tunnel hacia `client/admin/api.inicia.com.py`
-  (token en `.env.local`, rutas remotas en Cloudflare, API con trustProxy).
-  También provee el webhook público para Meta.
+- **Servidor (ADR 0015, desde 2026-09-24):** servidor del proveedor, nativo
+  y sin Docker (systemd, Node 24, Postgres 17 local), publicado por el túnel
+  `pymes-test` en `client/admin/api.inicia.com.py` (alias `test*`). Recibe el
+  webhook público de Meta, aunque el WhatsApp real sigue apagado ahí.
+  Runbook: `docs/operacion/servidor.md`.
+- **Exposición remota del laboratorio:** el túnel `pymes-lab` (rutas remotas
+  en Cloudflare, API con trustProxy) ya no recibe esos hostnames desde el
+  2026-09-29; el laboratorio queda en la red local.
 - **Config: nada hardcodeado.** Parámetros del sistema → panel padmin
   (`platform_settings`); parámetros del cliente → su panel; en código solo
   `DEFAULT_*` y pisos técnicos. Endpoints, buckets, colas y hosts siempre por

@@ -37,6 +37,13 @@ web en `localhost:4300`, API en `localhost:4301/health`, Postgres en
 ElasticMQ en `localhost:4305`, Mailpit SMTP en `localhost:4306` (UI `4307`).
 Dentro de la red de Docker rigen los puertos canónicos (`db:5432`, etc.).
 
+## Servidor (entorno desplegado)
+
+El sistema corre en un servidor propio, nativo y sin Docker (ADR 0015):
+`https://client.inicia.com.py` (clientes), `https://admin.inicia.com.py`
+(plataforma) y `https://api.inicia.com.py` (API). Despliegue, operación y
+cómo retomar desde otra PC: [docs/operacion/servidor.md](docs/operacion/servidor.md).
+
 ## Probar el producto
 
 1. **Portal del dueño** (separado, ADR 0004): `http://localhost:4308` → login con

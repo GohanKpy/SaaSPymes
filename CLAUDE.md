@@ -41,6 +41,13 @@ Laboratorio local: `docker-compose.dev.yml`, puertos host **4300–4308**
 (ADR 0001); nunca 3000/3001/5432. Postgres 16 con RLS real, MinIO, ElasticMQ,
 Mailpit. Arranque y credenciales de seed: README.md.
 
+Servidor (ADR 0015, desde 2026-09-24): el sistema corre en el servidor del
+proveedor, nativo y **sin Docker** (decisión cerrada), con Postgres 17 local
+(Supabase más adelante), publicado en `client/admin/api.inicia.com.py`.
+Despliegue, túnel, integraciones cortadas y diagnóstico:
+`docs/operacion/servidor.md`. Estado y pendientes: `docs/estado/`. Regresión
+completa contra el servidor: skill `testear-servidor`.
+
 ## Regla numero uno: aislamiento estricto entre tenants
 
 El cruce de datos entre tenants mata el negocio (docs/plan/05). Cuatro
